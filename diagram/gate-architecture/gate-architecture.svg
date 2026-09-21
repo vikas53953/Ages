@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 820">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+    </marker>
+    <marker id="arrow-open" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="#64748b" stroke-width="1.5"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <!-- Regions -->
+  <rect x="30" y="118" width="210" height="250" rx="12" fill="none" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="42" y="136" fill="#22d3ee" font-size="9" font-weight="600">YOU / CLI</text>
+
+  <rect x="270" y="118" width="250" height="250" rx="12" fill="none" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="282" y="136" fill="#34d399" font-size="9" font-weight="600">JEV DECIDES (typed answers only)</text>
+
+  <rect x="550" y="118" width="250" height="250" rx="12" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="562" y="136" fill="#fbbf24" font-size="9" font-weight="600">CODE ENFORCES (thresholds)</text>
+
+  <rect x="830" y="118" width="250" height="250" rx="12" fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="842" y="136" fill="#60a5fa" font-size="9" font-weight="600">MODEL WRITES</text>
+
+  <rect x="1110" y="118" width="340" height="250" rx="12" fill="none" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="1122" y="136" fill="#a78bfa" font-size="9" font-weight="600">TOOLS + RECEIPT</text>
+
+  <rect x="270" y="400" width="810" height="250" rx="12" fill="none" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="282" y="418" fill="#fb7185" font-size="9" font-weight="500">TOOL GATE  Jev classifies, code asks y/N, PowerShell never starts if you say no</text>
+
+  <!-- Arrows (under boxes) -->
+  <line x1="200" y1="230" x2="268" y2="230" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+  <line x1="520" y1="230" x2="548" y2="230" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="800" y1="200" x2="828" y2="200" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <line x1="800" y1="300" x2="828" y2="300" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <line x1="1080" y1="250" x2="1108" y2="250" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 955 348 L 955 430 L 368 430" fill="none" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrow-rose)"/>
+  <line x1="630" y1="490" x2="658" y2="490" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="900" y1="490" x2="928" y2="490" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <line x1="1170" y1="490" x2="1198" y2="520" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 1360 580 L 1360 348 L 1082 348" fill="none" stroke="#64748b" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
+  <line x1="1360" y1="200" x2="1360" y2="168" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- YOU -->
+  <rect x="50" y="170" width="170" height="60" rx="6" fill="#0f172a"/>
+  <rect x="50" y="170" width="170" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="135" y="194" fill="white" font-size="11" font-weight="600" text-anchor="middle">You</text>
+  <text x="135" y="212" fill="#94a3b8" font-size="9" text-anchor="middle">one prompt</text>
+
+  <rect x="50" y="260" width="170" height="70" rx="6" fill="#0f172a"/>
+  <rect x="50" y="260" width="170" height="70" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="135" y="286" fill="white" font-size="11" font-weight="600" text-anchor="middle">CLI</text>
+  <text x="135" y="304" fill="#94a3b8" font-size="9" text-anchor="middle">src/cli.ts  y/N</text>
+  <text x="135" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">default N</text>
+
+  <!-- JEV TURN -->
+  <rect x="290" y="170" width="210" height="70" rx="6" fill="#0f172a"/>
+  <rect x="290" y="170" width="210" height="70" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="395" y="196" fill="white" font-size="11" font-weight="600" text-anchor="middle">Jev turn call</text>
+  <text x="395" y="214" fill="#94a3b8" font-size="9" text-anchor="middle">evaluate.ts  jev-latest</text>
+  <text x="395" y="228" fill="#94a3b8" font-size="8" text-anchor="middle">no prose, no code</text>
+
+  <rect x="290" y="260" width="210" height="80" rx="6" fill="#0f172a"/>
+  <rect x="290" y="260" width="210" height="80" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="395" y="282" fill="white" font-size="10" font-weight="600" text-anchor="middle">kind  lookup|edit|arch</text>
+  <text x="395" y="300" fill="white" font-size="10" font-weight="600" text-anchor="middle">difficulty  0-3</text>
+  <text x="395" y="318" fill="white" font-size="10" font-weight="600" text-anchor="middle">needs_repo_wide  0-1</text>
+
+  <!-- CODE ROUTER -->
+  <rect x="570" y="170" width="210" height="70" rx="6" fill="#0f172a"/>
+  <rect x="570" y="170" width="210" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="675" y="196" fill="white" font-size="11" font-weight="600" text-anchor="middle">router.ts</text>
+  <text x="675" y="214" fill="#94a3b8" font-size="9" text-anchor="middle">picks model id</text>
+  <text x="675" y="228" fill="#94a3b8" font-size="8" text-anchor="middle">low conf = frontier</text>
+
+  <g transform="translate(675, 300)">
+    <polygon points="0,-38 70,0 0,38 -70,0" fill="#0f172a"/>
+    <polygon points="0,-38 70,0 0,38 -70,0" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text y="4" fill="white" font-size="9" font-weight="600" text-anchor="middle">cheap?</text>
+  </g>
+
+  <!-- MODELS -->
+  <rect x="850" y="170" width="210" height="60" rx="6" fill="#0f172a"/>
+  <rect x="850" y="170" width="210" height="60" rx="6" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="955" y="194" fill="white" font-size="11" font-weight="600" text-anchor="middle">Cheap model</text>
+  <text x="955" y="212" fill="#94a3b8" font-size="9" text-anchor="middle">gpt-4.1-mini  lookup</text>
+
+  <rect x="850" y="270" width="210" height="60" rx="6" fill="#0f172a"/>
+  <rect x="850" y="270" width="210" height="60" rx="6" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="955" y="294" fill="white" font-size="11" font-weight="600" text-anchor="middle">Frontier model</text>
+  <text x="955" y="312" fill="#94a3b8" font-size="9" text-anchor="middle">gpt-4.1  hard / unsure</text>
+
+  <!-- TOOLS + RECEIPT -->
+  <rect x="1130" y="156" width="180" height="55" rx="6" fill="#0f172a"/>
+  <rect x="1130" y="156" width="180" height="55" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="1220" y="178" fill="white" font-size="11" font-weight="600" text-anchor="middle">Receipt</text>
+  <text x="1220" y="196" fill="#94a3b8" font-size="8" text-anchor="middle">.gate/sessions/*.jsonl</text>
+
+  <rect x="1340" y="156" width="90" height="55" rx="6" fill="#0f172a"/>
+  <rect x="1340" y="156" width="90" height="55" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="1385" y="188" fill="white" font-size="10" font-weight="600" text-anchor="middle">print</text>
+
+  <rect x="1130" y="230" width="300" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1130" y="230" width="300" height="50" rx="6" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="1280" y="250" fill="white" font-size="11" font-weight="600" text-anchor="middle">loop.ts  generateText + tools</text>
+  <text x="1280" y="268" fill="#94a3b8" font-size="9" text-anchor="middle">OpenAI key missing = local read only</text>
+
+  <rect x="1130" y="300" width="300" height="46" rx="6" fill="#0f172a"/>
+  <rect x="1130" y="300" width="300" height="46" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="1280" y="328" fill="white" font-size="10" font-weight="600" text-anchor="middle">model asks for a tool</text>
+
+  <!-- TOOL GATE ROW -->
+  <rect x="290" y="440" width="320" height="100" rx="6" fill="#0f172a"/>
+  <rect x="290" y="440" width="320" height="100" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="450" y="468" fill="white" font-size="11" font-weight="600" text-anchor="middle">Jev tool call</text>
+  <text x="450" y="488" fill="#94a3b8" font-size="9" text-anchor="middle">class  read_only | reversible | irreversible</text>
+  <text x="450" y="506" fill="#94a3b8" font-size="9" text-anchor="middle">data_loss  noul 0-1</text>
+  <text x="450" y="524" fill="#94a3b8" font-size="8" text-anchor="middle">questions.ts  + mock.ts fallback</text>
+
+  <rect x="660" y="440" width="240" height="100" rx="6" fill="#0f172a"/>
+  <rect x="660" y="440" width="240" height="100" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="780" y="468" fill="white" font-size="11" font-weight="600" text-anchor="middle">policy.ts + gated.ts</text>
+  <text x="780" y="488" fill="#94a3b8" font-size="9" text-anchor="middle">read_only = auto</text>
+  <text x="780" y="506" fill="#94a3b8" font-size="9" text-anchor="middle">irreversible or loss&gt;=0.5 = ask</text>
+  <text x="780" y="524" fill="#94a3b8" font-size="9" text-anchor="middle">n = denied, tool does not run</text>
+
+  <rect x="930" y="440" width="220" height="100" rx="6" fill="#0f172a"/>
+  <rect x="930" y="440" width="220" height="100" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+  <text x="1040" y="476" fill="white" font-size="11" font-weight="600" text-anchor="middle">Confirm</text>
+  <text x="1040" y="496" fill="#94a3b8" font-size="9" text-anchor="middle">stdin  y / N</text>
+  <text x="1040" y="514" fill="#94a3b8" font-size="9" text-anchor="middle">default no</text>
+
+  <!-- TOOL IMPLEMENTATIONS -->
+  <rect x="1200" y="440" width="110" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1200" y="440" width="110" height="50" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="1255" y="470" fill="white" font-size="10" font-weight="600" text-anchor="middle">read</text>
+
+  <rect x="1320" y="440" width="110" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1320" y="440" width="110" height="50" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="1375" y="470" fill="white" font-size="10" font-weight="600" text-anchor="middle">grep</text>
+
+  <rect x="1200" y="504" width="110" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1200" y="504" width="110" height="50" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="1255" y="534" fill="white" font-size="10" font-weight="600" text-anchor="middle">write</text>
+
+  <rect x="1320" y="504" width="110" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1320" y="504" width="110" height="50" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+  <text x="1375" y="534" fill="white" font-size="10" font-weight="600" text-anchor="middle">shell</text>
+
+  <!-- BUILT / NEXT -->
+  <rect x="30" y="400" width="210" height="250" rx="12" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="42" y="418" fill="#94a3b8" font-size="9" font-weight="600">SHIPPED THIS WEEK</text>
+
+  <rect x="50" y="432" width="170" height="44" rx="6" fill="#0f172a"/>
+  <rect x="50" y="432" width="170" height="44" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="135" y="450" fill="white" font-size="10" font-weight="600" text-anchor="middle">Signal + Meter</text>
+  <text x="135" y="466" fill="#94a3b8" font-size="8" text-anchor="middle">news  Jev scores stories</text>
+
+  <rect x="50" y="486" width="170" height="44" rx="6" fill="#0f172a"/>
+  <rect x="50" y="486" width="170" height="44" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="135" y="504" fill="white" font-size="10" font-weight="600" text-anchor="middle">Check</text>
+  <text x="135" y="520" fill="#94a3b8" font-size="8" text-anchor="middle">claim in  stamp out</text>
+
+  <rect x="50" y="540" width="170" height="44" rx="6" fill="#0f172a"/>
+  <rect x="50" y="540" width="170" height="44" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="135" y="558" fill="white" font-size="10" font-weight="600" text-anchor="middle">Gate V1</text>
+  <text x="135" y="574" fill="#94a3b8" font-size="8" text-anchor="middle">route + deny + receipt</text>
+
+  <rect x="30" y="670" width="1420" height="110" rx="12" fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="8,4"/>
+  <text x="42" y="688" fill="#60a5fa" font-size="9" font-weight="600">NEXT</text>
+
+  <rect x="50" y="702" width="430" height="58" rx="6" fill="#0f172a"/>
+  <rect x="50" y="702" width="430" height="58" rx="6" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="265" y="726" fill="white" font-size="11" font-weight="600" text-anchor="middle">1. OpenAI key  prove the spend half</text>
+  <text x="265" y="744" fill="#94a3b8" font-size="9" text-anchor="middle">receipt cost &gt; 0   cheap model actually answers</text>
+
+  <rect x="500" y="702" width="450" height="58" rx="6" fill="#0f172a"/>
+  <rect x="500" y="702" width="450" height="58" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="725" y="726" fill="white" font-size="11" font-weight="600" text-anchor="middle">2. Timeline Distilled (queued)</text>
+  <text x="725" y="744" fill="#94a3b8" font-size="9" text-anchor="middle">Signal scoring on X   shareable card</text>
+
+  <rect x="970" y="702" width="460" height="58" rx="6" fill="#0f172a"/>
+  <rect x="970" y="702" width="460" height="58" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="1200" y="726" fill="white" font-size="11" font-weight="600" text-anchor="middle">Not in V1</text>
+  <text x="1200" y="744" fill="#94a3b8" font-size="9" text-anchor="middle">Cursor plugin  Cloud9  MCP  subagents  TUI</text>
+
+  <!-- Title -->
+  <text x="30" y="36" fill="white" font-size="16" font-weight="700">GATE  architecture</text>
+  <text x="30" y="56" fill="#94a3b8" font-size="11">It asks Jev before it spends, or before it breaks things.  Jev decides. Code enforces. The model writes.</text>
+  <text x="30" y="76" fill="#64748b" font-size="9">Projects/gate  �  TypeSafe jev-latest  �  Windows PowerShell  �  Sep 20, 2026</text>
+  <text x="1450" y="36" fill="#34d399" font-size="11" font-weight="600" text-anchor="end">V1 SHIPPED</text>
+  <text x="1450" y="54" fill="#94a3b8" font-size="9" text-anchor="end">spend path waiting on OpenAI key</text>
+
+  <!-- Legend -->
+  <rect x="30" y="790" width="12" height="12" fill="rgba(8,51,68,0.4)" stroke="#22d3ee"/>
+  <text x="48" y="800" fill="#94a3b8" font-size="8">You / tools</text>
+  <rect x="150" y="790" width="12" height="12" fill="rgba(6,78,59,0.4)" stroke="#34d399"/>
+  <text x="168" y="800" fill="#94a3b8" font-size="8">Jev</text>
+  <rect x="230" y="790" width="12" height="12" fill="rgba(120,53,15,0.3)" stroke="#fbbf24"/>
+  <text x="248" y="800" fill="#94a3b8" font-size="8">Code rules</text>
+  <rect x="350" y="790" width="12" height="12" fill="rgba(59,130,246,0.3)" stroke="#60a5fa"/>
+  <text x="368" y="800" fill="#94a3b8" font-size="8">Chat model</text>
+  <rect x="480" y="790" width="12" height="12" fill="rgba(136,19,55,0.4)" stroke="#fb7185"/>
+  <text x="498" y="800" fill="#94a3b8" font-size="8">Danger / confirm</text>
+  <rect x="640" y="790" width="12" height="12" fill="rgba(76,29,149,0.4)" stroke="#a78bfa"/>
+  <text x="658" y="800" fill="#94a3b8" font-size="8">Receipt log</text>
+</svg>

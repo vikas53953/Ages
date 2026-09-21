@@ -1,0 +1,14 @@
+node_modules
+.gate
+.harness
+work
+.env
+.env.local
+*.tsbuildinfo
+coverage
+gate-deny-*/
+gate-loop-*/
+harness-ctx-*/
+harness-edit*/
+harness-sk-*/
+review-probe-*/

@@ -1,0 +1,11 @@
+{
+  "jevModel": "jev-latest",
+  "cheapModel": "glm-5.3-flash",
+  "frontierModel": "glm-5.3",
+  "needsRepoWideThreshold": 0.7,
+  "highConfidence": 0.7,
+  "lowConfidence": 0.5,
+  "dataLossThreshold": 0.5,
+  "maxSteps": 8,
+  "shellTimeoutMs": 30000
+}
