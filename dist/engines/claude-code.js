@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { packageRoot } from "../env.js";
@@ -232,6 +232,11 @@ export async function runClaudeCodeTurn(input) {
     const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
     if (resume && /^[\w-]+$/.test(resume))
         args.push("--resume", resume);
+    // A /fork copied the Claude conversation id: the first turn in the fork branches it (a new id), so the two
+    // Aegis sessions never write into one Claude conversation.
+    const forkMark = path.join(sessionDir(input.cwd, input.sessionId), "claude-fork");
+    if (resume && existsSync(forkMark))
+        args.push("--fork-session");
     if (input.readOnly)
         args.push("--permission-mode", "plan");
     if (input.appendSystem) {
@@ -303,8 +308,11 @@ export async function runClaudeCodeTurn(input) {
         handle(buffer.trim());
     turnAbort.signal.removeEventListener("abort", onAbort);
     server.close();
-    if (claudeSession && /^[\w-]+$/.test(claudeSession))
+    if (claudeSession && /^[\w-]+$/.test(claudeSession)) {
         await writeFile(claudeSessionFile(input.cwd, input.sessionId), claudeSession);
+        if (claudeSession !== resume)
+            await rm(forkMark, { force: true });
+    }
     if (turnAbort.signal.aborted)
         throw new Error("cancelled");
     if (!result) {

@@ -340,6 +340,16 @@
     } else if (data.output) addNote(data.output);
     current = { ai: null, think: null, thinkStart: 0, tools: [] };
     scroll();
+    if (data.chat === "reload" || data.chat === "reset") {
+      // /fork, /rewind chat, /resume, /new: show the conversation as it now is.
+      refresh()
+        .then((s) => loadChat(s.welcome))
+        .then(() => {
+          if (data.output) addNote(data.output);
+        })
+        .catch(showError);
+      return;
+    }
     refresh().catch(showError);
   }
 

@@ -39,16 +39,17 @@ async function project(settings: object = HOSTILE) {
 const opts = { mockJev: true, yes: false, local: true };
 
 describe("a cloned repo's .aegis/settings.json cannot loosen the lock", () => {
-  it("untrusted: its allow rules and plugin list are ignored, the floor stays, its deny/ask/Jev still apply", async () => {
+  it("untrusted: its allow rules, plugin list and Jev mode are ignored, the floor stays, its deny/ask rules still apply", async () => {
     const cwd = await project({ ...HOSTILE, rules: { ...HOSTILE.rules, deny: ["shell curl*"], ask: ["shell npm publish*"] } });
     const { settings, trust } = loadSettingsWithTrust(cwd);
     expect(trust).toMatchObject({ exists: true, trusted: false });
-    expect(trust.ignored).toEqual(["allow write *", "allow edit *", "allow webfetch *", "plugins []"]);
+    expect(trust.ignored).toEqual(["allow write *", "allow edit *", "allow webfetch *", "plugins []", "jev off"]);
     expect(settings.rules.allow).toEqual(DEFAULT_SETTINGS.rules.allow);
     expect(settings.plugins).toEqual(DEFAULT_SETTINGS.plugins);
     expect(settings.rules.deny).toEqual([...DEFAULT_SETTINGS.rules.deny, "shell curl*"]); // "deny: []" cannot drop the floor
     expect(settings.rules.ask).toEqual([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK, "shell npm publish*"]);
-    expect(settings.jev.mode).toBe("off"); // Jev off is not looser: unscored calls ask you
+    // Not even "jev off": with Jev off every turn goes to the frontier model, a spend choice a repo must not make.
+    expect(settings.jev.mode).toBe(DEFAULT_SETTINGS.jev.mode);
     expect(matchRule(settings, "write", { path: ".git/hooks/pre-commit" }, cwd)?.action).toBe("deny");
     expect(matchRule(settings, "write", { path: "src/app.ts" }, cwd)).toBeUndefined(); // → asks you
   });

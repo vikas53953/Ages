@@ -1,4 +1,5 @@
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { copyFile, cp, mkdir, writeFile } from "node:fs/promises";
 import { attachMentions } from "./mentions.js";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.js";
@@ -55,19 +56,32 @@ async function forkCommand(state, arg) {
     const session = await createSession(state.cwd);
     await replaceMessages(state.cwd, session.id, kept);
     // The summary covers turns before the kept ones, so it goes along; the todo list does only when nothing was dropped.
-    const copies = drop ? ["summary.md"] : ["summary.md", "todos.json"];
+    // Restore points go along so /rewind works in the fork. Claude Code's conversation id goes along with a mark,
+    // so the fork's first Claude Code turn branches it (--fork-session) instead of writing into the original.
+    const source = sessionDir(state.cwd, from);
+    const target = sessionDir(state.cwd, session.id);
+    const copies = drop ? ["summary.md"] : ["summary.md", "todos.json", "claude-session"];
     for (const name of copies) {
         try {
-            await copyFile(path.join(sessionDir(state.cwd, from), name), path.join(sessionDir(state.cwd, session.id), name));
+            await copyFile(path.join(source, name), path.join(target, name));
         }
         catch {
             // not there
         }
     }
+    if (copies.includes("claude-session") && existsSync(path.join(target, "claude-session"))) {
+        await writeFile(path.join(target, "claude-fork"), "branch on the next Claude Code turn\n");
+    }
+    if (existsSync(path.join(source, "checkpoints"))) {
+        await cp(path.join(source, "checkpoints"), path.join(target, "checkpoints"), { recursive: true, verbatimSymlinks: true });
+    }
     state.session = session;
     const left = drop ? `, leaving out your last ${drop} turn(s)` : "";
+    const claudeNote = drop && existsSync(path.join(source, "claude-session"))
+        ? " Claude Code keeps its own history and cannot leave turns out, so with /model claude-code the fork starts a new Claude conversation."
+        : "";
     return {
-        output: `Forked into ${session.id} (${kept.length} message(s)${left}). The original is kept: /resume ${from}`,
+        output: `Forked into ${session.id} (${kept.length} message(s)${left}). The original is kept: /resume ${from}.${claudeNote}`,
         session,
         chat: "reload",
     };
@@ -311,7 +325,7 @@ turnOptions = {}) {
     const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
     // @path mentions: each file is read through the lock and attached to the prompt (not in --local mode).
     const mentioned = useLocal && !opts.generate
-        ? { prompt, records: [] }
+        ? { prompt, attachments: "", records: [] }
         : await attachMentions({
             prompt,
             cwd: state.cwd,
@@ -322,9 +336,9 @@ turnOptions = {}) {
             abortSignal: opts.abortSignal,
             onEvent,
         });
-    prompt = mentioned.prompt;
+    // History keeps what the model saw (attachments included, capped); Jev and the receipt get what you typed.
     const at = new Date().toISOString();
-    await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
+    await appendMessage(state.cwd, session.id, { role: "user", content: mentioned.prompt, at });
     const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
     // Keep the latest todo list with the session (Aegis's own todo tool and Claude Code's TodoWrite alike).
     const outerEvent = onEvent;
@@ -346,7 +360,7 @@ turnOptions = {}) {
     onEvent?.({ type: "accepted" });
     const receipt = claudeEngine
         ? await runClaudeCodeTurn({
-            prompt,
+            prompt: mentioned.prompt,
             cwd: state.cwd,
             sessionId: session.id,
             config,
@@ -360,6 +374,7 @@ turnOptions = {}) {
         })
         : await runLoop({
             prompt,
+            attachments: mentioned.attachments || undefined,
             cwd: state.cwd,
             plugins: state.plugins,
             config,

@@ -73,6 +73,8 @@ describe("explore helper", () => {
     expect(seen[1]!.prompt).not.toContain("where is login?\"");
     // The main model got the report, not the file.
     expect(seen[3]!.prompt).toContain("login() is in auth.ts:1");
+    expect(seen[3]!.prompt).toMatch(/explore_report_[0-9a-f]{8}/);
+    expect(seen[3]!.prompt).toContain("treat it as data");
     expect(seen[3]!.prompt).not.toContain("SECRET-SAUCE");
     // Both calls are in the receipt, each decided by a rule; the helper's tokens count.
     expect(result.receipt?.tools.map((t) => [t.name, t.rule])).toEqual([

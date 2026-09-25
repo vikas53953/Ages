@@ -228,12 +228,13 @@ export function loadSettingsWithTrust(cwd: string): { settings: Settings; trust:
   const ignored: string[] = [];
   // An untrusted file may only make things stricter: its deny/ask rules and "jev off" (with Jev off, unscored
   // calls ask you). Allow rules, plugins, a busier Jev mode and a higher thinking level (your tokens) wait for /trust.
-  const projectJev = trusted || p.jevMode === "off" ? p.jevMode : undefined;
+  // Not even "off": with Jev off every turn goes to the frontier model, which a cloned repo must not choose.
+  const projectJev = trusted ? p.jevMode : undefined;
   const projectThinking = trusted ? p.thinking : {};
   if (project && !trusted) {
     for (const rule of p.allow ?? []) if (!DEFAULT_SETTINGS.rules.allow.includes(rule)) ignored.push(`allow ${rule}`);
     if (p.plugins && p.plugins.join(",") !== DEFAULT_SETTINGS.plugins.join(",")) ignored.push(`plugins [${p.plugins.join(", ")}]`);
-    if (p.jevMode && p.jevMode !== "off") ignored.push(`jev ${p.jevMode}`);
+    if (p.jevMode) ignored.push(`jev ${p.jevMode}`);
     if (p.thinking.level) ignored.push(`thinking ${p.thinking.level}`);
   }
   const settings: Settings = {

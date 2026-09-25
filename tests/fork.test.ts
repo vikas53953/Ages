@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,6 +18,8 @@ async function conversation() {
   }
   await writeFile(summaryFile(cwd, session.id), "older turns summary");
   await writeFile(path.join(sessionDir(cwd, session.id), "todos.json"), '[{"content":"x","status":"pending"}]');
+  await mkdir(path.join(sessionDir(cwd, session.id), "checkpoints"), { recursive: true });
+  await writeFile(path.join(sessionDir(cwd, session.id), "checkpoints", "keep.txt"), "restore point");
   const state = await startState(cwd, opts);
   return { cwd, state, original: session.id };
 }
@@ -32,6 +34,7 @@ describe("/fork", () => {
     expect((await loadMessages(cwd, state.session.id)).length).toBe(6);
     expect(await readFile(summaryFile(cwd, state.session.id), "utf8")).toBe("older turns summary");
     expect(await readFile(path.join(sessionDir(cwd, state.session.id), "todos.json"), "utf8")).toContain('"x"');
+    expect(await readFile(path.join(sessionDir(cwd, state.session.id), "checkpoints", "keep.txt"), "utf8")).toBe("restore point");
     await handleLine("new direction", state, opts); // continue in the fork
     expect((await loadMessages(cwd, original)).length).toBe(6);
   });

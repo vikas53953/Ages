@@ -85,7 +85,14 @@ describe("claude-code engine", () => {
     expect(await readFile(path.join(dir, "claude-append.md"), "utf8")).toContain("Always use PowerShell.");
     expect((await readFile(path.join(dir, "claude-session"), "utf8")).trim()).toBe("claude-session-1");
     const next = await handleLine("hello again", state, opts, confirm);
-    expect(next.receipt?.answer).toContain("resumed=true");
+    expect(next.receipt?.answer).toContain("resumed=true forked=false");
+    // /fork: the fork's first Claude Code turn branches the conversation; later turns resume the branch.
+    await handleLine("/fork", state, opts, confirm);
+    const branched = await handleLine("in the fork", state, opts, confirm);
+    expect(branched.receipt?.answer).toContain("resumed=true forked=true");
+    expect((await readFile(path.join(sessionDir(cwd, state.session.id), "claude-session"), "utf8")).trim()).toBe("claude-session-1-fork");
+    expect((await handleLine("again in the fork", state, opts, confirm)).receipt?.answer).toContain("forked=false");
+    await handleLine(`/resume ${dir.split(/[\\/]/).pop()}`, state, opts, confirm);
     // Second identical write: the saved rule allows it without asking.
     await handleLine("add a ping script", state, opts, confirm);
     expect(asked).toHaveLength(1);

@@ -12,7 +12,8 @@ const flag = (name) => {
 };
 const settings = JSON.parse(readFileSync(flag("--settings"), "utf8"));
 const hook = settings.hooks.PreToolUse[0].hooks[0];
-const session = flag("--resume") ?? "claude-session-1";
+const forked = args.includes("--fork-session");
+const session = forked ? `${flag("--resume")}-fork` : (flag("--resume") ?? "claude-session-1");
 const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 function askHook(tool_name, tool_input) {
@@ -62,7 +63,7 @@ process.stdin.on("end", async () => {
     texts.push(`todo ${answer.decision}`);
   }
   if (flag("--permission-mode")) texts.push(`mode=${flag("--permission-mode")}`);
-  const text = texts.join(" ") || `Echo: ${prompt.trim()} (resumed=${Boolean(flag("--resume"))})`;
+  const text = texts.join(" ") || `Echo: ${prompt.trim()} (resumed=${Boolean(flag("--resume"))} forked=${forked})`;
   out({ type: "assistant", message: { content: [{ type: "text", text }] } });
   out({
     type: "result",

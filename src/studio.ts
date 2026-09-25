@@ -42,6 +42,8 @@ export type StudioEvent =
       status?: string[];
       tokens?: { input: number; output: number; reasoning?: number };
       isTurn: boolean;
+      /** The conversation changed under the page (/fork, /rewind chat, /resume): reload it. */
+      chat?: "keep" | "reset" | "reload";
     }
   | { kind: "error"; message: string };
 
@@ -139,6 +141,7 @@ export async function startStudio(input: {
         status: receipt ? turnStatusLines(receipt) : undefined,
         tokens: receipt?.tokens,
         isTurn: Boolean(receipt),
+        chat: result.chat,
       });
       return result;
     } catch (error) {

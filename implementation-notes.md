@@ -146,3 +146,16 @@
   - Why at the gate: once a key is in the conversation it goes to the provider on every later turn and into the saved session.
   - Limit: in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot cut it.
 - Context meter (Claude Code's "context left until auto-compact", Pi's footer %, Codex's /status): `ctx N%` in the footer and a `context` line in /status. It is the conversation's size as a share of `compactAtChars`, the size where Aegis compacts old turns on its own, so the number predicts when that happens. It is refreshed after every command and turn and on start.
+- Fixes from the review of explore, /fork and @mentions:
+  - P2 @mentions:
+    - Attachments get a random tag per turn, so a file cannot close its block, plus a note that they are data.
+    - A link that leads out of the folder, or anything other than a file or folder (a named pipe would block forever), is not a mention.
+    - A read that fails becomes "(not attached: …)" instead of aborting the turn.
+    - Attachments are capped at 60,000 characters in total, since they stay in history.
+    - Jev and the receipt get the prompt you typed, not the attached files.
+  - P3:
+    - The explore report is wrapped in a random tag and marked as data built from project files.
+    - Approval questions are serialized once per turn, so the explore helper's questions and the main turn's never overlap (the REPL opened two prompts).
+    - An untrusted project's Jev mode is ignored entirely. Even "off" routes every turn to the frontier model, which a cloned repo must not decide.
+    - `/fork` copies restore points so `/rewind` works in the fork. With Claude Code, the conversation id is copied with a mark, and the fork's first turn runs `--resume <id> --fork-session`, so the two Aegis sessions never write into one Claude conversation. A partial fork says Claude Code starts fresh.
+    - Studio reloads the chat when a command changes it (`/fork`, `/rewind chat`, `/new`).

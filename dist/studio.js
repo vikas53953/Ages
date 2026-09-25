@@ -99,6 +99,7 @@ export async function startStudio(input) {
                 status: receipt ? turnStatusLines(receipt) : undefined,
                 tokens: receipt?.tokens,
                 isTurn: Boolean(receipt),
+                chat: result.chat,
             });
             return result;
         }
