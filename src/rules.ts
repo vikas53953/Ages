@@ -234,8 +234,10 @@ function shellPieces(command: string) {
 
 function matches(rule: string, action: RuleAction, name: string, target: string) {
   const { tool, pattern } = splitRule(rule);
-  // "mcp__github__*" names every tool of one MCP server; other tool names match exactly.
-  if (tool.includes("*") ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase()) return false;
+  // "mcp__github__*" names every tool of one MCP server; core tool names always match exactly
+  // (so "allow *" does not quietly become "allow every tool").
+  const toolGlob = tool.startsWith("mcp__") && tool.includes("*");
+  if (toolGlob ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase()) return false;
   if (name === "webfetch") return hostMatches(pattern, target);
   const regex = globToRegex(pattern);
   if (name !== "shell") return regex.test(target);
@@ -260,8 +262,9 @@ export function matchRule(
   return undefined;
 }
 
+/** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name: string) {
-  return name === "write" || name === "edit" || name === "shell";
+  return name !== "read" && name !== "grep";
 }
 
 /**

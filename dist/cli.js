@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { headlessPrompt, runHeadless } from "./headless.js";
+import { formatDoctor, runDoctor } from "./doctor.js";
 import { openUrl } from "./open-url.js";
 import { startStudio } from "./studio.js";
 import { stdin, stdout } from "node:process";
@@ -65,6 +66,7 @@ function help() {
         "  aegis                      start in this folder (new session)",
         "  aegis -c                   continue the last session here",
         "  aegis \"a question\"         answer once and exit",
+        "  aegis doctor               is this PC ready? one line per check, with the fix",
         "  aegis ui                   open Aegis Studio in your browser (same sessions, rules and plugins)",
         "  aegis -p \"task\"            headless: rules decide, nothing asks you; prints the answer",
         "  aegis -p --json \"task\"     one JSON object per line: every event, then the result",
@@ -206,6 +208,12 @@ export async function main() {
             write: (text) => stdout.write(`${text}\n`),
             abortSignal: abort.signal,
         });
+        return;
+    }
+    if (args.prompt === "doctor") {
+        const checks = await runDoctor(process.cwd());
+        console.log(formatDoctor(checks));
+        process.exitCode = checks.some((check) => check.status === "fail") ? 1 : 0;
         return;
     }
     if (args.prompt === "ui" || args.prompt === "studio") {

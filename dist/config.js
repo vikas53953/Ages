@@ -14,6 +14,14 @@ const defaults = {
     compactAtChars: 120_000,
     compactKeepTurns: 3,
 };
+const PROJECT_CONFIG_KEYS = ["jevModel", "cheapModel", "frontierModel", "maxSteps", "shellTimeoutMs", "compactAtChars", "compactKeepTurns"];
+function pickProjectConfig(parsed) {
+    const out = {};
+    for (const key of PROJECT_CONFIG_KEYS)
+        if (parsed[key] !== undefined)
+            out[key] = parsed[key];
+    return out;
+}
 export function loadConfig(cwd = process.cwd()) {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
@@ -21,9 +29,11 @@ export function loadConfig(cwd = process.cwd()) {
         path.join(here, "..", "gate.config.json"),
     ];
     let file = {};
-    for (const candidate of candidates) {
+    for (const [index, candidate] of candidates.entries()) {
         try {
-            file = JSON.parse(readFileSync(candidate, "utf8"));
+            const parsed = JSON.parse(readFileSync(candidate, "utf8"));
+            // A project's own gate.config.json may tune models and limits, never the lock's thresholds.
+            file = index === 0 ? pickProjectConfig(parsed) : parsed;
             break;
         }
         catch {

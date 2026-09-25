@@ -32,6 +32,8 @@ process.stdin.on("data", (chunk) => {
       if (log) appendFileSync(log, `${message.params.name}\n`);
       const text = message.params.name === "echo" ? `echo: ${message.params.arguments.text}` : "wiped";
       send({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text }] } });
+      // Answer, then exit at once: the answer must still arrive.
+      if (process.env.FAKE_MCP_EXIT_AFTER_CALL === "1") process.stdout.write("", () => process.exit(0));
     } else if (message.id !== undefined) {
       send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unknown" } });
     }

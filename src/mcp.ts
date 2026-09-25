@@ -7,6 +7,7 @@
  * A small stdio client (JSON-RPC, one message per line): initialize → tools/list → tools/call.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { killProcessTree } from "./exec.ts";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -55,7 +56,9 @@ function trustFile() {
 
 /** A project server is trusted for this exact folder and exact command line only; change either and it asks again. */
 function trustKey(cwd: string, name: string, server: McpServerConfig) {
-  const hash = createHash("sha256").update(JSON.stringify([path.resolve(cwd), name, server.command, server.args ?? [], server.env ?? {}])).digest("hex");
+  const hash = createHash("sha256")
+    .update(JSON.stringify([path.resolve(cwd), name, server.command, server.args ?? [], server.env ?? {}, server.cwd ?? ""]))
+    .digest("hex");
   return hash.slice(0, 32);
 }
 
@@ -121,7 +124,8 @@ export class McpConnection {
       this.pending.clear();
     };
     this.child.on("error", (error) => fail(`could not start (${error.message})`));
-    this.child.on("exit", (code) => fail(`exited (${code ?? "signal"})`));
+    // "close", not "exit": a server may answer and then exit, and its last answer is still in the pipe.
+    this.child.on("close", (code) => fail(`exited (${code ?? "signal"})`));
   }
 
   private onData(chunk: string) {
@@ -164,17 +168,22 @@ export class McpConnection {
         this.pending.delete(id);
         reject(new Error(`MCP server ${this.name}: ${method} timed out`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      signal?.addEventListener(
-        "abort",
-        () => {
-          if (!this.pending.delete(id)) return;
-          clearTimeout(timer);
-          this.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "stopped" } });
-          reject(new Error("cancelled"));
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        if (!this.pending.delete(id)) return;
+        clearTimeout(timer);
+        this.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "stopped" } });
+        reject(new Error("cancelled"));
+      };
+      const done = (settle: () => void) => {
+        signal?.removeEventListener("abort", onAbort);
+        settle();
+      };
+      this.pending.set(id, {
+        resolve: (value) => done(() => resolve(value)),
+        reject: (error) => done(() => reject(error)),
+        timer,
+      });
+      signal?.addEventListener("abort", onAbort, { once: true });
       this.send({ jsonrpc: "2.0", id, method, params });
     });
   }
@@ -198,6 +207,9 @@ export class McpConnection {
       };
       for (const tool of page.tools ?? []) {
         if (!tool.name || !NAME.test(tool.name)) continue;
+        // Providers reject tool names over 64 characters and non-object schemas, which would fail every turn.
+        if (`mcp__${this.name}__${tool.name}`.length > 64) continue;
+        if (tool.inputSchema && tool.inputSchema.type !== undefined && tool.inputSchema.type !== "object") continue;
         tools.push({
           name: `mcp__${this.name}__${tool.name}`,
           server: this.name,
@@ -231,10 +243,11 @@ export class McpConnection {
     this.closed = true;
     try {
       this.child.stdin.end();
-      this.child.kill();
     } catch {
       // gone
     }
+    // The whole tree: on Windows the server often runs under a cmd.exe wrapper (npx, uvx).
+    if (this.child.pid) killProcessTree(this.child.pid);
   }
 }
 
@@ -250,13 +263,17 @@ export async function startMcp(cwd: string): Promise<McpState> {
   const state: McpState = { connections: [], tools: [], status: [] };
   for (const server of mcpServers(cwd)) {
     if (!server.trusted) {
-      state.status.push({ name: server.name, scope: server.scope, state: `not started: project server, run /mcp trust ${server.name} to allow it` });
+      state.status.push({
+        name: server.name,
+        scope: server.scope,
+        state: `not started: project server wants to run: ${describeServer(server)}\n${" ".repeat(26)}/mcp trust ${server.name} if you trust this repo`,
+      });
       continue;
     }
     const connection = new McpConnection(server.name, server, cwd);
     try {
       await connection.start();
-      const tools = await connection.listTools();
+      const tools = (await connection.listTools()).filter((tool) => !state.tools.some((known) => known.name === tool.name));
       state.connections.push(connection);
       state.tools.push(...tools);
       state.status.push({ name: server.name, scope: server.scope, state: `running, ${tools.length} tool(s)` });
@@ -266,6 +283,18 @@ export async function startMcp(cwd: string): Promise<McpState> {
     }
   }
   return state;
+}
+
+/** What a server would run, shown before you trust it. */
+export function describeServer(server: McpServerConfig) {
+  const env = Object.keys(server.env ?? {});
+  return [
+    [server.command, ...(server.args ?? [])].join(" "),
+    server.cwd ? `(in ${server.cwd})` : "",
+    env.length ? `(sets ${env.join(", ")})` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function closeMcp(state: McpState | undefined) {

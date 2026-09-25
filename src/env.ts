@@ -26,10 +26,33 @@ export function parseEnvText(text: string): Record<string, string> {
   return out;
 }
 
-function applyEnvFile(file: string) {
+/**
+ * What a project's own .env / .env.local may set: model names and API keys, nothing else. A cloned repo must not
+ * be able to switch on the shell, swap the Claude or PowerShell program, move Aegis's home (and with it your
+ * trusted MCP servers and sign-ins), or send your ChatGPT token to another server.
+ */
+export const PROJECT_ENV_KEYS = new Set([
+  "OPENCODE_API_KEY",
+  "OPENAI_API_KEY",
+  "TYPESAFE_API_KEY",
+  "TYPESAFE_AI_API_KEY",
+  "GATE_CHEAP_MODEL",
+  "GATE_FRONTIER_MODEL",
+]);
+
+/** Names a project .env tried to set and Aegis ignored (shown by /doctor). */
+export const ignoredProjectEnv = new Set<string>();
+
+function applyEnvFile(file: string, allow?: (key: string) => boolean) {
   if (!existsSync(file)) return;
   const parsed = parseEnvText(readFileSync(file, "utf8"));
   for (const [key, value] of Object.entries(parsed)) {
+    // Where Aegis keeps your settings comes only from the real environment, never from a file.
+    if (key === "AEGIS_HOME") continue;
+    if (allow && !allow(key)) {
+      ignoredProjectEnv.add(key);
+      continue;
+    }
     process.env[key] = value;
   }
 }
@@ -40,7 +63,7 @@ export function packageRoot() {
 
 /** Per-user Aegis folder: keys and defaults shared by every project. AEGIS_HOME overrides it (tests). */
 export function userAegisDir() {
-  return process.env.AEGIS_HOME || path.join(os.homedir(), ".aegis");
+  return process.env.AEGIS_HOME ? path.resolve(process.env.AEGIS_HOME) : path.join(os.homedir(), ".aegis");
 }
 
 export function loadEnv(cwd = process.cwd()) {
@@ -49,8 +72,9 @@ export function loadEnv(cwd = process.cwd()) {
   applyEnvFile(path.join(root, ".env.local"));
   // Keys saved once for every folder (like Pi's login): %USERPROFILE%\.aegis\.env. A project .env still wins.
   applyEnvFile(path.join(userAegisDir(), ".env"));
-  applyEnvFile(path.join(cwd, ".env"));
-  applyEnvFile(path.join(cwd, ".env.local"));
+  const projectKey = (key: string) => PROJECT_ENV_KEYS.has(key);
+  applyEnvFile(path.join(cwd, ".env"), projectKey);
+  applyEnvFile(path.join(cwd, ".env.local"), projectKey);
   return loadConfig(cwd);
 }
 

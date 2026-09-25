@@ -52,3 +52,12 @@
   - `-p` is checked before `ui`; `--json` results carry the notice; a startup error still gives a JSON result.
   - `/new` leaves plan mode, and a failed `/plan go` stays in plan mode.
   - Studio runs `/plan go` and `/plan <task>` in the background like any prompt.
+- `aegis doctor` / `/doctor` (the brainstorm's top pick: make the first run on the owner's PC smooth before adding features). It reads and asks for versions only, and pings the active chat endpoint.
+- Hardening from the MCP review: a project's `.env` may only set API keys and model names. It used to be able to set `AEGIS_ALLOW_SHELL`, `AEGIS_CLAUDE_BIN`, `AEGIS_POWERSHELL`, `AEGIS_CODEX_BASE_URL` and `AEGIS_HOME`. `AEGIS_HOME` then made a repo's own settings "yours", so its MCP servers started without trust. `AEGIS_HOME` now comes only from the real environment and is made absolute. A project's `gate.config.json` may tune models and limits, never Jev's thresholds.
+  - MCP servers start once even when two callers race.
+  - A pending answer is read before the server is treated as gone ("close", not "exit").
+  - The whole process tree is killed on close (Windows cmd wrappers).
+  - `/mcp` shows the command before you trust it; the working folder is part of the trust.
+  - Tool names over 64 characters and non-object schemas are skipped, and duplicate names are dropped.
+  - `*` in a rule's tool name only globs `mcp__…` names, so `allow *` is not "every tool".
+  - Anything that is not read or grep counts as a possible change (MCP and unknown tools), so Jev scores it and it is never shown as read-only.

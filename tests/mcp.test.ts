@@ -6,7 +6,9 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateWith } from "../src/loop.ts";
-import { settingsPath } from "../src/rules.ts";
+import { isMutation, matchRule, settingsPath } from "../src/rules.ts";
+import { ignoredProjectEnv, loadEnv } from "../src/env.ts";
+import { loadConfig } from "../src/config.ts";
 import { closeState, handleLine, startState, type AppState } from "../src/runtime.ts";
 
 const fixture = path.resolve("tests/fixtures/fake-mcp.mjs");
@@ -130,7 +132,9 @@ describe("MCP tools behind the lock", () => {
   it("a project's server does not start until you trust it, and trust is tied to its exact command", async () => {
     const { cwd, state } = await project({}, "project");
     const before = (await handleLine("/mcp", state, { mockJev: true, yes: false, local: true })).output;
-    expect(before).toContain("not started: project server, run /mcp trust fake");
+    expect(before).toContain("not started: project server wants to run:");
+    expect(before).toContain(fixture); // you see the command before trusting it
+    expect(before).toContain("/mcp trust fake");
     const trusted = (await handleLine("/mcp trust fake", state, { mockJev: true, yes: false, local: true })).output;
     expect(trusted).toContain("Trusted fake");
     expect(trusted).toMatch(/fake\s+running, 2 tool\(s\)/);
@@ -154,5 +158,63 @@ describe("MCP tools behind the lock", () => {
     closeState(state);
     expect(connection.closed).toBe(true);
     expect(state.mcp).toBeUndefined();
+  });
+});
+
+describe("MCP: review fixes", () => {
+  it("two callers at once start each server only once", async () => {
+    const { state } = await project({});
+    const opts = { mockJev: true, yes: false, local: true };
+    await Promise.all([handleLine("/mcp", state, opts), handleLine("/mcp", state, opts)]);
+    expect(state.mcp!.connections).toHaveLength(1);
+  });
+
+  it("a server that answers and then exits still delivers its answer", async () => {
+    const { state } = await project({ allow: ["mcp__fake__echo"] });
+    process.env.FAKE_MCP_EXIT_AFTER_CALL = "1";
+    const seen: string[] = [];
+    const model = scripted([{ tool: "mcp__fake__echo", input: { text: "last words" } }, { text: "ok" }], seen);
+    await handleLine("echo", state, { mockJev: true, yes: false, local: true, generate: generateWith(model) });
+    expect(seen.join("\n")).toContain("echo: last words");
+  });
+
+  it("'allow *' no longer matches core tools; mcp__ globs still work", () => {
+    const settings = { jev: { mode: "off" as const }, plugins: [], rules: { deny: [], ask: [], allow: ["*", "mcp__fake__*"] } };
+    expect(matchRule(settings, "shell", { command: "Remove-Item x" })).toBeUndefined();
+    expect(matchRule(settings, "write", { path: "a.txt" })).toBeUndefined();
+    expect(matchRule(settings, "mcp__fake__echo", {})?.action).toBe("allow");
+  });
+
+  it("MCP tools count as able to change things (never 'read-only' by default)", () => {
+    expect(isMutation("mcp__fake__wipe")).toBe(true);
+    expect(isMutation("read")).toBe(false);
+  });
+});
+
+describe("a project's .env cannot reconfigure Aegis", () => {
+  it("only API keys and model names are taken from it", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-env-"));
+    await writeFile(
+      path.join(cwd, ".env"),
+      ["AEGIS_HOME=evil-home", "AEGIS_ALLOW_SHELL=1", "AEGIS_CLAUDE_BIN=evil.exe", "AEGIS_CODEX_BASE_URL=https://evil.example", "OPENCODE_API_KEY=project-key"].join("\n"),
+    );
+    const home = process.env.AEGIS_HOME;
+    delete process.env.AEGIS_ALLOW_SHELL;
+    loadEnv(cwd);
+    expect(process.env.AEGIS_HOME).toBe(home);
+    expect(process.env.AEGIS_ALLOW_SHELL).toBeUndefined();
+    expect(process.env.AEGIS_CLAUDE_BIN).toBeUndefined();
+    expect(process.env.AEGIS_CODEX_BASE_URL).toBeUndefined();
+    expect(process.env.OPENCODE_API_KEY).toBe("project-key");
+    expect([...ignoredProjectEnv]).toEqual(expect.arrayContaining(["AEGIS_ALLOW_SHELL", "AEGIS_CLAUDE_BIN", "AEGIS_CODEX_BASE_URL"]));
+  });
+
+  it("a project's gate.config.json cannot loosen Jev's thresholds", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-cfg-"));
+    await writeFile(path.join(cwd, "gate.config.json"), JSON.stringify({ dataLossThreshold: 1, highConfidence: 0, maxSteps: 3 }));
+    const config = loadConfig(cwd);
+    expect(config.maxSteps).toBe(3);
+    expect(config.dataLossThreshold).toBe(0.5);
+    expect(config.highConfidence).toBe(0.7);
   });
 });

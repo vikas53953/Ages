@@ -208,8 +208,10 @@ function shellPieces(command) {
 }
 function matches(rule, action, name, target) {
     const { tool, pattern } = splitRule(rule);
-    // "mcp__github__*" names every tool of one MCP server; other tool names match exactly.
-    if (tool.includes("*") ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase())
+    // "mcp__github__*" names every tool of one MCP server; core tool names always match exactly
+    // (so "allow *" does not quietly become "allow every tool").
+    const toolGlob = tool.startsWith("mcp__") && tool.includes("*");
+    if (toolGlob ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase())
         return false;
     if (name === "webfetch")
         return hostMatches(pattern, target);
@@ -232,8 +234,9 @@ export function matchRule(settings, name, args, cwd) {
     }
     return undefined;
 }
+/** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name) {
-    return name === "write" || name === "edit" || name === "shell";
+    return name !== "read" && name !== "grep";
 }
 /**
  * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.

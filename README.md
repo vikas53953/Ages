@@ -60,7 +60,15 @@ Check it:
 aegis --version
 ```
 
-## 2. Start
+## 2. Check this PC
+
+```powershell
+aegis doctor
+```
+
+One line per check (Node, sign-ins, chat model and network, Claude Code, rules, PowerShell, MCP, terminal), each with the fix.
+
+## 3. Start
 
 In the folder you want it to work in:
 
@@ -71,7 +79,7 @@ aegis
 
 A terminal opens the full-screen TUI with the welcome screen. `aegis --repl` is the plain prompt (pipes, scripts). `aegis "a question"` answers once and exits.
 
-## 3. Connect a model
+## 4. Connect a model
 
 **With your ChatGPT plan** (Plus / Pro / Business). No API key needed:
 

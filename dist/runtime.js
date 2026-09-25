@@ -6,7 +6,8 @@ import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/co
 import { loadCredential, saveCredential } from "./auth/store.js";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.js";
 import { rewindPoints, rewindTo, snapshotFile } from "./checkpoints.js";
-import { closeMcp, mcpServers, startMcp, trustProjectServer } from "./mcp.js";
+import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer } from "./mcp.js";
+import { formatDoctor, runDoctor } from "./doctor.js";
 import { openUrl } from "./open-url.js";
 import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
@@ -28,11 +29,17 @@ import { APP_NAME, APP_VERSION, displayUser } from "./brand.js";
 import { loadConfig } from "./config.js";
 export { initialJevHealth, jevHealthFromReceipt } from "./health.js";
 import { KNOWN_PLUGINS, loadPlugins } from "./plugins/index.js";
-/** Start MCP servers once per window; later calls reuse them. */
+/** Start MCP servers once per window, even when two callers ask at the same moment; later calls reuse them. */
 async function ensureMcp(state) {
-    if (!state.mcp)
-        state.mcp = await startMcp(state.cwd);
-    return state.mcp;
+    if (state.mcp)
+        return state.mcp;
+    const starting = (state.mcpStarting ??= startMcp(state.cwd));
+    const mcp = await starting;
+    if (state.mcpStarting === starting)
+        state.mcp = mcp;
+    else
+        closeMcp(mcp); // closed while starting
+    return state.mcp ?? mcp;
 }
 function mcpBindings(mcp) {
     return mcp.tools.map((tool) => ({
@@ -49,6 +56,7 @@ function mcpBindings(mcp) {
 export function closeState(state) {
     closeMcp(state.mcp);
     state.mcp = undefined;
+    state.mcpStarting = undefined;
 }
 export async function startState(cwd, opts) {
     const session = opts.newSession ? await createSession(cwd) : await loadOrCreateSession(cwd);
@@ -396,6 +404,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
         return rewindCommand(cmd.arg, cmd.what, state);
     if (cmd.type === "mcp")
         return mcpCommand(cmd.action, cmd.name, state);
+    if (cmd.type === "doctor")
+        return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
     if (cmd.type === "plan") {
         const arg = (cmd.arg ?? "").toLowerCase();
         if (arg === "off") {
@@ -559,7 +569,7 @@ async function mcpCommand(action, name, state) {
         trustProjectServer(state.cwd, name);
         closeState(state);
         const mcp = await ensureMcp(state);
-        return reply(`Trusted ${name} for this folder: ${[server.command, ...(server.args ?? [])].join(" ")}\n${mcp.status.map((row) => `  ${row.name}  ${row.state}`).join("\n")}`);
+        return reply(`Trusted ${name} for this folder: ${describeServer(server)}\n${mcp.status.map((row) => `  ${row.name}  ${row.state}`).join("\n")}`);
     }
     if (action === "restart")
         closeState(state);
