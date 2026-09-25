@@ -114,6 +114,8 @@ export type Receipt = {
   taskId?: string;
   taskFingerprint?: string;
   taskPermission?: TaskPermission;
+  /** The model's own answer text, without the handoff card. */
+  answer?: string;
   /** Messages this turn added to the conversation. Saved to the session, not to the receipt file. */
   newMessages?: ChatMessage[];
 };

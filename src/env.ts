@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { lstat, mkdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
@@ -37,10 +38,17 @@ export function packageRoot() {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+/** Per-user Aegis folder: keys and defaults shared by every project. AEGIS_HOME overrides it (tests). */
+export function userAegisDir() {
+  return process.env.AEGIS_HOME || path.join(os.homedir(), ".aegis");
+}
+
 export function loadEnv(cwd = process.cwd()) {
   const root = packageRoot();
   applyEnvFile(path.join(root, ".env"));
   applyEnvFile(path.join(root, ".env.local"));
+  // Keys saved once for every folder (like Pi's login): %USERPROFILE%\.aegis\.env. A project .env still wins.
+  applyEnvFile(path.join(userAegisDir(), ".env"));
   applyEnvFile(path.join(cwd, ".env"));
   applyEnvFile(path.join(cwd, ".env.local"));
   return loadConfig(cwd);

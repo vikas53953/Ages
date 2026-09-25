@@ -1,4 +1,5 @@
 import {
+  CombinedAutocompleteProvider,
   Editor,
   getKeybindings,
   isViewportTUI,
@@ -12,9 +13,11 @@ import {
   type Terminal,
   VStack,
 } from "@earendil-works/pi-tui";
-import { APP_DIFFERENCE, APP_NAME, APP_TAGLINE, APP_VERSION } from "./brand.ts";
+import { HELP, slashCommandsFromHelp } from "./commands.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
-import { handleLine, startState, type HandleResult, type RunOpts } from "./runtime.ts";
+import { handleLine, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { shortPath, welcomeLines, type WelcomeInfo } from "./welcome.ts";
+import { redactLogin } from "./login.ts";
 import { loadMessages, messageText } from "./session.ts";
 import { ConfirmBox } from "./tui-confirm.ts";
 import { MemoryTerminal } from "./tui-memory.ts";
@@ -22,9 +25,11 @@ import {
   footerText,
   renderAssistantMessage,
   renderSystemMessage,
+  renderToolLine,
   renderUserMessage,
   sanitizeText,
-  welcomeBanner,
+  turnStatusLines,
+  type ToolStatus,
 } from "./tui-layout.ts";
 import type { ConfirmFn } from "./types.ts";
 import type { TurnEvent } from "./loop.ts";
@@ -78,21 +83,37 @@ export async function createTuiApp(
   });
   tui.setClearOnShrink(true);
 
-  const header = new Text(
-    welcomeBanner({
-      name: APP_NAME,
-      version: APP_VERSION,
-      tagline: APP_TAGLINE,
-      difference: APP_DIFFERENCE,
-    }),
-    0,
-    0,
-  );
+  // Welcome screen: redrawn at the current width, refreshed after commands that change what it shows.
+  let welcome: WelcomeInfo | undefined;
+  const header = {
+    render: (width: number) => (welcome ? welcomeLines(welcome, width, !input.terminal || !(input.terminal instanceof MemoryTerminal)) : []),
+    invalidate: () => {},
+  };
+  const refreshWelcome = async () => {
+    welcome = await welcomeInfo(state);
+    tui.requestRender();
+  };
   const transcript = new Text("", 0, 0);
-  const log: { role: "user" | "assistant" | "system"; text: string }[] = [];
+  type LogItem = {
+    role: "user" | "assistant" | "system" | "tool";
+    text: string;
+    status?: ToolStatus;
+    detail?: string;
+    key?: string;
+  };
+  const log: LogItem[] = [];
+  let lastNotice = "";
+  let streamedThisTurn = false;
   let lastConfirm = "";
   const footer = new Text("", 0, 0);
   const editor = new Editor(tui, editorTheme, { paddingX: 0 });
+  // Type / for commands (core + plugins), @ for files — the same pi-tui provider Pi uses.
+  editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(
+      slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? [])]),
+      cwd,
+    ),
+  );
   const dock = new VStack([editor, footer]);
   const scroll = new ScrollView(new VStack([header, transcript]), {
     follow: "end",
@@ -136,6 +157,7 @@ export async function createTuiApp(
         phase: busy ? phase : undefined,
         elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
         task: state.taskPermission,
+        cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
       }),
     );
   };
@@ -145,6 +167,7 @@ export async function createTuiApp(
     const lines: string[] = [];
     for (const item of log) {
       if (item.role === "user") lines.push(...renderUserMessage(item.text, width));
+      else if (item.role === "tool") lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
       else if (item.role === "assistant") lines.push(...renderAssistantMessage(item.text, width));
       else lines.push(...renderSystemMessage(item.text, width));
       lines.push("");
@@ -243,18 +266,16 @@ export async function createTuiApp(
       return;
     }
     if (event.type === "evaluating") {
-      phase = "evaluating";
-      add("system", "evaluating");
+      phase = "jev scoring the turn";
       return;
     }
     if (event.type === "route") {
       phase = "waiting for model";
-      add("system", `model  ${event.model}`);
+      if (event.reason !== "selected") add("system", `model ${event.model} · ${event.reason}`);
       return;
     }
     if (event.type === "waiting_model") {
       phase = "waiting for model";
-      add("system", "waiting for model");
       return;
     }
     if (event.type === "tool_start") {
@@ -269,25 +290,43 @@ export async function createTuiApp(
                 ? "searching"
                 : event.name;
       phase = event.target ? `${verb} ${event.target}` : verb;
-      add("system", phase);
+      streamAt = undefined; // text after a tool starts a new answer block
+      log.push({
+        role: "tool",
+        text: `${event.name}${event.target ? ` ${event.target}` : ""}`,
+        status: "pending",
+        key: `${event.name}\u0000${event.target ?? ""}`,
+      });
+      paintTranscript();
       return;
     }
     if (event.type === "awaiting_approval") {
-      phase = "awaiting approval";
-      add("system", `awaiting approval  ${event.name}${event.target ? `  ${event.target}` : ""}`);
+      phase = "waiting for your y/N";
       return;
     }
     if (event.type === "tool") {
-      const reason = event.record.deniedReason ? `  ${event.record.deniedReason}` : "";
-      const target = event.record.target ? `  ${event.record.target}` : "";
-      add("system", `${event.record.name}${target}  ${event.record.approved ? "ran" : "denied"}${reason}`);
-      if (!event.record.approved && event.record.source === "agreement") phase = "blocked";
+      const record = event.record;
+      const key = `${record.name}\u0000${record.target ?? ""}`;
+      const item = [...log].reverse().find((row) => row.role === "tool" && row.status === "pending" && row.key === key);
+      const decidedBy = record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`;
+      const detail = record.approved
+        ? `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
+        : `denied · ${record.deniedReason ?? "no reason"}`;
+      if (item) {
+        item.status = record.approved ? "ran" : "denied";
+        item.detail = detail;
+      } else {
+        log.push({ role: "tool", text: `${record.name}${record.target ? ` ${record.target}` : ""}`, status: record.approved ? "ran" : "denied", detail });
+      }
+      if (!record.approved && record.source === "agreement") phase = "blocked";
+      paintTranscript();
       return;
     }
     if (event.type === "text_delta") {
       phase = "waiting for model";
       const chunk = event.text;
       if (!chunk) return;
+      streamedThisTurn = true;
       if (streamAt === undefined) {
         log.push({ role: "assistant", text: chunk });
         streamAt = log.length - 1;
@@ -300,7 +339,6 @@ export async function createTuiApp(
     }
     if (event.type === "outcome") {
       phase = event.outcome === "completed" ? "finished" : event.outcome;
-      add("system", `outcome  ${event.outcome}`);
     }
   };
 
@@ -319,12 +357,13 @@ export async function createTuiApp(
     const text = line.trim();
     if (!alive || busy || !text) return;
     editor.setText("");
-    editor.addToHistory(text);
-    add("user", text);
+    // Never echo or keep an API key typed with /login.
+    editor.addToHistory(redactLogin(text));
+    add("user", redactLogin(text));
     turnAbort = new AbortController();
     phase = "evaluating";
     streamAt = undefined;
-    if (!text.startsWith("/")) add("system", "accepted");
+    streamedThisTurn = false;
     setBusy(true);
     try {
       const result = await runLine(
@@ -339,13 +378,14 @@ export async function createTuiApp(
         },
       );
       await applyChat(result);
-      if (result.notice) add("system", result.notice);
+      if (text.startsWith("/")) await refreshWelcome();
+      // The same notice (no key, local chat) is shown once, not after every turn.
+      if (result.notice && result.notice !== lastNotice) add("system", result.notice);
+      if (result.notice) lastNotice = result.notice;
       if (result.receipt) {
-        if (streamAt === undefined) add("assistant", result.receipt.text);
-        else {
-          log[streamAt] = { role: "assistant", text: result.receipt.text };
-          paintTranscript();
-        }
+        // Streamed text is already on screen, block by block around the tool lines.
+        if (!streamedThisTurn) add("assistant", (result.receipt.answer ?? "").trim() || result.receipt.text);
+        add("system", turnStatusLines(result.receipt).join("\n"));
       } else if (result.output) add("system", result.output);
       paintFooter();
       if (result.exit) {
@@ -398,6 +438,7 @@ export async function createTuiApp(
     return undefined;
   });
 
+  await refreshWelcome();
   await loadConversation();
   paintFooter();
   tui.setFocus(editor);

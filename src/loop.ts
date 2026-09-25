@@ -411,6 +411,7 @@ export async function runLoop(input: {
     ms: Date.now() - started,
     millicents: millicentsFromUsage(result.inputTokens, result.outputTokens),
     text,
+    answer: result.text,
     outcome,
     finishReason: result.finishReason,
     steps: result.steps,

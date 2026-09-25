@@ -1,27 +1,86 @@
 # Aegis
 
-The agent you own. Jev locks spend and danger.
+The coding agent you own. Rules decide first; plugins add the rest.
 
-That is the difference: other CLIs just run. Aegis scores the turn (spend) and each tool (danger) before anything happens.
+Other agent CLIs just run. Every Aegis tool call passes a lock first: your rules in `.aegis/settings.json`, then (optionally) Jev's spend/danger score, then you — default **n**.
+
+## 1. Install
+
+Windows PowerShell (needs Node.js 22.19+ and git):
 
 ```powershell
-cd C:\Users\vikasmit\Projects\gate
+irm https://raw.githubusercontent.com/vikas53953/Ages/main/install.ps1 | iex
+```
+
+Linux, macOS, or a cloud container:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vikas53953/Ages/main/install.sh | sh
+```
+
+Or straight from npm's git support:
+
+```bash
+npm install -g github:vikas53953/Ages
+```
+
+Until the work branch is merged, install it instead with `$env:AEGIS_REF = "claude/quirky-ramanujan-6bpqc3"` (PowerShell) or `AEGIS_REF=claude/quirky-ramanujan-6bpqc3` (sh) before the installer, or `npm install -g "github:vikas53953/Ages#claude/quirky-ramanujan-6bpqc3"`.
+
+Check it:
+
+```powershell
+aegis --version
+```
+
+## 2. Start
+
+In the folder you want it to work in:
+
+```powershell
+cd C:\path\to\project
 aegis
 ```
 
-TTY opens the TUI. `aegis --repl` is the plain prompt. `aegis --local --mock-jev` is the no-network demo.
+A terminal opens the full-screen TUI with the welcome screen. `aegis --repl` is the plain prompt (pipes, scripts). `aegis "a question"` answers once and exits.
+
+## 3. Connect a model
+
+Inside Aegis, once — saved to `~\.aegis\.env` for every folder:
+
+```text
+/login opencode <your-key>
+/login jev <your-typesafe-key>      (optional: turns on Jev scoring)
+```
+
+## Everyday commands
 
 | Type | What happens |
 | --- | --- |
-| `/models` | every OpenCode model |
-| `/model auto` | Jev picks cheap vs frontier |
-| `/model glm-5.3` | pin a model |
-| `hello` | the routed or pinned model answers |
-| `/help` | slash commands |
+| `/` | command list (autocomplete); `@` completes file names |
+| `/help` | every command, core and plugins |
+| `/model auto` · `/model glm-5.3` | Jev picks cheap vs frontier · pin a model |
+| `/compact` | fold old turns into a summary (also automatic when history is big) |
+| `/jev off\|second\|every` | Jev mode — jev plugin |
 | `/task` | delivery card (confirm / accept are owner-only) — delivery plugin |
-| `/jev` | show or set the Jev mode (off / second / every) — jev plugin |
-| `/exit` | quit |
+| `/status` · `/login` | what is loaded · which keys are set |
+| `ctrl+c` | stop the running turn; on an empty prompt, exit |
 
-Rules in `.aegis/settings.json` decide first (deny, then ask, then allow). Jev only scores what no rule matches, and can only make a decision stricter. `/jev off|second|every` sets the mode. With no Jev key, reads and allowed calls still run and everything else asks you (default n). `--mock-jev` is tests only. Shell stays off unless `AEGIS_ALLOW_SHELL=1`. Jev and shell-off do not sandbox generated Node; that is not OS isolation.
+## The lock
 
-Layers: a small core (loop, tools, session, compaction, router, rules gate, TUI) and plugins (`jev`, `delivery`, `receipts`) listed under `"plugins"` in `.aegis/settings.json`. See `PROJECT-MAP.md`.
+Rules decide first (deny, then ask, then allow). Jev only scores what no rule matches, and can only make a decision stricter. With no Jev key, reads and allowed calls still run and everything else asks you. Shell (PowerShell) stays off unless `AEGIS_ALLOW_SHELL=1`. None of this is OS isolation: generated code runs with your rights.
+
+## Layers
+
+A small core (loop, tools, session, compaction, router, rules gate, TUI) and plugins (`jev`, `delivery`, `receipts`) listed under `"plugins"` in `.aegis/settings.json`. See `PROJECT-MAP.md`.
+
+## Develop
+
+```powershell
+git clone https://github.com/vikas53953/Ages; cd Ages; npm install
+npm start              # run from source (tsx)
+npm test               # Vitest
+npm run check:windows  # end-to-end checks (real PowerShell on Windows)
+npm run build          # compile to dist/ (what the installed `aegis` runs)
+```
+
+Every push runs typecheck, Vitest, the end-to-end check and an install test on a Windows runner (`.github/workflows/windows-check.yml`).

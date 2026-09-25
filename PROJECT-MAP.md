@@ -7,7 +7,10 @@ Rules decide first. Plugins add the rest. The model writes.
 
 | Path | Plain-words job |
 | --- | --- |
-| `src/cli.ts` | Entry: TUI on a TTY, `--repl` for the plain prompt |
+| `src/main.ts` | The installed `aegis` command (compiled to `dist/main.js`) |
+| `src/cli.ts` | Flags (`--version`, `--repl`, `--local`, …); TUI on a TTY, plain prompt otherwise |
+| `src/welcome.ts` | Startup screen: Claude-Code-style box (welcome, shield, the lock, recent sessions) + Pi-style key hints |
+| `src/login.ts` | `/login` `/logout`: keys saved once in `~/.aegis/.env` |
 | `src/tui.ts`, `src/tui-app.ts`, `src/tui-layout.ts` | Full-screen terminal UI: transcript, composer, footer, y/N pop-up |
 | `src/runtime.ts` | App shell: loads plugins from settings, runs slash commands, runs one prompt |
 | `src/repl.ts` | Queue stdin lines so piped commands are not dropped |
@@ -46,4 +49,6 @@ Loaded by name from `"plugins"` in `.aegis/settings.json`. Remove a name and tha
 | `AGENTS.md` | Project rules injected every turn |
 | `skills/` | Markdown skills injected every turn |
 | `gate.config.json` | Models, thresholds, `compactAtChars`, `compactKeepTurns` |
+| `~/.aegis/.env` | Your API keys for every folder (written by `/login`) |
+| `install.ps1`, `install.sh` | One-line installers (Windows / Linux, macOS, cloud) |
 | `.harness/` | Sessions, summaries, memory, receipts, task records (not committed) |

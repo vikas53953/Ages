@@ -16,6 +16,7 @@ import {
   loadMessages,
   loadOrCreateSession,
   switchSession,
+  recentSessions,
   appendMessage,
   appendMessages,
   capToolResults,
@@ -25,6 +26,10 @@ import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
 import { loadSettingsSafe, settingsPath } from "./rules.ts";
 import type { AegisPlugin, CommandContext } from "./plugin-api.ts";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
+import { LOGIN_KEYS, loginStatus, maskKey, writeUserKey } from "./login.ts";
+import { APP_NAME, APP_VERSION, displayUser } from "./brand.ts";
+import { loadConfig } from "./config.ts";
+import type { WelcomeInfo } from "./welcome.ts";
 
 export { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
 import { KNOWN_PLUGINS, loadPlugins } from "./plugins/index.ts";
@@ -95,6 +100,31 @@ async function pluginTaskPermission(plugins: AegisPlugin[], cwd: string): Promis
     if (plugin.taskPermission) return plugin.taskPermission(cwd);
   }
   return "untracked";
+}
+
+/** Everything the welcome screen shows, read fresh (after /new, /login, /jev it changes). */
+export async function welcomeInfo(state: AppState): Promise<WelcomeInfo> {
+  const settings = loadSettingsSafe(state.cwd).settings;
+  const config = loadConfig(state.cwd);
+  const models = modelsFor(state.provider, config);
+  return {
+    name: APP_NAME,
+    version: APP_VERSION,
+    user: displayUser(),
+    model: state.modelMode === "pinned" ? `${state.model} (pinned)` : `auto: ${models.cheap} / ${models.frontier}`,
+    provider: state.provider === "opencode" ? "OpenCode Zen" : state.provider === "openai" ? "OpenAI" : "local, no key",
+    cwd: state.cwd,
+    jevMode: state.plugins.some((plugin) => plugin.scorer) ? settings.jev.mode : "not loaded",
+    jevHealth: state.jevHealth,
+    rules: {
+      deny: settings.rules.deny.length,
+      ask: settings.rules.ask.length,
+      allow: settings.rules.allow.length,
+    },
+    plugins: state.plugins.map((plugin) => plugin.name),
+    recent: await recentSessions(state.cwd, 3, state.session.id),
+    hasChatKey: state.provider !== "local",
+  };
 }
 
 /** Text every enabled plugin adds to the system prompt (context:assemble). */
@@ -303,6 +333,28 @@ export async function handleLine(
         session: state.session,
       };
     }
+  }
+  if (cmd.type === "login" || cmd.type === "logout") {
+    if (!cmd.provider) return { output: loginStatus(), session: state.session };
+    const key = LOGIN_KEYS[cmd.provider];
+    if (!key) {
+      return { output: `unknown key name '${cmd.provider}'. Use: ${Object.keys(LOGIN_KEYS).join(", ")}`, session: state.session };
+    }
+    if (cmd.type === "login" && !cmd.key) {
+      return { output: `usage: /login ${cmd.provider} <key>`, session: state.session };
+    }
+    const file = writeUserKey(key.env, cmd.type === "login" ? cmd.key : undefined);
+    if (!opts.local) state.provider = resolveProvider();
+    if (key.env === "TYPESAFE_API_KEY" && state.plugins.some((plugin) => plugin.scorer)) {
+      state.jevHealth = initialJevHealth(opts.mockJev === true, loadSettingsSafe(state.cwd).settings.jev.mode);
+    }
+    return {
+      output:
+        cmd.type === "login"
+          ? `${key.label}: saved ${maskKey(cmd.key!)} to ${file}. Provider now ${state.provider}.`
+          : `${key.label}: removed from ${file}.`,
+      session: state.session,
+    };
   }
   if (cmd.type === "status") {
     return {

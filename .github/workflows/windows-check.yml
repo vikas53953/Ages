@@ -31,6 +31,20 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: npm run check:windows
+      - name: Install like a user (npm pack → npm install -g → aegis)
+        shell: pwsh
+        run: |
+          npm pack --silent
+          npm install -g (Get-ChildItem aegis-*.tgz).FullName
+          $v = aegis --version
+          if ($v -notmatch '^aegis \d') { throw "aegis --version said: $v" }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\aegis-user" | Out-Null
+          Set-Location "$env:RUNNER_TEMP\aegis-user"
+          "hello from the installed aegis" | Set-Content README.md
+          $out = "/status`nread README.md`n/exit`n" | aegis --local --repl 2>&1 | Out-String
+          Write-Output $out
+          if ($out -notmatch 'hello from the installed aegis') { throw "installed aegis did not read README.md" }
+          if ($out -notmatch 'Welcome back') { throw "welcome screen missing" }
       - name: Report to job summary
         if: always()
         shell: pwsh

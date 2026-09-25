@@ -212,3 +212,20 @@ export async function switchSession(cwd: string, id: string) {
   await writeFile(path.join(harnessRoot(cwd), "current"), id, "utf8");
   return id;
 }
+
+/** Newest sessions with their first prompt, for the welcome screen. Empty sessions are skipped. */
+export async function recentSessions(cwd: string, limit = 3, skipId?: string) {
+  const out: { id: string; when: string; text: string }[] = [];
+  for (const id of await listSessions(cwd)) {
+    if (out.length >= limit) break;
+    if (id === skipId) continue;
+    const first = (await loadMessages(cwd, id)).find((row) => row.role === "user" && messageText(row).trim());
+    if (!first) continue;
+    const date = new Date(first.at);
+    const when = Number.isNaN(date.getTime())
+      ? id.slice(0, 10)
+      : `${date.toISOString().slice(5, 10)} ${date.toTimeString().slice(0, 5)}`;
+    out.push({ id, when, text: messageText(first).replace(/\s+/g, " ").trim() });
+  }
+  return out;
+}

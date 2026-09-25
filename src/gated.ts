@@ -89,6 +89,7 @@ function cancelled(decision: ToolDecision | undefined, name: string): GatedRun {
 
 export function toolTarget(name: string, args: JsonObject) {
   if (name === "shell") return String(args.command ?? "").slice(0, 120);
+  if (name === "grep") return `"${String(args.pattern ?? "")}" in ${String(args.path ?? ".")}`;
   return String(args.path ?? "");
 }
 

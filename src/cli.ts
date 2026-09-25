@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { APP_CMD, APP_VERSION } from "./brand.ts";
 import { HELP } from "./commands.ts";
 import { loadEnv } from "./env.ts";
 import { queuedLines } from "./repl.ts";
-import { handleLine, startState, type RunOpts } from "./runtime.ts";
+import { handleLine, startState, welcomeInfo, type RunOpts } from "./runtime.ts";
+import { welcomeLines } from "./welcome.ts";
 import { runTui } from "./tui.ts";
 import type { ConfirmFn } from "./types.ts";
 
@@ -31,6 +33,7 @@ function parseArgs(argv: string[]) {
     yes: flags.has("--yes"),
     local: flags.has("--local"),
     help: flags.has("--help") || flags.has("-h"),
+    version: flags.has("--version") || flags.has("-v"),
     repl: flags.has("--repl"),
     tui: flags.has("--tui"),
     model,
@@ -78,9 +81,8 @@ export function createConfirm(input: {
 async function repl(opts: RunOpts) {
   const cwd = process.cwd();
   const state = await startState(cwd, opts);
-  console.log(`Aegis  ${state.model}  ${state.provider}`);
-  console.log(`session ${state.session.id}  cwd ${cwd}`);
-  console.log("/models to list. /model <id> to switch. /exit to quit.");
+  const color = Boolean(stdout.isTTY) && !process.env.NO_COLOR;
+  console.log(welcomeLines(await welcomeInfo(state), stdout.columns || 100, color).join("\n"));
   const rl = createInterface({ input: stdin, output: stdout, prompt: "aegis> " });
   const nextLine = queuedLines(rl);
   let closed = false;
@@ -117,8 +119,12 @@ function wantTui(args: { tui: boolean; repl: boolean; prompt: string }) {
   return Boolean(stdin.isTTY && stdout.isTTY);
 }
 
-async function main() {
+export async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.version) {
+    console.log(`${APP_CMD} ${APP_VERSION}`);
+    return;
+  }
   loadEnv();
   if (args.help) {
     console.log(help());
@@ -146,6 +152,7 @@ async function main() {
   await repl(opts);
 }
 
+// Dev entry (tsx src/cli.ts). The installed command runs src/main.ts → dist/main.js.
 const launched = process.argv[1]?.replaceAll("\\", "/").endsWith("/cli.ts");
 if (launched) {
   main().catch((error) => {

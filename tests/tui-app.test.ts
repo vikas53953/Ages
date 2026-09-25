@@ -74,7 +74,7 @@ describe("TUI app", () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(submitted).toEqual([]);
     expect(app.editor.getExpandedText()).toMatch(/hello/);
-    expect(app.lines().join("\n")).not.toContain("you  hello");
+    expect(app.lines().join("\n")).not.toContain("› hello");
   });
 
   it("submits on Enter and shows the reply", async () => {
@@ -95,7 +95,8 @@ describe("TUI app", () => {
     for (const ch of "ping") app.feed(ch);
     app.feed("\r");
     const text = await waitFor(app, "echo:ping");
-    expect(text).toContain("you  ping");
+    expect(text).toContain("echo:ping");
+    expect(app.messages()).toContain("ping");
     expect(app.messages().join("\n")).toContain("echo:ping");
   });
 
@@ -110,7 +111,7 @@ describe("TUI app", () => {
     terminal.resize(100, 30);
     app.tui.requestRender(true);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const matches = app.lines().join("\n").match(/Aegis  v/g) ?? [];
+    const matches = app.lines().join("\n").match(/Aegis v\d/g) ?? [];
     expect(matches.length).toBe(1);
   });
 
