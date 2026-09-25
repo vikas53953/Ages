@@ -58,3 +58,38 @@ describe("agent shell output", () => {
     expect(prompts[1]).toContain("[exit code 3]");
   }, 60_000);
 });
+
+describe("shell timeouts end what the command started", () => {
+  it.runIf(process.platform !== "win32")("a timed-out command's children are killed too (POSIX process group)", async () => {
+    const { runPowerShell } = await import("../src/tools/fs.ts");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-shelltree-"));
+    const fake = path.join(cwd, "fake-pwsh.mjs");
+    await writeFile(
+      fake,
+      `#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+const c = spawn(process.execPath, ["-e", "require('fs').writeFileSync('grandchild.json', JSON.stringify({pid:process.pid}));setInterval(()=>{},1<<30);"], { stdio: "ignore" });
+process.stdout.write("started\\n");
+setInterval(() => {}, 1 << 30);
+`,
+    );
+    await chmod(fake, 0o755);
+    process.env.AEGIS_POWERSHELL = fake;
+    const error = (await runPowerShell("anything", cwd, 1500).catch((e: unknown) => e)) as { killed?: boolean; stdout?: string };
+    expect(error.killed).toBe(true);
+    expect(error.stdout).toContain("started");
+    const { pid } = JSON.parse(await (await import("node:fs/promises")).readFile(path.join(cwd, "grandchild.json"), "utf8")) as { pid: number };
+    const deadline = Date.now() + 5000;
+    let alive = true;
+    while (alive && Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch {
+        alive = false;
+      }
+    }
+    expect(alive).toBe(false);
+  }, 20_000);
+});

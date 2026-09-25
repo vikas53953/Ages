@@ -148,12 +148,17 @@ function readYours(cwd) {
     }
     return parseObject(text, file);
 }
+/** Longer rules are refused (the file then counts as unreadable, which fails safe): matching costs rule × text. */
+const MAX_RULE_CHARS = 512;
 function stringList(value, fallback, name = "rules.allow / rules.ask / rules.deny") {
     if (value === undefined)
         return [...fallback];
     if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
         throw new Error(`${name} must be a list of strings`);
     }
+    const long = value.find((item) => item.length > MAX_RULE_CHARS);
+    if (long)
+        throw new Error(`${name}: a rule is longer than ${MAX_RULE_CHARS} characters (${long.slice(0, 40)}…)`);
     return value;
 }
 function parseSettings(raw) {
@@ -445,7 +450,12 @@ const WRAPPED = /(^|[\s&.])(pwsh|powershell|cmd|bash|sh|zsh|wsl|node|deno|python
 function shellPieces(command) {
     return [command, ...command.split(/[;&|\n\r]+/).map((piece) => piece.trim()).filter(Boolean)];
 }
-function matches(rule, action, name, target) {
+/** A target longer than this is never allowed by a rule; deny/ask rules look at its start. */
+const MAX_TARGET_CHARS = 32_768;
+function matches(rule, action, name, fullTarget) {
+    if (action === "allow" && fullTarget.length > MAX_TARGET_CHARS)
+        return false;
+    const target = fullTarget.slice(0, MAX_TARGET_CHARS);
     const { tool, pattern } = splitRule(rule);
     // "mcp__github__*" names every tool of one MCP server; core tool names always match exactly
     // (so "allow *" does not quietly become "allow every tool").

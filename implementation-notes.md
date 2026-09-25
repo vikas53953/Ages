@@ -220,3 +220,14 @@
     - `read .harness/*` is asked about, since restore points keep copies of changed files, secrets included.
     - `.gitignore` character classes (`[ab]`, `[!ab]`, `[0-9]`).
     - The agent's shell and hooks run as their own process group on POSIX, and a timeout or stop kills the whole tree (taskkill /T on Windows).
+- Fixes from the review of the previous batch:
+  - P1: the shell tool's "own process group" never took effect. `execFile` does not pass `detached` on to spawn, so a timed-out or stopped command still left its children running. `runPowerShell` is now built on `spawn` directly: detached on POSIX, its own timeout, stop and 2 MB cap, `killProcessTree` on any of them, and the same `{stdout, stderr}` / error-with-stdout shape its callers expect. A Linux test checks that a timed-out command's grandchild is gone.
+  - P2 redaction false positives in code, which then also blocked placeholder-guarded writes:
+    - For a lower-case or camelCase name, an unquoted bare identifier or type (`AccessToken`, `Promise<string>`, `API_TOKEN`, `password=password`) is a reference. A lower-case word with a digit (`hunter2hunter2`) still counts as a value, and a quoted value is always a value.
+    - Values containing `[]<>{}` are skipped.
+    - Name words that describe a secret rather than hold one (name, ref, path, lifetime, length, list, …) are skipped: `secretName`, `tokenLifetime`, `passwordMinLength`.
+    - Values end before `,` `;` `` ` `` `)` `]` `}`, so punctuation survives.
+  - P3:
+    - Dotted keys (`spring.datasource.password=`, `this.password =`), `:=` / `=>`, and URLs with an empty user (`redis://:pw@`) are caught.
+    - Rules longer than 512 characters make the settings file unreadable (fail safe), and a target over 32 KB is never allowed, since matching costs rule × text.
+    - Known false positive kept: a quoted lower-case value with a digit under a secret-sounding name (`Token = 'tokenkind1'`).

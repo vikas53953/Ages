@@ -126,3 +126,59 @@ describe("other batch 4 fixes", () => {
     expect((await walkFiles(cwd)).map((f) => f.relative).sort()).toEqual([".gitignore", "c.txt"]);
   });
 });
+
+describe("redaction: batch 5 (code must survive, more secrets caught)", () => {
+  it("leaves types, references, k8s secret names and descriptive settings alone, and keeps punctuation", () => {
+    const code = [
+      "  token: AccessToken;",
+      "  password: PasswordField;",
+      "  credentials: Credentials;",
+      "  secret: Promise<string>;",
+      "  token: Token<string>;",
+      "  password: Option<String>,",
+      "  token: API_TOKEN,",
+      "  password: DEFAULT_PASSWORD",
+      "  Password: password,",
+      "connect(host=host, password=password)",
+      "Client(credentials=credentials)",
+      "  password: userpassword,",
+      "secretName: tls-cert-secret",
+      "secretName: db-credentials",
+      '"TokenLifetime": "00:30:00"',
+      '"token-list": "workspace:*"',
+      "passwordMinLength: 12345678",
+      "const t = { token: API_TOKEN, password: X };",
+    ].join("\n");
+    expect(redactSecrets(code).text).toBe(code);
+  });
+
+  it("catches dotted keys, := and URLs with an empty user", () => {
+    for (const text of [
+      "spring.datasource.password=hunter2hunter2",
+      "this.password = 'hunter2hunter2'",
+      "PASSWORD := hunter2hunter2",
+      "redis://:hunter2hunter2@cache:6379",
+      "  apiKey: \"zyxwvutsrqponmlk\",",
+    ]) {
+      const out = redactSecrets(text).text;
+      expect(out, text).not.toContain("hunter2hunter2");
+      expect(out, text).not.toContain("zyxwvutsrqponmlk");
+    }
+    expect(redactSecrets('  apiKey: "zyxwvutsrqponmlk",').text).toBe('  apiKey: "[redacted:secret-value]",');
+  });
+});
+
+describe("rule and target size limits", () => {
+  it("a rule over 512 characters makes the file unreadable (fail safe); a huge target is never allowed", async () => {
+    const { loadSettingsSafe, settingsPath } = await import("../src/rules.ts");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-longrule-"));
+    await mkdir(path.join(cwd, ".aegis"));
+    await writeFile(settingsPath(cwd), JSON.stringify({ rules: { ask: [`read *${"a".repeat(600)}`] } }));
+    const loaded = loadSettingsSafe(cwd);
+    expect(loaded.error).toContain("longer than 512");
+    expect(loaded.settings.rules.allow).toEqual([]);
+    const s = settings({ allow: ["shell echo *"] });
+    expect(matchRule(s, "shell", { command: `echo ${"x".repeat(40_000)}` }, cwd)).toBeUndefined();
+    expect(matchRule(s, "shell", { command: "echo hi" }, cwd)?.action).toBe("allow");
+  });
+});

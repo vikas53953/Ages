@@ -26,7 +26,7 @@ const PATTERNS: Pattern[] = [
 /** Replaced keeping the part before the secret: "Bearer [redacted:…]", "postgres://user:[redacted:…]@host". */
 const KEEPING: Array<{ kind: string; re: RegExp }> = [
   { kind: "bearer-token", re: /(\bBearer[ \t]+)[A-Za-z0-9\-._~+/]{20,4096}=*/g },
-  { kind: "url-password", re: /(\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,200}:)[^\s@/]{3,1024}(?=@)/gi },
+  { kind: "url-password", re: /(\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{0,200}:)[^\s@/]{3,1024}(?=@)/gi },
 ];
 
 /** Name words that mark a secret (whole words between "_"): AWS_SECRET_ACCESS_KEY yes, MONKEY or KEYBOARD no. */
@@ -34,18 +34,20 @@ const SECRET_WORDS = new Set(["KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "P
 /** For lower-case and camelCase names ("password", "apiKey", "client_secret"): plain "key" alone is too common. */
 const SECRET_WORDS_LOWER = new Set(["password", "passwd", "pwd", "passphrase", "secret", "token", "apikey", "credential", "credentials"]);
 const SECRET_PAIRS = new Set(["api key", "private key", "access key", "secret key", "client secret", "access token", "auth token"]);
+/** Words that describe a secret rather than hold one: secretName, secretKeyRef, tokenLifetime, passwordMinLength. */
+const DESCRIBING = new Set(["name", "names", "ref", "path", "file", "url", "id", "lifetime", "length", "type", "kind", "list", "store", "min", "max", "count", "field", "label", "header", "prefix", "expiry", "expires", "ttl", "mode", "policy", "provider", "format", "endpoint", "uri"]);
 
 /**
  * NAME=value / NAME: value with an upper-case name. The look-behind only lets a name start at a word start, which
  * keeps this linear and lets it match after a grep "file:12:" or a numbered read's "  12  " prefix.
  */
-const SETTING = /(?<![A-Za-z0-9_.$])((?:\$env:)?["']?[A-Za-z][A-Za-z0-9_-]{1,80}["']?)([ \t]*[=:][ \t]*["']?)([^\s"'#]{8,4096})/g;
+const SETTING = /(?<![A-Za-z0-9_$])((?:\$env:)?["']?[A-Za-z][A-Za-z0-9_]{1,80}["']?)([ \t]*(?::=|=>|[=:])[ \t]*["']?)([^\s"'#,;`)\]}]{8,4096})/g;
 
 function secretName(raw: string) {
   const name = raw.replace(/^\$env:/, "").replace(/["']/g, "");
   if (/^[A-Z0-9_]+$/.test(name)) {
     const words = name.split("_");
-    if (words.includes("PUBLIC")) return false;
+    if (words.includes("PUBLIC") || words.some((word) => DESCRIBING.has(word.toLowerCase()) && word !== "ID")) return false;
     return words.some((word) => SECRET_WORDS.has(word)) || name.endsWith("CONNECTION_STRING");
   }
   // camelCase, kebab-case, snake_case in lower case: split into words.
@@ -54,19 +56,21 @@ function secretName(raw: string) {
     .split(/[\s_-]+/)
     .map((word) => word.toLowerCase())
     .filter(Boolean);
-  if (words.includes("public")) return false;
+  if (words.includes("public") || words.some((word) => DESCRIBING.has(word))) return false;
   if (words.some((word) => SECRET_WORDS_LOWER.has(word))) return true;
   return words.some((word, index) => index > 0 && SECRET_PAIRS.has(`${words[index - 1]} ${word}`)) || words.join("") === "connectionstring";
 }
 
 /** Values that name something rather than being one: numbers, URLs, paths, variable references, code. */
-function notAValue(raw: string, name: string) {
-  const value = raw.replace(/[,;]+$/, "");
-  // In code, a lower-case name usually points at a variable: `token: userToken,` is not a secret.
-  if (!/^[A-Z0-9_$"']/.test(name) || /[a-z]/.test(name)) {
-    if (/^[a-z_][A-Za-z0-9_]*$/.test(value) && /[A-Z_]/.test(value)) return true;
-    if (["true", "false", "null", "undefined", "string", "number", "boolean"].includes(value)) return true;
+function notAValue(value: string, name: string, quoted: boolean) {
+  // In code, a lower-case or camelCase name usually holds a variable or a type: `token: userToken`,
+  // `password: PasswordField`, `token: API_TOKEN`, `secret: Promise<string>`, `password=password`.
+  if (!quoted && /[a-z]/.test(name.replace(/^\$env:/, ""))) {
+    // A bare lower-case word with a digit in it (hunter2hunter2) reads as a value, not a variable name.
+    const lowerWithDigit = /^[a-z0-9_]+$/.test(value) && /\d/.test(value);
+    if (!lowerWithDigit && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value)) return true;
   }
+  if (/[[\]<>{}]/.test(value)) return true;
   return (
     /^\d+(?:\.\d+)?$/.test(value) ||
     /^(?:https?:\/\/|\/|\.\/|\$|%|process\.env|os\.environ|\[redacted:)/.test(value) ||
@@ -91,7 +95,7 @@ function redactAll(text: string): { text: string; count: number } {
     });
   }
   out = out.replace(SETTING, (match: string, name: string, between: string, value: string) => {
-    if (!secretName(name) || notAValue(value, name)) return match;
+    if (!secretName(name) || notAValue(value, name, /["']$/.test(between))) return match;
     count += 1;
     return `${name}${between}[redacted:secret-value]`;
   });
