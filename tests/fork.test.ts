@@ -53,3 +53,20 @@ describe("/fork", () => {
     expect(state.session.id).toBe(original);
   });
 });
+
+describe("/sessions and /resume <n>", () => {
+  it("lists conversations with their first prompt, and a number opens one", async () => {
+    const { cwd, state, original } = await conversation();
+    await handleLine("/new", state, opts);
+    await handleLine("a brand new question", state, opts);
+    const list = (await handleLine("/sessions", state, opts)).output;
+    expect(list).toMatch(/ 1\. .*a brand new question {2}\(this one\)/);
+    expect(list).toMatch(/ 2\. .*first question/);
+    expect((await handleLine("/resume", state, opts)).output).toBe(list);
+    const opened = await handleLine("/resume 2", state, opts);
+    expect(opened.chat).toBe("reload");
+    expect(state.session.id).toBe(original);
+    expect((await handleLine("/resume 9", state, opts)).output).toContain("No conversation 9");
+    void cwd;
+  });
+});

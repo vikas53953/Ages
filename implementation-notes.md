@@ -164,3 +164,7 @@
   - `grep` walks with the folder's `.gitignore` (plain and glob patterns, `dir/`, `!` re-include, and "/" anchoring) plus the fixed skip list. It skips binary (NUL in the first 8 KB) and >2 MB files. It takes `glob`, `caseSensitive` (default stays insensitive) and `context` (0–5), reports a bad regex, shows 100 hits, and says how many more there were.
   - New `glob` tool: paths newest first, 200 at most, ignore-aware. It is allowed by default and in plan mode, and the explore helper gets it. Claude Code's Glob now maps to `glob`, not `grep`.
   - Default step budget raised from 8 to 25: medium tasks stalled at 8. Claude Code has no cap; the explore helper keeps 20.
+- Standing instructions and sessions:
+  - `~/.aegis/AGENTS.md` (like `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`) goes first in every project, then the project's `AGENTS.md`, `HARNESS.md` and `AGENTS.local.md` (personal, per folder).
+  - `/init` runs one turn asking the agent to write or improve AGENTS.md from what it reads. The write passes the lock like any other.
+  - `/sessions` lists the 15 most recent conversations, numbered, with date and first prompt, marking the current one. `/resume` alone shows the same list, and `/resume <n>` opens by number (ids still work). This is a text list rather than an overlay, so it works the same in the TUI, the REPL and Studio.

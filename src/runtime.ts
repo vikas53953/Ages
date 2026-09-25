@@ -20,7 +20,7 @@ import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./p
 import { HELP, parseLine } from "./commands.ts";
 import { addMemory, loadMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
-import { loadContext } from "./context.ts";
+import { INIT_PROMPT, loadContext } from "./context.ts";
 import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction, type Summarizer } from "./compact.ts";
 import { buildSystemPrompt } from "./system.ts";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.ts";
@@ -563,20 +563,31 @@ async function handleLineInner(
     state.session = session;
     return { output: `new session ${session.id}`, session, chat: "reset" };
   }
-  if (cmd.type === "sessions") {
-    const ids = await listSessions(state.cwd);
-    return { output: ids.length ? ids.join("\n") : "(none)", session: state.session };
+  if (cmd.type === "sessions" || (cmd.type === "resume" && !cmd.id)) {
+    const rows = await recentSessions(state.cwd, 15);
+    if (!rows.length) return { output: "No saved conversations yet.", session: state.session };
+    const lines = rows.map((row, index) => {
+      const here = row.id === state.session.id ? "  (this one)" : "";
+      const text = row.text.length > 70 ? `${row.text.slice(0, 69)}…` : row.text;
+      return `${String(index + 1).padStart(2)}. ${row.when}  ${text}${here}`;
+    });
+    return { output: [...lines, "", "/resume <number> opens one (or /resume <id>)."].join("\n"), session: state.session };
   }
   if (cmd.type === "resume") {
-    if (!cmd.id) {
-      return { output: "usage: /resume <id>", session: state.session };
+    let id = cmd.id;
+    // A small number picks from the /sessions list; anything else is an id.
+    if (/^\d{1,2}$/.test(id)) {
+      const rows = await recentSessions(state.cwd, 15);
+      const row = rows[Number(id) - 1];
+      if (!row) return { output: `No conversation ${id} in the list. /sessions shows them.`, session: state.session };
+      id = row.id;
     }
     try {
-      await switchSession(state.cwd, cmd.id);
+      await switchSession(state.cwd, id);
       state.session = await loadOrCreateSession(state.cwd);
       return { output: `resumed ${state.session.id}`, session: state.session, chat: "reload" };
     } catch {
-      return { output: `no session ${cmd.id}`, session: state.session };
+      return { output: `no session ${id}`, session: state.session };
     }
   }
   if (cmd.type === "memory") {
@@ -691,6 +702,7 @@ async function handleLineInner(
     };
   }
   if (cmd.type === "fork") return forkCommand(state, cmd.arg);
+  if (cmd.type === "init") return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
   if (cmd.type === "trust") return { output: trustCommand(state, cmd.action), session: state.session };
   if (cmd.type === "doctor") return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
   if (cmd.type === "plan") {

@@ -139,6 +139,8 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `@path` in a prompt | attaches that file (or lists that folder) to your message, like Claude Code and Pi; each one is a read through your rules, so `deny read .env` keeps it out. `@` autocompletes paths |
 | webfetch | the agent reads a web page when a rule allows its host: `allow webfetch learn.microsoft.com`, `allow webfetch *.github.com`; https only, public addresses only, other-site redirects checked separately; the page is marked as untrusted data |
 | `/todos` | the agent's todo list (shown above the prompt and in Studio while work is open) |
+| `/sessions` · `/resume 2` | your recent conversations, numbered with their first prompt; a number (or an id) opens one |
+| `/init` | the agent looks around and writes a first `AGENTS.md` (you approve the write). Your own `~/.aegis/AGENTS.md` applies to every project, and `AGENTS.local.md` to one project just for you |
 | `/fork` · `/fork 1` | copy this conversation into a new session and continue there (the original stays; `/resume` it). `/fork 1` leaves out your last turn to try it another way |
 | `/rewind` · `/rewind 1` | restore points; put files and chat back to before a turn (`files` or `chat` for one). Shell changes are not undone |
 | `aegis -p "task"` · `-p --json` | headless for scripts/CI: rules decide, nothing asks; JSON lines with `--json`; exit 2 if a call was denied; `git diff \| aegis -p --stdin "review"` adds stdin |

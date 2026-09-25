@@ -20,12 +20,12 @@ import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
 import { addMemory, loadMemory } from "./memory.js";
 import { loadSkills } from "./skills.js";
-import { loadContext } from "./context.js";
+import { INIT_PROMPT, loadContext } from "./context.js";
 import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction } from "./compact.js";
 import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
-import { createSession, replaceMessages, listSessions, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
+import { createSession, replaceMessages, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { loadSettingsSafe, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
@@ -475,21 +475,34 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
         state.session = session;
         return { output: `new session ${session.id}`, session, chat: "reset" };
     }
-    if (cmd.type === "sessions") {
-        const ids = await listSessions(state.cwd);
-        return { output: ids.length ? ids.join("\n") : "(none)", session: state.session };
+    if (cmd.type === "sessions" || (cmd.type === "resume" && !cmd.id)) {
+        const rows = await recentSessions(state.cwd, 15);
+        if (!rows.length)
+            return { output: "No saved conversations yet.", session: state.session };
+        const lines = rows.map((row, index) => {
+            const here = row.id === state.session.id ? "  (this one)" : "";
+            const text = row.text.length > 70 ? `${row.text.slice(0, 69)}…` : row.text;
+            return `${String(index + 1).padStart(2)}. ${row.when}  ${text}${here}`;
+        });
+        return { output: [...lines, "", "/resume <number> opens one (or /resume <id>)."].join("\n"), session: state.session };
     }
     if (cmd.type === "resume") {
-        if (!cmd.id) {
-            return { output: "usage: /resume <id>", session: state.session };
+        let id = cmd.id;
+        // A small number picks from the /sessions list; anything else is an id.
+        if (/^\d{1,2}$/.test(id)) {
+            const rows = await recentSessions(state.cwd, 15);
+            const row = rows[Number(id) - 1];
+            if (!row)
+                return { output: `No conversation ${id} in the list. /sessions shows them.`, session: state.session };
+            id = row.id;
         }
         try {
-            await switchSession(state.cwd, cmd.id);
+            await switchSession(state.cwd, id);
             state.session = await loadOrCreateSession(state.cwd);
             return { output: `resumed ${state.session.id}`, session: state.session, chat: "reload" };
         }
         catch {
-            return { output: `no session ${cmd.id}`, session: state.session };
+            return { output: `no session ${id}`, session: state.session };
         }
     }
     if (cmd.type === "memory") {
@@ -610,6 +623,8 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
     }
     if (cmd.type === "fork")
         return forkCommand(state, cmd.arg);
+    if (cmd.type === "init")
+        return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
     if (cmd.type === "trust")
         return { output: trustCommand(state, cmd.action), session: state.session };
     if (cmd.type === "doctor")

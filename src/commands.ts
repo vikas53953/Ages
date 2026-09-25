@@ -14,6 +14,7 @@ export type Slash =
   | { type: "doctor" }
   | { type: "trust"; action?: string }
   | { type: "fork"; arg?: string }
+  | { type: "init" }
   | { type: "todos" }
   | { type: "export"; format?: string }
   | { type: "copy" }
@@ -64,6 +65,8 @@ export function parseLine(line: string): Slash {
       return { type: "compact" };
     case "doctor":
       return { type: "doctor" };
+    case "init":
+      return { type: "init" };
     case "fork":
     case "branch":
       return { type: "fork", arg: rest[0] };
@@ -114,8 +117,8 @@ export const HELP = [
   "",
   "  /help              this list",
   "  /new               start a new session",
-  "  /sessions          list sessions",
-  "  /resume <id>       continue a session",
+  "  /sessions          your recent conversations, numbered, with their first prompt",
+  "  /resume <n>        continue conversation n from /sessions (or /resume <id>); /resume alone lists them",
   "  /memory            show memory notes",
   "  /memory <note>     remember a note",
   "  /skills            skills and custom commands (yours, and this project's once you /skills trust them)",
@@ -137,6 +140,7 @@ export const HELP = [
   "  /copy              copy the last answer to the clipboard",
   "  /export            save this conversation to .harness/exports (md, or jsonl with every tool call)",
   "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",
+  "  /init              let the agent write a first AGENTS.md for this project (you approve the write)",
   "  /fork              copy this conversation into a new session and continue there; /fork 1 leaves out your last turn (try it another way)",
   "  /trust             review this folder's .aegis/settings.json; /trust yes uses its allow rules and plugins; /trust off",
   "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
