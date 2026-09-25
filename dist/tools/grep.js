@@ -52,16 +52,16 @@ export function globRegex(glob) {
     const clean = glob.replace(/^\.\//, "");
     return clean.includes("/") ? new RegExp(`^${globBody(clean.replace(/^\//, ""))}$`, FLAGS) : new RegExp(`(^|/)${globBody(clean)}$`, FLAGS);
 }
-/** The folder's .gitignore, simply: plain and glob patterns, "dir/" for folders, "!" re-includes. */
-async function loadIgnore(root) {
+/** One .gitignore's rules, simply: plain and glob patterns, "dir/" for folders, "!" re-includes. `base` = its folder. */
+async function readIgnore(dir, base) {
     let text = "";
     try {
-        text = await readFile(path.join(root, ".gitignore"), "utf8");
+        text = await readFile(path.join(dir, ".gitignore"), "utf8");
     }
     catch {
-        return () => false;
+        return [];
     }
-    const rules = text
+    return text
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter((line) => line && !line.startsWith("#"))
@@ -71,37 +71,42 @@ async function loadIgnore(root) {
         const dirOnly = pattern.endsWith("/");
         if (dirOnly)
             pattern = pattern.slice(0, -1);
-        // A "/" at the start or in the middle ties the pattern to the top of the folder (git's rule).
+        // A "/" at the start or in the middle ties the pattern to that .gitignore's folder (git's rule).
         const anchored = pattern.includes("/");
         pattern = pattern.replace(/^\//, "");
         const regex = anchored ? new RegExp(`^${globBody(pattern)}$`, FLAGS) : new RegExp(`(^|/)${globBody(pattern)}$`, FLAGS);
-        return { negate, dirOnly, regex };
+        return { base, negate, dirOnly, regex };
     });
-    return (relative, isDir) => {
-        let ignored = false;
-        for (const rule of rules) {
-            if (rule.dirOnly && !isDir)
-                continue;
-            if (rule.regex.test(relative))
-                ignored = !rule.negate;
-        }
-        return ignored;
-    };
+}
+/** Git's order: rules from the top folder first, deeper .gitignore files later (so they win); last match decides. */
+function isIgnored(rules, relative, isDir) {
+    let ignored = false;
+    for (const rule of rules) {
+        if (rule.dirOnly && !isDir)
+            continue;
+        if (rule.base && !relative.startsWith(`${rule.base}/`))
+            continue;
+        const local = rule.base ? relative.slice(rule.base.length + 1) : relative;
+        if (rule.regex.test(local))
+            ignored = !rule.negate;
+    }
+    return ignored;
 }
 /** Files under root (links followed only inside it), minus SKIP and .gitignore. */
 export async function walkFiles(root, limit = 20_000, stats) {
-    const ignored = await loadIgnore(root);
     const out = [];
     // Real folders already walked: a link back to a parent (a repo can ship "self -> .") must not loop forever.
     const seenDirs = new Set();
     const seenFiles = new Set();
-    const visit = async (dir) => {
+    const visit = async (dir, rel, inherited) => {
         if (out.length >= limit)
             return;
         const realDir = await realpath(dir).catch(() => dir);
         if (seenDirs.has(realDir))
             return;
         seenDirs.add(realDir);
+        // This folder's own .gitignore applies below it, after (and so over) its parents' rules.
+        const rules = [...inherited, ...(await readIgnore(dir, rel))];
         let entries;
         try {
             entries = await readdir(dir, { withFileTypes: true });
@@ -128,10 +133,10 @@ export async function walkFiles(root, limit = 20_000, stats) {
             if (!info)
                 continue;
             const relative = path.relative(root, full).split(path.sep).join("/");
-            if (ignored(relative, info.isDirectory()))
+            if (isIgnored(rules, relative, info.isDirectory()))
                 continue;
             if (info.isDirectory())
-                await visit(real);
+                await visit(real, relative, rules);
             else if (info.isFile() && !seenFiles.has(real)) {
                 seenFiles.add(real);
                 // Secrets files are not searched as part of a folder; naming one (grep x .env) is asked about instead.
@@ -143,7 +148,7 @@ export async function walkFiles(root, limit = 20_000, stats) {
             }
         }
     };
-    await visit(root);
+    await visit(root, "", []);
     return out;
 }
 async function looksBinary(file) {

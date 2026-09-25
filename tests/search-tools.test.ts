@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { globPath, grepPath } from "../src/tools/grep.ts";
+import { globPath, grepPath, walkFiles } from "../src/tools/grep.ts";
 import { readPath } from "../src/tools/read.ts";
 
 async function project() {
@@ -73,5 +73,23 @@ describe("paths shown from the real folder", () => {
     }
     expect(await grepPath("beta", ".", alias)).toBe("src/a.ts:2:const beta = 2;");
     expect((await globPath("**/*.ts", ".", alias)).split("\n").sort()).toEqual(["src/a.ts", "src/deep/b.ts"]);
+  });
+});
+
+describe("nested .gitignore files", () => {
+  it("a subfolder's .gitignore applies below it and can re-include what a parent ignored", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-nested-ignore-"));
+    await mkdir(path.join(cwd, "pkg", "gen"), { recursive: true });
+    await mkdir(path.join(cwd, "other"), { recursive: true });
+    await writeFile(path.join(cwd, ".gitignore"), "*.snap\n");
+    await writeFile(path.join(cwd, "pkg", ".gitignore"), "gen/\n!keep.snap\n/local.txt\n");
+    await writeFile(path.join(cwd, "pkg", "gen", "x.ts"), "hit\n");
+    await writeFile(path.join(cwd, "pkg", "keep.snap"), "hit\n");
+    await writeFile(path.join(cwd, "pkg", "drop.snap"), "hit\n");
+    await writeFile(path.join(cwd, "pkg", "local.txt"), "hit\n");
+    await writeFile(path.join(cwd, "pkg", "a.ts"), "hit\n");
+    await writeFile(path.join(cwd, "other", "local.txt"), "hit\n");
+    const files = (await walkFiles(cwd)).map((f) => f.relative).sort();
+    expect(files).toEqual([".gitignore", "other/local.txt", "pkg/.gitignore", "pkg/a.ts", "pkg/keep.snap"]);
   });
 });

@@ -198,4 +198,5 @@
     - `!cmd` output is redacted before it joins the chat.
     - The overwrite diff uses real paths.
     - `/resume <n>` uses the list `/sessions` showed.
-  - Still true (documented): in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot redact it. Nested `.gitignore` files are not read.
+  - Still true (documented): in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot redact it. (Nested `.gitignore` files are now read too; see below.)
+- Nested `.gitignore` files: every folder's `.gitignore` applies below that folder, after its parents' rules, so it can re-include with `!`. Anchored patterns (`/local.txt`, `gen/x`) are relative to their own folder, as in git. `.git/info/exclude` and `core.excludesFile` are still not read.
