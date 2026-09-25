@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
 import { redactSecrets } from "./redact.ts";
-import { settingsPath } from "./rules.ts";
+import { projectKey, settingsPath } from "./rules.ts";
 import { NO_CWD_SEARCH_ENV, programPath } from "./which.ts";
 
 /**
@@ -82,8 +82,8 @@ function trustKey(cwd: string, name: string, server: McpServerConfig) {
     .update(
       JSON.stringify(
         server.url
-          ? [path.resolve(cwd), name, "url", server.url, server.headers ?? {}]
-          : [path.resolve(cwd), name, server.command, server.args ?? [], server.env ?? {}, server.cwd ?? ""],
+          ? [projectKey(cwd), name, "url", server.url, server.headers ?? {}]
+          : [projectKey(cwd), name, server.command, server.args ?? [], server.env ?? {}, server.cwd ?? ""],
       ),
     )
     .digest("hex");

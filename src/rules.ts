@@ -328,7 +328,7 @@ export function setProjectTrust(cwd: string, hash: string | undefined) {
 function updateYours(cwd: string, change: (raw: Record<string, unknown>) => void) {
   const file = yourSettingsPath(cwd);
   const raw = readYours(cwd) ?? {};
-  raw.project = path.resolve(cwd); // for people reading the file
+  raw.project = mainCheckoutOf(cwd) ?? path.resolve(cwd); // for people reading the file (a worktree's is its main checkout)
   change(raw);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, "utf8");

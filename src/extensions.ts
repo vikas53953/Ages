@@ -16,6 +16,7 @@ import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
+import { projectKey } from "./rules.ts";
 
 export type Scope = "user" | "project";
 export type SkillEntry = {
@@ -147,7 +148,7 @@ async function scanCommands(cwd: string) {
   for (const root of roots(cwd).commands) {
     let names: string[] = [];
     try {
-      names = (await readdir(root.dir)).filter((name) => name.endsWith(".md")).sort();
+      names = (await readdir(root.dir)).filter((name) => /\.md$/i.test(name)).sort();
     } catch {
       continue;
     }
@@ -177,7 +178,7 @@ async function scanAgents(cwd: string) {
   for (const root of roots(cwd).agents) {
     let names: string[] = [];
     try {
-      names = (await readdir(root.dir)).filter((name) => name.endsWith(".md")).sort();
+      names = (await readdir(root.dir)).filter((name) => /\.md$/i.test(name)).sort();
     } catch {
       continue;
     }
@@ -232,7 +233,8 @@ function trustFile() {
 
 /** One hash over every project skill and command file (path + content): change anything and trust is gone. */
 async function projectFingerprint(skills: SkillEntry[], commands: CommandEntry[], cwd: string, agents: AgentEntry[] = []) {
-  const hash = createHash("sha256").update(path.resolve(cwd));
+  // Keyed by the project (a worktree is its main checkout), so trust given in one applies in the other.
+  const hash = createHash("sha256").update(projectKey(cwd));
   const skillFiles: string[] = [];
   for (const skill of skills.filter((row) => row.scope === "project")) {
     skillFiles.push(skill.file, ...(await listFiles(skill.dir, 200)).map((file) => path.join(skill.dir, file)));
@@ -271,7 +273,7 @@ export async function loadExtensions(cwd: string): Promise<Extensions> {
   const commands = await scanCommands(cwd);
   const agents = await scanAgents(cwd);
   const print = await projectFingerprint(skills, commands, cwd, agents);
-  const trusted = print.count > 0 && readTrust()[path.resolve(cwd)] === print.hash;
+  const trusted = print.count > 0 && readTrust()[projectKey(cwd)] === print.hash;
   const usable = (scope: Scope) => scope === "user" || trusted;
   const pick = <T extends { name: string; scope: Scope }>(rows: T[]) => {
     const seen = new Set<string>();
@@ -287,7 +289,7 @@ export async function trustProjectExtensions(cwd: string) {
   const print = await projectFingerprint(await scanSkills(cwd), await scanCommands(cwd), cwd, await scanAgents(cwd));
   if (!print.count) return 0;
   const trust = readTrust();
-  trust[path.resolve(cwd)] = print.hash;
+  trust[projectKey(cwd)] = print.hash;
   mkdirSync(path.dirname(trustFile()), { recursive: true });
   writeFileSync(trustFile(), `${JSON.stringify(trust, null, 2)}\n`);
   return print.count;

@@ -163,3 +163,25 @@ describe("custom agents: review fixes", () => {
     expect(result.receipt?.tools[1]?.via).toBeUndefined();
   });
 });
+
+describe("cross-feature review fixes", () => {
+  it("a worktree shares the project's /skills trust; agent files may be .MD", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { openWorktree } = await import("../src/worktree.ts");
+    const base = await mkdtemp(path.join(os.tmpdir(), "aegis-agents-wt-"));
+    const repo = path.join(base, "app");
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    await mkdir(path.join(repo, ".aegis", "agents"), { recursive: true });
+    await writeFile(path.join(repo, ".aegis", "agents", "Checker.MD"), "---\nname: checker\ndescription: checks\n---\nCheck things.\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "agents");
+    await trustProjectExtensions(repo);
+    expect((await loadExtensions(repo)).agents.map((a) => a.name)).toContain("checker");
+    const wt = await openWorktree(repo, "wt");
+    const inWorktree = await loadExtensions(wt.path);
+    expect(inWorktree.untrustedProject).toBe(0);
+    expect(inWorktree.agents.map((a) => a.name)).toContain("checker");
+  }, 60_000);
+});

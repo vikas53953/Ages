@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.js";
 import { redactSecrets } from "./redact.js";
-import { settingsPath } from "./rules.js";
+import { projectKey, settingsPath } from "./rules.js";
 import { NO_CWD_SEARCH_ENV, programPath } from "./which.js";
 const PROTOCOL = "2025-06-18";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -54,8 +54,8 @@ function trustFile() {
 function trustKey(cwd, name, server) {
     const hash = createHash("sha256")
         .update(JSON.stringify(server.url
-        ? [path.resolve(cwd), name, "url", server.url, server.headers ?? {}]
-        : [path.resolve(cwd), name, server.command, server.args ?? [], server.env ?? {}, server.cwd ?? ""]))
+        ? [projectKey(cwd), name, "url", server.url, server.headers ?? {}]
+        : [projectKey(cwd), name, server.command, server.args ?? [], server.env ?? {}, server.cwd ?? ""]))
         .digest("hex");
     return hash.slice(0, 32);
 }

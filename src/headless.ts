@@ -53,6 +53,7 @@ export async function runHeadless(input: {
       approved: tool.approved,
       decidedBy: tool.rule ? `rule ${tool.rule}` : tool.source,
       reason: tool.deniedReason,
+      ...(tool.via ? { agent: tool.via } : {}),
     }));
     const denied = tools.filter((tool) => !tool.approved).length;
     if (input.json) {

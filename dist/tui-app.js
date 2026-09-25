@@ -366,7 +366,7 @@ export async function createTuiApp(opts, input = {}) {
             const record = event.record;
             const key = `${record.name}\u0000${record.target ?? ""}`;
             const item = [...log].reverse().find((row) => row.role === "tool" && row.status === "pending" && row.key === key);
-            const decidedBy = record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`;
+            const decidedBy = `${record.via ? `agent ${record.via} · ` : ""}${record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`}`;
             const detail = record.approved
                 ? record.savedRule
                     ? `you: always allow · saved rule ${record.savedRule}`

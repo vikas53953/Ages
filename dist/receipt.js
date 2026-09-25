@@ -35,7 +35,8 @@ export function formatReceipt(receipt) {
             .map((tool) => {
             const deny = tool.deniedReason ? `  ${tool.deniedReason}` : "";
             const via = tool.source ? `  via ${tool.source}${tool.rule ? ` "${tool.rule}"` : ""}` : "";
-            return `  ${tool.name}  ${tool.class}  data_loss=${tool.dataLoss.toFixed(2)}  ${tool.action}  ${tool.approved ? "ran" : "denied"}${via}${deny}`;
+            const agent = tool.via ? `  (agent ${tool.via})` : "";
+            return `  ${tool.name}${agent}  ${tool.class}  data_loss=${tool.dataLoss.toFixed(2)}  ${tool.action}  ${tool.approved ? "ran" : "denied"}${via}${deny}`;
         })
             .join("\n")
         : "  (none)";

@@ -382,3 +382,9 @@
     - The question shows the task on one line, so it cannot draw fake lines.
     - Each tool record an agent made carries `via: <agent>`.
 - Test timeouts on Windows are 30 s (vitest.config.ts). The Windows runners start git, PowerShell and node slowly, and the files run in parallel: `/review`, worktree and headless tests that take 0.3 s on Linux have each passed 5 s there once under load. A real hang is still caught. Linux keeps 5 s.
+- Fixes from the final cross-feature review. It found no P0–P2: every combination it drove held, including agents with hooks and multi_edit, `-p` with agents and websearch, redaction of every new output, and Studio escaping.
+  - Worktrees now share `/skills trust` (skills, commands, agents) and `/mcp trust` with their main checkout. Both are keyed by the project, like `/trust` already was. MCP trust given before tonight is asked for once more.
+  - `/rules remove` from a worktree no longer relabels your settings file with the worktree's path.
+  - An agent on a model that can see images gets the image from `read`, as the main loop does.
+  - The agent that made a call is shown in the TUI tool line, in the receipt line and in `-p --json` (`agent`).
+  - Agent and command files may be `.MD`.
