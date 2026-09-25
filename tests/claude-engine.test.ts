@@ -106,6 +106,19 @@ describe("claude-code engine", () => {
     expect(result.receipt?.tools[0]).toMatchObject({ name: "shell", approved: false });
   });
 
+  it("files Claude Code writes can be rewound", async () => {
+    const { cwd, state, opts } = await project();
+    await handleLine("/model claude-code", state, opts);
+    await handleLine("add a ping script", state, opts, async () => true);
+    expect(existsSync(path.join(cwd, "scripts", "ping.ps1"))).toBe(true);
+    expect((await handleLine("/rewind", state, opts)).output).toContain("add a ping script");
+    const rewound = await handleLine("/rewind 1", state, opts);
+    expect(rewound.output).toContain("removed");
+    expect(existsSync(path.join(cwd, "scripts", "ping.ps1"))).toBe(false);
+    // The chat rewind also starts a fresh Claude conversation.
+    expect(existsSync(path.join(sessionDir(cwd, state.session.id), "claude-session"))).toBe(false);
+  });
+
   it("shell stays off unless AEGIS_ALLOW_SHELL=1, even for Claude Code, without asking", async () => {
     delete process.env.AEGIS_ALLOW_SHELL;
     const { cwd, state, opts } = await project();

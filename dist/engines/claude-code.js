@@ -177,6 +177,9 @@ export async function runClaudeCodeTurn(input) {
             tools.push(run.record);
             input.onEvent?.({ type: "tool", record: run.record });
             const allowed = run.record.approved && !turnAbort.signal.aborted;
+            if (allowed && (mapped.name === "write" || mapped.name === "edit") && typeof mapped.args.path === "string") {
+                await input.checkpoint?.(path.resolve(input.cwd, mapped.args.path));
+            }
             return reply(200, {
                 decision: allowed ? "allow" : "deny",
                 reason: allowed

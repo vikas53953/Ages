@@ -1,9 +1,11 @@
+import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.js";
 import { formatReceipt, localGenerate, runLoop } from "./loop.js";
 import { formatChat, formatTokenLine } from "./receipt.js";
 import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.js";
 import { loadCredential, saveCredential } from "./auth/store.js";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.js";
+import { rewindPoints, rewindTo, snapshotFile } from "./checkpoints.js";
 import { openUrl } from "./open-url.js";
 import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
@@ -185,6 +187,7 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
+    const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
     onEvent?.({ type: "accepted" });
     const receipt = claudeEngine
         ? await runClaudeCodeTurn({
@@ -196,6 +199,7 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
             plugins: state.plugins,
             onEvent,
             abortSignal: opts.abortSignal,
+            checkpoint,
             appendSystem: [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts].filter(Boolean).join("\n\n") || undefined,
         })
         : await runLoop({
@@ -216,6 +220,7 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
             abortSignal: opts.abortSignal,
             onEvent,
             thinking: thinkingOf(loadedSettings.settings).level,
+            checkpoint,
         });
     if (receipt.tokens) {
         state.sessionTokens.input += receipt.tokens.input;
@@ -353,6 +358,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             };
         }
     }
+    if (cmd.type === "rewind")
+        return rewindCommand(cmd.arg, cmd.what, state);
     if (cmd.type === "theme") {
         if (!cmd.name)
             return { output: `theme  ${themeName()}   (${THEME_NAMES.join(" · ")})`, session: state.session };
@@ -467,6 +474,49 @@ function findPluginCommand(plugins, line) {
  * You typed it, so no rule or Jev check applies. The output goes into the conversation so the model sees it;
  * "!!dir" runs it without adding it. AEGIS_ALLOW_SHELL only limits the model's shell tool.
  */
+/** /rewind: list restore points, or put files and/or the conversation back to before a turn. */
+async function rewindCommand(arg, what, state) {
+    const points = await rewindPoints(state.cwd, state.session.id);
+    const short = (file) => path.relative(state.cwd, file) || file;
+    if (!arg) {
+        if (!points.length)
+            return { output: "No restore points yet. Aegis keeps a file before each write or edit you allow.", session: state.session };
+        return {
+            output: [
+                "Restore points (newest first). /rewind <n> puts files and chat back to before that turn;",
+                "add 'files' or 'chat' to rewind just one. Shell commands are not undone.",
+                ...points.slice(0, 15).map((point, index) => {
+                    const files = point.files.map(short);
+                    return `  ${String(index + 1).padStart(2)}  ${point.turnAt.slice(11, 19)}  "${point.prompt.slice(0, 50)}"  ${files.slice(0, 3).join(", ")}${files.length > 3 ? ` +${files.length - 3}` : ""}`;
+                }),
+            ].join("\n"),
+            session: state.session,
+        };
+    }
+    const index = Number(arg) - 1;
+    const point = Number.isInteger(index) ? points[index] : undefined;
+    if (!point)
+        return { output: `usage: /rewind <1-${points.length || 1}> [files|chat]   (/rewind lists them)`, session: state.session };
+    if (what && what !== "files" && what !== "chat" && what !== "both") {
+        return { output: "usage: /rewind <n> [files|chat]", session: state.session };
+    }
+    const done = await rewindTo(state.cwd, state.session.id, point.turnAt, {
+        files: what !== "chat",
+        chat: what !== "files",
+    });
+    return {
+        output: [
+            `Rewound to before "${point.prompt.slice(0, 60)}".`,
+            done.restored.length ? `  restored  ${done.restored.map(short).join(", ")}` : "",
+            done.removed.length ? `  removed   ${done.removed.map(short).join(", ")} (did not exist before)` : "",
+            done.skipped.length ? `  not kept (too large): ${done.skipped.map(short).join(", ")}` : "",
+            what !== "files" ? `  conversation: ${done.messagesDropped} message(s) dropped` : "",
+        ]
+            .filter(Boolean)
+            .join("\n"),
+        session: state.session,
+    };
+}
 /** /login chatgpt [browser]: sign in with a ChatGPT plan (device code by default). /logout chatgpt forgets it. */
 async function chatgptLogin(kind, method, state, opts, onEvent) {
     if (kind === "logout") {

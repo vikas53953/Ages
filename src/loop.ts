@@ -1,3 +1,4 @@
+import { lexicalInsideCwd } from "./env.ts";
 import { stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.ts";
@@ -69,7 +70,19 @@ export function createTools(input: {
   settings?: Settings;
   /** Set when .aegis/settings.json could not be read: no "always allow" is offered. */
   settingsError?: string;
+  /** Keep a file as it is before an approved write or edit changes it (/rewind). */
+  checkpoint?: (absolutePath: string) => Promise<void>;
 }) {
+  const keep = async (filePath: string) => {
+    if (!input.checkpoint) return;
+    let absolute: string;
+    try {
+      absolute = lexicalInsideCwd(filePath, input.cwd);
+    } catch {
+      return; // the tool itself refuses paths outside the folder
+    }
+    await input.checkpoint(absolute);
+  };
   const confirm = serializeConfirm(input.confirm);
   const gate = (name: string, args: JsonObject, execute: () => Promise<string>) => {
     if (input.stop?.reason) {
@@ -116,9 +129,10 @@ export function createTools(input: {
         contents: z.string(),
       }),
       execute: async ({ path: filePath, contents }) =>
-        gate("write", { path: filePath, contents }, () =>
-          writePath(filePath, contents, input.cwd),
-        ),
+        gate("write", { path: filePath, contents }, async () => {
+          await keep(filePath);
+          return writePath(filePath, contents, input.cwd);
+        }),
     }),
     edit: tool({
       description:
@@ -129,9 +143,10 @@ export function createTools(input: {
         new_string: z.string(),
       }),
       execute: async ({ path: filePath, old_string, new_string }) =>
-        gate("edit", { path: filePath, old_string, new_string }, () =>
-          editPath(filePath, old_string, new_string, input.cwd),
-        ),
+        gate("edit", { path: filePath, old_string, new_string }, async () => {
+          await keep(filePath);
+          return editPath(filePath, old_string, new_string, input.cwd);
+        }),
     }),
     grep: tool({
       description: "Search files under a relative path with a regex.",
@@ -304,6 +319,7 @@ export async function runLoop(input: {
   toolsCwd?: string;
   /** How hard the model should think this turn. */
   thinking?: ThinkingLevel;
+  checkpoint?: (absolutePath: string) => Promise<void>;
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -361,6 +377,7 @@ export async function runLoop(input: {
     onEvent: input.onEvent,
     settings,
     settingsError: loadedSettings.error,
+    checkpoint: input.checkpoint,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });

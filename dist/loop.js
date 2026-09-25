@@ -1,3 +1,4 @@
+import { lexicalInsideCwd } from "./env.js";
 import { stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.js";
@@ -18,6 +19,18 @@ import { reasoningOptions } from "./thinking.js";
 import { loadSettingsSafe } from "./rules.js";
 import { messageText, repairHistory } from "./session.js";
 export function createTools(input) {
+    const keep = async (filePath) => {
+        if (!input.checkpoint)
+            return;
+        let absolute;
+        try {
+            absolute = lexicalInsideCwd(filePath, input.cwd);
+        }
+        catch {
+            return; // the tool itself refuses paths outside the folder
+        }
+        await input.checkpoint(absolute);
+    };
     const confirm = serializeConfirm(input.confirm);
     const gate = (name, args, execute) => {
         if (input.stop?.reason) {
@@ -59,7 +72,10 @@ export function createTools(input) {
                 path: z.string(),
                 contents: z.string(),
             }),
-            execute: async ({ path: filePath, contents }) => gate("write", { path: filePath, contents }, () => writePath(filePath, contents, input.cwd)),
+            execute: async ({ path: filePath, contents }) => gate("write", { path: filePath, contents }, async () => {
+                await keep(filePath);
+                return writePath(filePath, contents, input.cwd);
+            }),
         }),
         edit: tool({
             description: "Replace one unique string in an existing file. Prefer this over write when changing a file.",
@@ -68,7 +84,10 @@ export function createTools(input) {
                 old_string: z.string(),
                 new_string: z.string(),
             }),
-            execute: async ({ path: filePath, old_string, new_string }) => gate("edit", { path: filePath, old_string, new_string }, () => editPath(filePath, old_string, new_string, input.cwd)),
+            execute: async ({ path: filePath, old_string, new_string }) => gate("edit", { path: filePath, old_string, new_string }, async () => {
+                await keep(filePath);
+                return editPath(filePath, old_string, new_string, input.cwd);
+            }),
         }),
         grep: tool({
             description: "Search files under a relative path with a regex.",
@@ -251,6 +270,7 @@ export async function runLoop(input) {
         onEvent: input.onEvent,
         settings,
         settingsError: loadedSettings.error,
+        checkpoint: input.checkpoint,
         onTool: (record) => {
             toolsUsed.push(record);
             input.onEvent?.({ type: "tool", record });
