@@ -242,3 +242,6 @@
     - Code context decides: a bare word before `,` `;` `)` is a variable, while outside code (YAML, .properties, .env) a plain word is a value, unless it is a PascalCase type, a CONST_NAME or a camelCase word. `api-key:`, `password: correcthorsebatterystaple`, `secretKey: Sup3rS3cret9` and `apiKey: SUPERSECRETVALUE` are caught again.
     - New: quoted values with spaces or `#`, `Basic` auth, and PowerShell `$password = "…"`.
     - Left alone: `session?.token`, Windows and `~` paths, YAML aliases and tags, versions, IPs, and `.env.example` placeholders (`changeme`, `your-…`, `replace-me`).
+- `aegis --worktree[=name]` (Claude Code's `--worktree`): a separate git worktree at `<repo>.worktrees/<name>` on branch `aegis/<name>`, reused when the name comes again. Aegis `chdir`s into it before anything else, so tools, rules, sessions and restore points all live there, and your checkout is untouched until you merge.
+  - The checkout uses the hardened git from `/review`, with the repo's filter drivers blanked and hooks off, so a cloned repo's smudge filter or post-checkout hook cannot run. The test includes a control where plain `git worktree add` does run it. The trade-off is that Git LFS files stay pointers; `git lfs pull` fetches them.
+  - Names are limited to letters, digits and `._-`, and cannot start with `-` or contain `..`.

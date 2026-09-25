@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { defaultWorktreeName, openWorktree } from "./worktree.js";
 import { createInterface } from "node:readline/promises";
 import { headlessPrompt, runHeadless } from "./headless.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
@@ -20,8 +21,13 @@ export function parseArgs(argv) {
     let port;
     const allow = [];
     const deny = [];
+    let worktree;
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i] ?? "";
+        if (arg === "--worktree" || arg.startsWith("--worktree=")) {
+            worktree = arg.includes("=") ? arg.slice("--worktree=".length) : defaultWorktreeName();
+            continue;
+        }
         if (arg === "--allow" || arg === "--deny") {
             const rule = argv[i + 1];
             if (!rule)
@@ -68,6 +74,7 @@ export function parseArgs(argv) {
         trustProject: flags.has("--trust-project"),
         allow,
         deny,
+        worktree,
         model,
         prompt: rest.join(" ").trim(),
     };
@@ -92,6 +99,7 @@ function help() {
         "       --stdin          with -p and a task: also read stdin (without a task, stdin is the task)",
         "       --allow <rule>   with -p: allow this for this run only, e.g. --allow \"shell npm test\" (repeatable)",
         "       --deny <rule>    deny this for this run only (repeatable)",
+        "       --worktree[=name] work in a separate git worktree on branch aegis/<name>; your checkout stays untouched",
         "       --trust-project  use this folder's .aegis/settings.json allow rules without /trust (CI you control)",
         "       --yes            with -p: approve every question (dangerous: only rules you trust should decide)",
         "       -v, --version    print the version",
@@ -210,6 +218,12 @@ export async function main() {
     // Rules for this run only (like Claude Code's --allowedTools); never saved, and the floor still wins.
     if (args.allow.length || args.deny.length)
         process.env.AEGIS_RUN_RULES = JSON.stringify({ allow: args.allow, deny: args.deny });
+    if (args.worktree) {
+        // Everything after this runs in the worktree: tools, rules, sessions, restore points.
+        const opened = await openWorktree(process.cwd(), args.worktree);
+        process.chdir(opened.path);
+        console.error(`${opened.created ? "Created" : "Using"} worktree ${opened.path} (branch ${opened.branch}). Your checkout is untouched; merge the branch when you are happy with it.`);
+    }
     loadEnv();
     if (args.help) {
         console.log(help());

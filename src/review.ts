@@ -52,7 +52,7 @@ export async function git(cwd: string, args: string[], extraConfig: string[] = [
  * A repo's .gitattributes can send files through a "clean" filter program from its .git/config when the working
  * tree is diffed. Reading config runs nothing, so list the repo's filter drivers and blank each one's commands.
  */
-async function filterOverrides(cwd: string) {
+export async function filterOverrides(cwd: string) {
   let listed = "";
   try {
     listed = await git(cwd, ["config", "--get-regexp", "^filter\\."]);
