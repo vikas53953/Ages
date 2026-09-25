@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Aegis — the agent you own. Jev locks spend and danger.",
+  "description": "Aegis \u2014 the agent you own. Jev locks spend and danger.",
   "bin": {
     "aegis": "./bin/aegis.mjs",
     "harness": "./bin/harness.mjs"
@@ -13,7 +13,8 @@
     "harness": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:windows": "tsx scripts/windows-check.ts"
   },
   "engines": {
     "node": ">=22.19.0"

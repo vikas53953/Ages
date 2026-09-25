@@ -1,0 +1,43 @@
+# Runs the full Aegis check on a real Windows machine with real PowerShell.
+# Replaces the manual Windows test list: typecheck, the Vitest suite, and scripts/windows-check.ts.
+# Add an OPENCODE_API_KEY repository secret to also run the live-model checks.
+name: windows-check
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Vitest suite
+        run: npm test
+      - name: End-to-end checks (slices 1-4)
+        if: always()
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: npm run check:windows
+      - name: Report to job summary
+        if: always()
+        shell: pwsh
+        run: if (Test-Path windows-check-report.md) { Get-Content windows-check-report.md | Add-Content $env:GITHUB_STEP_SUMMARY }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-check-report
+          path: windows-check-report.md
+          if-no-files-found: ignore
