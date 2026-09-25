@@ -342,3 +342,11 @@
     - `${NAME}` in a header reads your environment only for servers in your own settings. A project's headers are sent exactly as written, so a cloned repo cannot pull your secrets into a request to its URL.
     - A project's URL server still waits for `/mcp trust`. The trust covers the URL and headers, so changing either asks again.
   - Its tools are `mcp__server__tool` and pass the lock like every other MCP tool.
+- Fixes from the review of HTTP MCP and `/search`:
+  - P2: a token with a line break made fetch quote the whole header value in its error, which `/mcp` then showed. Header values are now checked first (line break or NUL means a clear error naming the header only), and every failure status passes secret redaction. An unset `${NAME}` is an error instead of sending "Bearer ".
+  - P2: a `/search` snippet could cut a key so its pattern no longer matched. Each message is now redacted before the snippet is taken. `/search` also streams each file and parses only lines that contain the text.
+  - P3:
+    - A server request that reuses the request's id is not taken as the answer.
+    - A last event with no blank line after it is read.
+    - An empty answer and an ended session (404 → "/mcp restart") get clear messages.
+    - The branch reader opens HEAD without blocking and checks the open file, so a pipe swapped in after the check cannot hang it.

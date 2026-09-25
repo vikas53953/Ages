@@ -2,7 +2,7 @@
  * The current git branch for the footer, read from .git/HEAD (like Pi's footer). No git program runs: a
  * repository's config cannot make this execute anything, and it costs one small file read.
  */
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 /**
  * A small regular file's text, or undefined. Checked before opening: a named pipe called HEAD would block a
@@ -10,11 +10,12 @@ import path from "node:path";
  */
 function smallFile(file, limit = 4096) {
     try {
-        const info = statSync(file);
-        if (!info.isFile() || info.size > limit)
-            return undefined;
-        const fd = openSync(file, "r");
+        // Opened without blocking and checked on the open file: a pipe swapped in after a check cannot hang the read.
+        const fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
         try {
+            const info = fstatSync(fd);
+            if (!info.isFile() || info.size > limit)
+                return undefined;
             const buf = Buffer.alloc(limit);
             const length = readSync(fd, buf, 0, limit, 0);
             return buf.subarray(0, length).toString("utf8");

@@ -1,5 +1,8 @@
 import { appendFile, mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+import { redactSecrets } from "./redact.ts";
 import { randomUUID } from "node:crypto";
 
 /** One piece of a model message: text, a tool call, or a tool result. Stored as the model API sent it. */
@@ -240,7 +243,11 @@ export async function recentSessions(cwd: string, limit = 3, skipId?: string) {
   return out;
 }
 
-/** Newest-first conversations whose text (your messages and the answers) contains `query`, with one line around the first hit. */
+/**
+ * Newest-first conversations whose text (your messages and the answers) contains `query`, with the line around
+ * the first hit. Each file is streamed line by line, and only lines that contain the text are parsed, so big
+ * sessions stay cheap. Text is redacted before it is cut, so a snippet cannot show part of a key.
+ */
 export async function searchSessions(cwd: string, query: string, limit = 15, scan = 200) {
   const needle = query.toLowerCase();
   const out: { id: string; when: string; text: string; hit: string }[] = [];
@@ -248,21 +255,37 @@ export async function searchSessions(cwd: string, query: string, limit = 15, sca
   for (const id of await listSessions(cwd)) {
     if (out.length >= limit || scanned >= scan) break;
     scanned += 1;
-    const rows = await loadMessages(cwd, id);
-    const first = rows.find((row) => row.role === "user" && messageText(row).trim());
-    if (!first) continue;
-    for (const row of rows) {
-      if (row.role === "tool") continue;
-      const text = messageText(row).replace(/\s+/g, " ");
-      const at = text.toLowerCase().indexOf(needle);
-      if (at < 0) continue;
-      const start = Math.max(0, at - 40);
-      const hit = `${start > 0 ? "…" : ""}${text.slice(start, at + needle.length + 60)}${at + needle.length + 60 < text.length ? "…" : ""}`;
-      const date = new Date(first.at);
-      const when = Number.isNaN(date.getTime()) ? id.slice(0, 10) : `${date.toISOString().slice(5, 10)} ${date.toTimeString().slice(0, 5)}`;
-      out.push({ id, when, text: messageText(first).replace(/\s+/g, " ").trim(), hit });
-      break;
+    let first: ChatMessage | undefined;
+    let hit: string | undefined;
+    const lines = createInterface({ input: createReadStream(path.join(sessionDir(cwd, id), "messages.jsonl"), { encoding: "utf8" }), crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        const wantFirst = !first && line.includes('"role":"user"');
+        if (!wantFirst && !line.toLowerCase().includes(needle)) continue;
+        let row: ChatMessage;
+        try {
+          row = JSON.parse(line) as ChatMessage;
+        } catch {
+          continue;
+        }
+        if (!first && row.role === "user" && messageText(row).trim()) first = row;
+        if (row.role === "tool") continue;
+        const text = redactSecrets(messageText(row)).text.replace(/\s+/g, " ");
+        const at = text.toLowerCase().indexOf(needle);
+        if (at < 0) continue;
+        const start = Math.max(0, at - 40);
+        hit = `${start > 0 ? "…" : ""}${text.slice(start, at + needle.length + 60)}${at + needle.length + 60 < text.length ? "…" : ""}`;
+        if (first) break;
+      }
+    } catch {
+      continue; // no messages file
+    } finally {
+      lines.close();
     }
+    if (!first || hit === undefined) continue;
+    const date = new Date(first.at);
+    const when = Number.isNaN(date.getTime()) ? id.slice(0, 10) : `${date.toISOString().slice(5, 10)} ${date.toTimeString().slice(0, 5)}`;
+    out.push({ id, when, text: redactSecrets(messageText(first)).text.replace(/\s+/g, " ").trim(), hit });
   }
   return out;
 }

@@ -63,3 +63,12 @@ describe("git branch: review fixes", () => {
     expect(gitBranch(cwd)).toBeUndefined();
   });
 });
+
+describe("git branch: no blocking open", () => {
+  it("still reads a normal HEAD after the non-blocking open", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-head-nb-"));
+    await mkdir(path.join(cwd, ".git"));
+    await writeFile(path.join(cwd, ".git", "HEAD"), "ref: refs/heads/dev\n");
+    expect(gitBranch(cwd)).toBe("dev");
+  });
+});

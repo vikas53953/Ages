@@ -27,3 +27,17 @@ describe("/search", () => {
     expect(await run("/search nothing-like-this")).toContain("No conversation here mentions");
   });
 });
+
+describe("/search: review fixes", () => {
+  it("a snippet cannot show part of a key (redacted before it is cut)", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-search-secret-"));
+    const s = await createSession(cwd);
+    await appendMessage(cwd, s.id, { role: "user", content: "check the token", at: "2026-09-20T10:00:00.000Z" });
+    const token = `ghp_${"a".repeat(40)}`;
+    await appendMessage(cwd, s.id, { role: "assistant", content: `${token} needle-here`, at: "2026-09-20T10:01:00.000Z" });
+    const state = await startState(cwd, { local: true, mockJev: true });
+    const out = (await handleLine("/search needle-here", state, { mockJev: true, yes: false, local: true })).output ?? "";
+    expect(out).toContain("needle-here");
+    expect(out).not.toContain("aaaaaaaaaaaaaaaaaaaa");
+  });
+});

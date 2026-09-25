@@ -119,3 +119,52 @@ describe("MCP over HTTP", () => {
     closeMcp(state);
   });
 });
+
+describe("MCP over HTTP: review fixes", () => {
+  it("a header needing an unset variable, or holding a line break, fails without showing its value", () => {
+    delete process.env.NOT_SET_FOR_TEST;
+    expect(() => new McpHttpConnection("x", { url: "https://example.com/mcp", headers: { authorization: "Bearer ${NOT_SET_FOR_TEST}" } }, true)).toThrow(
+      "header authorization needs ${NOT_SET_FOR_TEST}, which is not set",
+    );
+    process.env.BROKEN_TOKEN = "sup3rsecret\ntrailing";
+    let message = "";
+    try {
+      new McpHttpConnection("x", { url: "https://example.com/mcp", headers: { authorization: "Bearer ${BROKEN_TOKEN}" } }, true);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("line break");
+    expect(message).not.toContain("sup3rsecret");
+  });
+
+  it("a server request that reuses the id is not taken as the answer; a last event without a blank line counts; an empty answer is clear", async () => {
+    const server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        const body = JSON.parse(raw) as { id?: number; method?: string };
+        if (body.id === undefined) return res.writeHead(202).end();
+        if (body.method === "initialize") {
+          res.writeHead(200, { "content-type": "application/json" });
+          return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-06-18" } }));
+        }
+        if (body.method === "tools/list") {
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id: body.id, method: "sampling/createMessage", params: {} })}\n\n`);
+          // The answer, with no blank line after it: the stream just ends.
+          return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { tools: [{ name: "t", inputSchema: { type: "object" } }] } })}`);
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    closers.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
+    const connection = new McpHttpConnection("s", { url }, true);
+    await connection.start();
+    expect((await connection.listTools()).map((tool) => tool.tool)).toEqual(["t"]);
+    await expect(connection.callTool("t", {})).rejects.toThrow("empty answer");
+    connection.close();
+  });
+});

@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
+import { redactSecrets } from "./redact.ts";
 import { settingsPath } from "./rules.ts";
 import { NO_CWD_SEARCH_ENV, programPath } from "./which.ts";
 
@@ -317,10 +318,19 @@ export function mcpUrlProblem(raw: string) {
 }
 
 /** ${NAME} in a header value → that environment variable (your own servers only; a project's are sent as written). */
-function expandHeaders(headers: Record<string, string> | undefined, expand: boolean) {
+function expandHeaders(serverName: string, headers: Record<string, string> | undefined, expand: boolean) {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers ?? {})) {
-    out[key] = expand ? value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => process.env[name] ?? "") : value;
+    const text = expand
+      ? value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
+          const found = process.env[name];
+          if (found === undefined || found === "") throw new Error(`MCP server ${serverName}: header ${key} needs \${${name}}, which is not set`);
+          return found;
+        })
+      : value;
+    // Checked here, so the error names the header and never repeats its value (a token) the way fetch would.
+    if (/[\r\n\0]/.test(text)) throw new Error(`MCP server ${serverName}: header ${key} has a line break or NUL in it`);
+    out[key] = text;
   }
   return out;
 }
@@ -343,7 +353,7 @@ export class McpHttpConnection extends McpClient {
     const problem = mcpUrlProblem(server.url ?? "");
     if (problem) throw new Error(`MCP server ${name}: the url ${problem}`);
     this.url = server.url!;
-    this.headers = expandHeaders(server.headers, expandEnv);
+    this.headers = expandHeaders(name, server.headers, expandEnv);
   }
 
   private post(body: object, signal: AbortSignal) {
@@ -374,7 +384,8 @@ export class McpHttpConnection extends McpClient {
       const response = await this.post({ jsonrpc: "2.0", id, method, params }, abort.signal);
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
-        throw new Error(`MCP server ${this.name}: HTTP ${response.status} for ${method}`);
+        const expired = response.status === 404 && this.session && method !== "initialize";
+        throw new Error(`MCP server ${this.name}: HTTP ${response.status} for ${method}${expired ? " (its session ended; /mcp restart starts a new one)" : ""}`);
       }
       if (method === "initialize") this.session = response.headers.get("mcp-session-id") ?? undefined;
       const message = await this.answer(response, id);
@@ -405,7 +416,8 @@ export class McpHttpConnection extends McpClient {
     let bytes = 0;
     const pick = (value: unknown) => {
       const list = Array.isArray(value) ? value : [value];
-      return list.find((item) => item && typeof item === "object" && (item as { id?: unknown }).id === id) as
+      // An answer, not a request from the server that happens to use the same id.
+      return list.find((item) => item && typeof item === "object" && (item as { id?: unknown }).id === id && ("result" in item || "error" in item)) as
         | { result?: unknown; error?: { message?: string } }
         | undefined;
     };
@@ -418,7 +430,9 @@ export class McpHttpConnection extends McpClient {
           text += decoder.decode(value, { stream: true });
         }
         if (type.includes("text/event-stream")) {
-          // Events end with a blank line; each "data:" line of one event joins into one JSON message.
+          // Events end with a blank line (the last one may end with the stream instead); each "data:" line of
+          // one event joins into one JSON message.
+          if (done) text += "\n\n";
           let end: number;
           while ((end = text.search(/\r?\n\r?\n/)) >= 0) {
             const event = text.slice(0, end);
@@ -440,6 +454,7 @@ export class McpHttpConnection extends McpClient {
         if (done) break;
       }
       if (!type.includes("text/event-stream")) {
+        if (!text.trim()) throw new Error(`MCP server ${this.name}: empty answer to request ${id}`);
         const found = pick(JSON.parse(text));
         if (found) return found;
       }
@@ -504,7 +519,9 @@ export async function startMcp(cwd: string): Promise<McpState> {
       state.status.push({ name: server.name, scope: server.scope, state: `running, ${tools.length} tool(s)` });
     } catch (error) {
       connection?.close();
-      state.status.push({ name: server.name, scope: server.scope, state: `failed: ${error instanceof Error ? error.message : String(error)}` });
+      // Cut anything secret-looking (a server or fetch may quote a header) before it is shown.
+      const message = redactSecrets(error instanceof Error ? error.message : String(error)).text;
+      state.status.push({ name: server.name, scope: server.scope, state: `failed: ${message}` });
     }
   }
   return state;
