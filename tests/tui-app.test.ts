@@ -173,7 +173,8 @@ describe("TUI app", () => {
     const restored = await waitFor(app, "old-reply");
     expect(restored).toContain("old-turn");
     expect(restored).toContain("resumed");
-  });
+    // Three screen waits of up to 4 s each: more than Vitest's 5 s default on a busy machine.
+  }, 20_000);
 
   it("reloads a session with tool calls: shows the text, hides raw tool rows", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-tools-"));
