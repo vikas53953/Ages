@@ -159,6 +159,7 @@ export async function startStudio(input: {
       jev: state.jevHealth,
       thinking: thinkingOf(settings),
       tokens: state.sessionTokens,
+      plan: Boolean(state.planMode),
       plugins: state.plugins.map((plugin) => plugin.name),
       busy,
       approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),

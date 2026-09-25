@@ -119,6 +119,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `esc` | stop the running turn (at a y/N prompt: no) |
 | `a` at a prompt | always allow: saves a narrow rule (`edit scripts/*`, or that exact command) so it stops asking |
 | `ctrl+c` | stop a turn / clear the prompt; twice on an empty prompt exits |
+| `/plan` · `/plan go` · `/plan off` | plan mode: read and search only, ends with a numbered plan; `go` carries it out (`/plan <task>` plans it at once) |
 | `/rewind` · `/rewind 1` | restore points; put files and chat back to before a turn (`files` or `chat` for one). Shell changes are not undone |
 | `aegis -c` | continue the last session (every launch is otherwise new, like Pi) |
 

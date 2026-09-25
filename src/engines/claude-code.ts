@@ -101,6 +101,8 @@ type ClaudeTurnInput = {
   jev?: JevClient;
   onEvent?: (event: TurnEvent) => void;
   abortSignal?: AbortSignal;
+  /** Plan mode: Claude Code runs with --permission-mode plan, and Aegis refuses every non-read tool. */
+  readOnly?: string;
   /** Keep a file before Claude Code changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Extra text for Claude Code's system prompt (your AGENTS.md, memory). */
@@ -204,6 +206,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
         abortSignal: turnAbort.signal,
         onEvent: input.onEvent,
         guards,
+        readOnly: input.readOnly,
         // Claude Code runs the tool itself once Aegis says yes.
         execute: async () => "allowed",
       });
@@ -258,6 +261,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   const resume = await readFile(claudeSessionFile(input.cwd, input.sessionId), "utf8").then((text) => text.trim(), () => "");
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
   if (resume && /^[\w-]+$/.test(resume)) args.push("--resume", resume);
+  if (input.readOnly) args.push("--permission-mode", "plan");
   if (input.appendSystem) {
     await writeFile(appendFile, input.appendSystem);
     args.push("--append-system-prompt-file", appendFile);

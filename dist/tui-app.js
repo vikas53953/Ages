@@ -158,6 +158,7 @@ export async function createTuiApp(opts, input = {}) {
             cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
             think: thinkingLevel,
             tokens: formatTokenLine(state.sessionTokens),
+            plan: state.planMode,
         }));
     };
     const paintTranscript = () => {

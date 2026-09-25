@@ -51,6 +51,7 @@ export function createTools(input) {
             onEvent: input.onEvent,
             settings: input.settings,
             settingsError: input.settingsError,
+            readOnly: input.readOnly,
             guards: input.guards,
             settingsCwd: input.settingsCwd,
         }).then((result) => {
@@ -271,6 +272,7 @@ export async function runLoop(input) {
         settings,
         settingsError: loadedSettings.error,
         checkpoint: input.checkpoint,
+        readOnly: input.readOnly,
         onTool: (record) => {
             toolsUsed.push(record);
             input.onEvent?.({ type: "tool", record });

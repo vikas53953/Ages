@@ -171,6 +171,7 @@ export async function runClaudeCodeTurn(input) {
                 abortSignal: turnAbort.signal,
                 onEvent: input.onEvent,
                 guards,
+                readOnly: input.readOnly,
                 // Claude Code runs the tool itself once Aegis says yes.
                 execute: async () => "allowed",
             });
@@ -219,6 +220,8 @@ export async function runClaudeCodeTurn(input) {
     const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
     if (resume && /^[\w-]+$/.test(resume))
         args.push("--resume", resume);
+    if (input.readOnly)
+        args.push("--permission-mode", "plan");
     if (input.appendSystem) {
         await writeFile(appendFile, input.appendSystem);
         args.push("--append-system-prompt-file", appendFile);

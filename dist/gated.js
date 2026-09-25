@@ -118,6 +118,9 @@ export async function runGatedTool(input) {
     if (input.abortSignal?.aborted) {
         return cancelled(undefined, input.name);
     }
+    if (input.readOnly && input.name !== "read" && input.name !== "grep") {
+        return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
+    }
     for (const guard of input.guards ?? []) {
         const block = await guard({ name: input.name, args: input.args, cwd: input.cwd });
         if (block) {

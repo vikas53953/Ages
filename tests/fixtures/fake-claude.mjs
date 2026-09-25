@@ -61,6 +61,7 @@ process.stdin.on("end", async () => {
     const answer = await askHook("TodoWrite", { todos: [] });
     texts.push(`todo ${answer.decision}`);
   }
+  if (flag("--permission-mode")) texts.push(`mode=${flag("--permission-mode")}`);
   const text = texts.join(" ") || `Echo: ${prompt.trim()} (resumed=${Boolean(flag("--resume"))})`;
   out({ type: "assistant", message: { content: [{ type: "text", text }] } });
   out({

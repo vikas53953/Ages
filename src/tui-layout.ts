@@ -95,8 +95,10 @@ export function footerText(input: {
   think?: string;
   /** Session token total, e.g. "↑ 12k ↓ 830". */
   tokens?: string;
+  /** Plan mode is on: read-only until you approve. */
+  plan?: boolean;
 }): string {
-  const model = input.modelMode === "auto" ? "auto" : input.model;
+  const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
   const task = `task ${input.task ?? "none"}`;
   const place = input.cwd ? `${input.cwd} · ` : "";
   const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}`;

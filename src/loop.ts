@@ -72,6 +72,8 @@ export function createTools(input: {
   settingsError?: string;
   /** Keep a file as it is before an approved write or edit changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
+  /** Plan mode: the reason every non-read tool is refused. */
+  readOnly?: string;
 }) {
   const keep = async (filePath: string) => {
     if (!input.checkpoint) return;
@@ -105,6 +107,7 @@ export function createTools(input: {
       onEvent: input.onEvent,
       settings: input.settings,
       settingsError: input.settingsError,
+      readOnly: input.readOnly,
       guards: input.guards,
       settingsCwd: input.settingsCwd,
     }).then((result) => {
@@ -320,6 +323,7 @@ export async function runLoop(input: {
   /** How hard the model should think this turn. */
   thinking?: ThinkingLevel;
   checkpoint?: (absolutePath: string) => Promise<void>;
+  readOnly?: string;
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -378,6 +382,7 @@ export async function runLoop(input: {
     settings,
     settingsError: loadedSettings.error,
     checkpoint: input.checkpoint,
+    readOnly: input.readOnly,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });

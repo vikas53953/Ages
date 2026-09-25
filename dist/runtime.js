@@ -188,6 +188,8 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
     const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
+    const readOnly = state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined;
+    const planPrompt = state.planMode ? PLAN_PROMPT : "";
     onEvent?.({ type: "accepted" });
     const receipt = claudeEngine
         ? await runClaudeCodeTurn({
@@ -200,7 +202,8 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
             onEvent,
             abortSignal: opts.abortSignal,
             checkpoint,
-            appendSystem: [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts].filter(Boolean).join("\n\n") || undefined,
+            readOnly,
+            appendSystem: [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
         })
         : await runLoop({
             prompt,
@@ -213,7 +216,10 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
             system: [
                 buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
                 ...extraPrompts,
-            ].join("\n\n"),
+                planPrompt,
+            ]
+                .filter(Boolean)
+                .join("\n\n"),
             history,
             provider,
             model: state.modelMode === "pinned" ? state.model : undefined,
@@ -221,6 +227,7 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
             onEvent,
             thinking: thinkingOf(loadedSettings.settings).level,
             checkpoint,
+            readOnly,
         });
     if (receipt.tokens) {
         state.sessionTokens.input += receipt.tokens.input;
@@ -360,6 +367,29 @@ export async function handleLine(line, state, opts, confirm = async () => false,
     }
     if (cmd.type === "rewind")
         return rewindCommand(cmd.arg, cmd.what, state);
+    if (cmd.type === "plan") {
+        const arg = (cmd.arg ?? "").toLowerCase();
+        if (arg === "off") {
+            state.planMode = false;
+            return { output: "plan mode off: the agent can change files again (your rules still decide)", session: state.session };
+        }
+        if (arg === "go" || arg === "approve") {
+            if (!state.planMode)
+                return { output: "plan mode is not on. /plan turns it on.", session: state.session };
+            state.planMode = false;
+            return runPrompt(PLAN_GO, state, opts, confirm, onEvent);
+        }
+        if (!arg) {
+            state.planMode = true;
+            return {
+                output: "plan mode on: the agent reads and searches only, and ends with a numbered plan. /plan go carries it out · /plan off leaves",
+                session: state.session,
+            };
+        }
+        // "/plan add a login page": plan mode on, and plan this now.
+        state.planMode = true;
+        return runPrompt(cmd.arg, state, opts, confirm, onEvent);
+    }
     if (cmd.type === "theme") {
         if (!cmd.name)
             return { output: `theme  ${themeName()}   (${THEME_NAMES.join(" · ")})`, session: state.session };
@@ -424,6 +454,7 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             output: [
                 `session   ${state.session.id}`,
                 `provider  ${providerLabel(state.provider)}`,
+                `plan      ${state.planMode ? "on (read-only until /plan go)" : "off"}`,
                 `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
                 `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
                 `task      ${state.taskPermission}`,
@@ -474,6 +505,13 @@ function findPluginCommand(plugins, line) {
  * You typed it, so no rule or Jev check applies. The output goes into the conversation so the model sees it;
  * "!!dir" runs it without adding it. AEGIS_ALLOW_SHELL only limits the model's shell tool.
  */
+const PLAN_PROMPT = [
+    "## Plan mode",
+    "You are in plan mode. Read and search only; every other tool is refused until the owner approves.",
+    "Study what you need, then answer with: the goal in one line, a numbered list of concrete steps (files to change and how),",
+    "how you will test it, and open questions. Do not claim to have changed anything.",
+].join("\n");
+const PLAN_GO = "The plan is approved. Carry it out now, step by step, then say how you tested it.";
 /** /rewind: list restore points, or put files and/or the conversation back to before a turn. */
 async function rewindCommand(arg, what, state) {
     const points = await rewindPoints(state.cwd, state.session.id);

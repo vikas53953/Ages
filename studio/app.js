@@ -369,7 +369,10 @@
     $("modelName").textContent = s.model;
     $("thinkLevel").textContent = s.thinking.level;
     $("showMode").textContent = { fold: "folded", show: "shown", hide: "hidden" }[s.thinking.display];
-    $("topMeta").textContent = `${s.model === "auto" ? s.welcome.model : s.model} · ${s.welcome.provider} · runs on this PC`;
+    $("topMeta").textContent = `${s.plan ? "PLAN MODE · " : ""}${s.model === "auto" ? s.welcome.model : s.model} · ${s.welcome.provider} · runs on this PC`;
+    state.plan = Boolean(s.plan);
+    $("planState").textContent = s.plan ? "on" : "off";
+    $("planChip").setAttribute("aria-pressed", String(s.plan));
     const total = s.tokens.input + s.tokens.output;
     $("tokenTotal").textContent = fmt(total);
     $("tokenSplit").textContent = `↑ ${fmt(s.tokens.input)} in · ↓ ${fmt(s.tokens.output)} out`;
@@ -438,6 +441,14 @@
     await api("/api/think", { value: next }).catch(showError);
     await refresh();
   });
+  // Plan chip: on = read-only planning; when a plan is shown, "go" carries it out.
+  $("planChip").addEventListener("click", () => {
+    if (state.busy) return;
+    if (!state.plan) return submit("/plan");
+    const go = window.confirm("Carry out the plan now?\nOK = go (the agent may change files, your rules still decide)\nCancel = leave plan mode without running it");
+    submit(go ? "/plan go" : "/plan off");
+  });
+
   const displays = ["fold", "show", "hide"];
   $("showChip").addEventListener("click", async () => {
     const next = displays[(displays.indexOf(state.thinking.display) + 1) % displays.length];

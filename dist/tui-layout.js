@@ -62,7 +62,7 @@ export function jevStatus(mockJev, hasKey, healthy) {
     return healthy ? "live" : "down";
 }
 export function footerText(input) {
-    const model = input.modelMode === "auto" ? "auto" : input.model;
+    const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
     const task = `task ${input.task ?? "none"}`;
     const place = input.cwd ? `${input.cwd} · ` : "";
     const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}`;

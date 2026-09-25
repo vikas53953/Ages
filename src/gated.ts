@@ -155,6 +155,8 @@ export async function runGatedTool(input: {
   settings?: Settings;
   /** Why `settings` fell back to defaults (unreadable file), if it did. */
   settingsError?: string;
+  /** Plan mode: only read and grep run; anything else is refused with this reason before any rule. */
+  readOnly?: string;
   /** Plugin checks that run before the rules (delivery agreement). */
   guards?: ToolGuard[];
   /** Folder whose .aegis/settings.json receives "always allow" rules (the project, even when tools run elsewhere). */
@@ -168,6 +170,9 @@ export async function runGatedTool(input: {
   }
   if (input.abortSignal?.aborted) {
     return cancelled(undefined, input.name);
+  }
+  if (input.readOnly && input.name !== "read" && input.name !== "grep") {
+    return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
   }
   for (const guard of input.guards ?? []) {
     const block = await guard({ name: input.name, args: input.args, cwd: input.cwd });
