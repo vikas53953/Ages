@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConfirm } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { runGatedTool } from "../src/gated.ts";
-import { DEFAULT_SETTINGS, loadSettings, loadSettingsSafe, matchRule, saveAllowRule, settingsPath, suggestAllowRule } from "../src/rules.ts";
+import { DEFAULT_SETTINGS, loadSettings, loadSettingsSafe, matchRule, saveAllowRule, settingsPath, suggestAllowRule, yourSettingsPath } from "../src/rules.ts";
 import { handleLine, startState } from "../src/runtime.ts";
 import { loadUserTheme, on, setTheme, themeName } from "../src/theme.ts";
 import { ConfirmBox } from "../src/tui-confirm.ts";
@@ -164,7 +164,9 @@ describe("answering 'always' at the gate", () => {
     await mkdir(path.join(cwd, ".aegis"));
     await writeFile(settingsPath(cwd), JSON.stringify({ jev: { mode: "off" } }));
     const settings = loadSettings(cwd);
-    await writeFile(settingsPath(cwd), "[]"); // becomes unreadable after the turn loaded it
+    // Your settings file becomes unreadable after the turn loaded it.
+    await mkdir(path.dirname(yourSettingsPath(cwd)), { recursive: true });
+    await writeFile(yourSettingsPath(cwd), "[]");
     const run = await runGatedTool({
       name: "edit",
       args: { path: "scripts/a.ps1", old_string: "a", new_string: "b" },

@@ -25,7 +25,7 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/providers.ts` | Local / OpenCode Zen / OpenAI model connection |
 | `src/tools/` | read, write, edit, grep, shell (PowerShell, off unless `AEGIS_ALLOW_SHELL=1`) |
 | `src/gated.ts` | The checkpoint every tool passes: plugin guards → rules → your hooks (deny/ask only) → scorer (if on) → you → run |
-| `src/rules.ts` | Read `.aegis/settings.json`: rules, Jev mode, plugin list, thinking; which "always allow" rule to offer and saving it |
+| `src/rules.ts` | Settings in three layers: the floor, the project's `.aegis/settings.json` (loosening parts only after `/trust`, content-hashed), and yours in `~/.aegis/projects/<id>` (always allow, /jev, /think); rule matching |
 | `src/policy.ts` | Turn a score into run or ask; `stricter()` lets a scorer only tighten |
 | `src/extensions.ts` | SKILL.md skills (on demand, `skill` tool) and custom commands; a project's need /skills trust (content-hashed) |
 | `src/todos.ts` | The agent's todo list (internal tool, kept in the conversation and in `todos.json` so compaction cannot lose it) |

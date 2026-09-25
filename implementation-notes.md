@@ -106,3 +106,18 @@
   - P1: on Windows, programs started by bare name are searched in the child's working folder first, so a repo shipping `git.exe` or `pwsh.exe` would run. New `src/which.ts` resolves from absolute PATH entries only, and Windows tools (taskkill, icacls, rundll32, Windows PowerShell) come from System32 by full path. This applies to git, PowerShell, hooks, MCP servers, delivery checks, the clipboard, the browser opener and `claude`. cmd.exe shims also get `NoDefaultCurrentDirectoryInExePath=1`.
   - P2: page text or a diff could close the `<untrusted_…>` wrapper; the tag name now has a random suffix per call.
   - P3: a same-host redirect adding `user:pass@` is refused; `isPublicAddress` parses every IPv6 spelling and blocks IPv4-compatible, 6to4, Teredo, site-local, NAT64 /48 and the documentation ranges; `/resume` accepts only session ids; queued `/login` keys are hidden in the queue box.
+- Project settings trust. Design from a brainstorm with a planning agent, which changed my draft in three places:
+  - The problem: `.aegis/settings.json` was the only rules file. A cloned repo could ship `deny: []`, `allow: ["write *", "webfetch *"]` and `plugins: []`, and a prompt injection could then write `.git/hooks` or the settings file without asking.
+  - Layers:
+    - The floor (default deny + ask, plus `ask write/edit .aegis/*`) is always unioned in.
+    - The project file's deny/ask rules, Jev mode and thinking settings always apply.
+    - Its `allow` list and `plugins` apply only when `/trust` recorded the sha256 of its exact bytes (`~/.aegis/trusted-settings.json`, keyed by real path, lower-cased on Windows).
+    - Yours (`~/.aegis/projects/<id>/settings.json`) is always trusted.
+  - Where the brainstorm changed the draft:
+    - Aegis's own writes go to your file, not the repo. This removed the "re-record the hash after our own write" logic and the symlink-write risk.
+    - Jev off is not loosening, because with Jev off unscored calls ask you. So the project's jev.mode applies.
+    - The hash covers the whole file, so future loosening fields fail safe.
+  - One read gives the bytes that are both hashed and parsed. `/trust yes` only trusts the hash `/trust` showed, and a changed file is refused.
+  - A symlinked `.aegis` folder or file is refused through the unreadable-settings fail-safe (Jev off, no allow rules).
+  - Deliberate change: a file's deny/ask lists now add to the defaults instead of replacing them, so the default asks (`git push`, deletes) can no longer be switched off by any file.
+  - Tests: `tests/setup.ts` sets `AEGIS_TRUST_PROJECT=1` (older tests own their projects) and a scratch `AEGIS_HOME` so tests never touch the real `~/.aegis`; `tests/trust.test.ts` turns trust off and covers the hostile file, the floor, /trust (including a change between review and yes), the notice once, always-allow landing in your file, symlinks, and CI flags.

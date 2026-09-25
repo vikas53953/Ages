@@ -24,7 +24,7 @@ import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
 import { createSession, listSessions, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
-import { loadSettingsSafe, saveThinking, settingsPath, thinkingOf } from "./rules.js";
+import { loadSettingsSafe, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.js";
@@ -34,6 +34,55 @@ import { APP_NAME, APP_VERSION, displayUser } from "./brand.js";
 import { loadConfig } from "./config.js";
 export { initialJevHealth, jevHealthFromReceipt } from "./health.js";
 import { KNOWN_PLUGINS, loadPlugins } from "./plugins/index.js";
+function statusTrust(cwd) {
+    const trust = loadSettingsSafe(cwd).trust;
+    if (!trust?.exists)
+        return "  (none)";
+    return trust.trusted ? "  (trusted)" : "  (not trusted: /trust)";
+}
+/** Once per window: the project's settings ask for more than Aegis gives an untrusted file. */
+function untrustedNotice(state, trust) {
+    if (!trust || trust.trusted || !trust.ignored.length || state.trustNoticeShown)
+        return "";
+    state.trustNoticeShown = true;
+    return `This folder's .aegis/settings.json is not trusted yet, so these are not used: ${trust.ignored.join(", ")}. Its deny and ask rules still apply. /trust to review it.`;
+}
+/** /trust shows what the project's file would allow; /trust yes trusts exactly what was shown; /trust off forgets it. */
+function trustCommand(state, action) {
+    const file = settingsPath(state.cwd);
+    const loaded = loadSettingsSafe(state.cwd);
+    if (loaded.error)
+        return `Fix ${file} first: ${loaded.error}`;
+    const trust = loaded.trust;
+    if (!trust.exists)
+        return `No ${file} here, so there is nothing to trust. Your own choices are kept in ${yourSettingsPath(state.cwd)}.`;
+    if (action === "off") {
+        setProjectTrust(state.cwd, undefined);
+        state.trustOffer = undefined;
+        return `Stopped trusting ${file}. Its allow rules and plugin list are not used; its deny and ask rules still are.`;
+    }
+    if (action === "yes") {
+        if (!state.trustOffer)
+            return "Type /trust first to see what you would be trusting.";
+        if (state.trustOffer !== trust.hash) {
+            state.trustOffer = undefined;
+            return `${file} changed after you reviewed it. Type /trust again.`;
+        }
+        setProjectTrust(state.cwd, trust.hash);
+        state.trustOffer = undefined;
+        const plugins = loadSettingsSafe(state.cwd).settings.plugins;
+        const loadedNames = state.plugins.map((plugin) => plugin.name);
+        const restart = plugins.join(",") !== loadedNames.join(",") ? " Restart Aegis to load its plugin list." : "";
+        return `Trusted ${file} as it is now. If it changes, Aegis asks again.${restart}`;
+    }
+    if (trust.trusted)
+        return `${file} is trusted${process.env.AEGIS_TRUST_PROJECT === "1" ? " (AEGIS_TRUST_PROJECT=1)" : ""}. /trust off to stop.`;
+    state.trustOffer = trust.hash;
+    const lines = [`${file} is not trusted. Trusting it would add:`];
+    lines.push(...(trust.ignored.length ? trust.ignored.map((item) => `  ${item}`) : ["  nothing beyond the defaults"]));
+    lines.push("Its deny and ask rules apply either way. Type /trust yes to trust this exact file.");
+    return lines.join("\n");
+}
 /** Start MCP servers once per window, even when two callers ask at the same moment; later calls reuse them. */
 async function ensureMcp(state) {
     if (state.mcp)
@@ -198,6 +247,7 @@ turnOptions = {}) {
         loadedSettings.error
             ? `Settings unreadable (${loadedSettings.error}). Jev is off and allow rules are ignored until you fix ${settingsPath(state.cwd)}.`
             : "",
+        untrustedNotice(state, loadedSettings.trust),
         hasScorer && !opts.mockJev && !hasJevCredentials() && loadedSettings.settings.jev.mode !== "off"
             ? "Jev has no key. Rules still apply; anything Jev would score asks you instead. /jev off hides this."
             : "",
@@ -473,6 +523,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             session: state.session,
         };
     }
+    if (cmd.type === "trust")
+        return { output: trustCommand(state, cmd.action), session: state.session };
     if (cmd.type === "doctor")
         return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
     if (cmd.type === "plan") {
@@ -575,7 +627,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
                 `thinking  ${thinkingOf(loadSettingsSafe(state.cwd).settings).level} · ${thinkingOf(loadSettingsSafe(state.cwd).settings).display}`,
                 `tokens    ${formatTokenLine(state.sessionTokens) || "none yet"} this session`,
                 `plugins   ${state.plugins.map((plugin) => plugin.name).join(", ") || "(none)"}${state.unknownPlugins.length ? `  unknown: ${state.unknownPlugins.join(", ")}` : ""}`,
-                `settings  ${settingsPath(state.cwd)}`,
+                `settings  ${settingsPath(state.cwd)}${statusTrust(state.cwd)}`,
+                `yours     ${yourSettingsPath(state.cwd)}`,
                 `cwd       ${state.cwd}`,
             ].join("\n"),
             session: state.session,

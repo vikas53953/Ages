@@ -17,6 +17,8 @@ import {
   saveJevMode,
   settingsPath,
   type Settings,
+  FLOOR_ASK,
+  yourSettingsPath,
 } from "../src/rules.ts";
 import type { JevClient, JsonObject, ToolDecision } from "../src/types.ts";
 
@@ -144,17 +146,22 @@ describe("rule matching", () => {
 describe("settings file", () => {
   it("uses defaults when .aegis/settings.json is missing", async () => {
     const cwd = await tmp();
-    expect(loadSettings(cwd)).toEqual(DEFAULT_SETTINGS);
+    const settings = loadSettings(cwd);
+    expect(settings.rules.allow).toEqual(DEFAULT_SETTINGS.rules.allow);
+    expect(settings.rules.deny).toEqual(DEFAULT_SETTINGS.rules.deny);
+    expect(settings.rules.ask).toEqual([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK]);
+    expect(settings.jev).toEqual(DEFAULT_SETTINGS.jev);
+    expect(settings.plugins).toEqual(DEFAULT_SETTINGS.plugins);
   });
 
-  it("lets a list in the file replace the default list, and keeps the rest", async () => {
+  it("a trusted file's allow list replaces the default one; deny and ask only add to the floor", async () => {
     const cwd = await tmp();
     await mkdir(path.join(cwd, ".aegis"));
     await writeFile(settingsPath(cwd), JSON.stringify({ jev: { mode: "off" }, rules: { allow: ["read *"] } }));
     const settings = loadSettings(cwd);
     expect(settings.jev.mode).toBe("off");
     expect(settings.rules.allow).toEqual(["read *"]);
-    expect(settings.rules.ask).toEqual(DEFAULT_SETTINGS.rules.ask);
+    expect(settings.rules.ask).toEqual([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK]);
   });
 
   it("fails safe on a broken file: Jev off, no allow rules, error reported", async () => {
@@ -187,9 +194,11 @@ describe("settings file", () => {
     await mkdir(path.join(cwd, ".aegis"));
     await writeFile(settingsPath(cwd), JSON.stringify({ rules: { allow: ["read *", "shell git status"] } }));
     saveJevMode(cwd, "every-call");
-    const saved = JSON.parse(await readFile(settingsPath(cwd), "utf8"));
-    expect(saved.jev.mode).toBe("every-call");
-    expect(saved.rules.allow).toEqual(["read *", "shell git status"]);
+    // The project's file is left alone; your choice lands in ~/.aegis/projects/<id>/settings.json.
+    expect(JSON.parse(await readFile(settingsPath(cwd), "utf8"))).toEqual({ rules: { allow: ["read *", "shell git status"] } });
+    expect(JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")).jev.mode).toBe("every-call");
+    expect(loadSettings(cwd).jev.mode).toBe("every-call");
+    expect(loadSettings(cwd).rules.allow).toEqual(["read *", "shell git status"]);
     expect(parseJevMode("second")).toBe("second-opinion");
     expect(parseJevMode("every")).toBe("every-call");
     expect(parseJevMode("maybe")).toBeUndefined();

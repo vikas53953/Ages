@@ -7,7 +7,7 @@
  *
  * Writes windows-check-report.md (or the path in AEGIS_CHECK_REPORT) and exits 1 if any check fails.
  */
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +16,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { loadSummary } from "../src/compact.ts";
 import { generateWith } from "../src/loop.ts";
 import { handleLine, startState, type AppState, type RunOpts } from "../src/runtime.ts";
-import { matchRule, settingsPath, suggestAllowRule, DEFAULT_SETTINGS } from "../src/rules.ts";
+import { matchRule, settingsPath, suggestAllowRule, yourSettingsPath, DEFAULT_SETTINGS } from "../src/rules.ts";
 import { startStudio, type StudioEvent } from "../src/studio.ts";
 import { loadMessages, messageText } from "../src/session.ts";
 import { powershellExe, runPowerShell } from "../src/tools/fs.ts";
@@ -27,6 +27,9 @@ type Check = { id: string; slice: string; title: string; run: () => Promise<stri
 class Skip extends Error {}
 
 const isWindows = process.platform === "win32";
+// The check's folders are its own: trust their settings, and keep "your" per-folder settings in a scratch home.
+process.env.AEGIS_TRUST_PROJECT = "1";
+process.env.AEGIS_HOME = mkdtempSync(path.join(os.tmpdir(), "aegis-check-home-"));
 const liveKey = Boolean(process.env.OPENCODE_API_KEY);
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -122,15 +125,15 @@ const checks: Check[] = [
   {
     id: "2",
     slice: "1",
-    title: "/jev every → off is saved to .aegis/settings.json; /status shows it",
+    title: "/jev every → off is saved to your settings for this folder; /status shows it",
     run: async () => {
       const cwd = await folder("jev");
       const state = await start(cwd);
       await handleLine("/jev every", state, opts());
-      const every = JSON.parse(await readFile(settingsPath(cwd), "utf8"));
+      const every = JSON.parse(await readFile(yourSettingsPath(cwd), "utf8"));
       assert(every.jev.mode === "every-call", `after /jev every the file says ${every.jev.mode}`);
       await handleLine("/jev off", state, opts());
-      const off = JSON.parse(await readFile(settingsPath(cwd), "utf8"));
+      const off = JSON.parse(await readFile(yourSettingsPath(cwd), "utf8"));
       assert(off.jev.mode === "off", `after /jev off the file says ${off.jev.mode}`);
       const status = (await handleLine("/status", state, opts())).output;
       assert(/jev\s+off\s+\(mode off\)/.test(status), `/status: ${short(status)}`);
@@ -384,7 +387,7 @@ const checks: Check[] = [
         await reader.cancel();
         assert(done?.isTurn, "turn did not finish");
         assert(rule === "write scripts/*", `offered rule: ${rule}`);
-        const saved = JSON.parse(await readFile(settingsPath(cwd), "utf8")) as { rules: { allow: string[] } };
+        const saved = JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")) as { rules: { allow: string[] } };
         assert(saved.rules.allow.includes("write scripts/*"), "rule not saved");
         assert(existsSync(path.join(cwd, "scripts", "ping.ps1")), "file not written");
         return `offered "${rule}", saved, file written, 401 without key`;

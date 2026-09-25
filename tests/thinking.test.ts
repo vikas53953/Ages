@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { generateWith } from "../src/loop.ts";
 import { formatTokenLine, formatTokens } from "../src/receipt.ts";
 import { handleLine, modelChoices, startState } from "../src/runtime.ts";
-import { settingsPath } from "../src/rules.ts";
+import { settingsPath, yourSettingsPath } from "../src/rules.ts";
 import { loadMessages } from "../src/session.ts";
 import { reasoningOptions } from "../src/thinking.ts";
 import { createTuiApp } from "../src/tui-app.ts";
@@ -102,7 +102,7 @@ describe("/think", () => {
     expect((await handleLine("/think", state, opts)).output).toContain("thinking  low");
     expect((await handleLine("/think medium", state, opts)).output).toBe("thinking medium");
     expect((await handleLine("/think show", state, opts)).output).toBe("reasoning shown live");
-    const saved = JSON.parse(await readFile(settingsPath(cwd), "utf8"));
+    const saved = JSON.parse(await readFile(yourSettingsPath(cwd), "utf8"));
     expect(saved.thinking).toEqual({ level: "medium", display: "show" });
     expect((await handleLine("/think loud", state, opts)).output).toContain("usage: /think");
     expect((await handleLine("/status", state, opts)).output).toContain("thinking  medium · show");
@@ -191,7 +191,7 @@ describe("reasoning in the TUI", () => {
     app.feed("\x14"); // ctrl+t
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(terminal.writes.join("")).toContain("read it first.");
-    expect(JSON.parse(await readFile(settingsPath(cwd), "utf8")).thinking.display).toBe("show");
+    expect(JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")).thinking.display).toBe("show");
     app.shutdown();
   });
 });

@@ -55,6 +55,7 @@ export function parseArgs(argv) {
         json: flags.has("--json"),
         stdin: flags.has("--stdin"),
         tui: flags.has("--tui"),
+        trustProject: flags.has("--trust-project"),
         model,
         prompt: rest.join(" ").trim(),
     };
@@ -77,6 +78,7 @@ function help() {
         "       --local          no chat model: list, read and search only",
         "       -p, --print      headless (exit 0 done, 1 error, 2 a tool call was denied); --json for JSON lines",
         "       --stdin          with -p and a task: also read stdin (without a task, stdin is the task)",
+        "       --trust-project  use this folder's .aegis/settings.json allow rules without /trust (CI you control)",
         "       --yes            with -p: approve every question (dangerous: only rules you trust should decide)",
         "       -v, --version    print the version",
         "       --port <n>       aegis ui: port to listen on (default: a free one)",
@@ -178,6 +180,9 @@ export async function main() {
         console.log(`${APP_CMD} ${APP_VERSION}`);
         return;
     }
+    // Only from the command line or the real environment; a project's .env cannot set it (see env.ts).
+    if (args.trustProject)
+        process.env.AEGIS_TRUST_PROJECT = "1";
     loadEnv();
     if (args.help) {
         console.log(help());

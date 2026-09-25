@@ -145,6 +145,12 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 Rules decide first (deny, then ask, then allow). Paths are matched relative to the folder, so `C:\proj\.git\x` is `.git/x`. Jev only scores what no rule matches, and can only make a decision stricter. With no Jev key, reads and allowed calls still run and everything else asks you. "Always allow" is never offered when an ask rule matched, for chained or wrapped commands (`pwsh -c`, `cmd /c`, `iex`), or for `.git`, `.harness`, `.aegis`. Shell (PowerShell) stays off unless `AEGIS_ALLOW_SHELL=1`. None of this is OS isolation: generated code runs with your rights.
 
 
+### Whose settings count
+
+- **Yours, for this folder** — `~/.aegis/projects/<id>/settings.json`. "Always allow", `/jev` and `/think` save here, where the agent's tools cannot write. `/status` shows the path.
+- **The project's** — `.aegis/settings.json`, which may come with a cloned repo. Its deny and ask rules, Jev mode and thinking settings always apply. Its **allow rules and plugin list only apply after you `/trust` it**: `/trust` shows what it would add, and `/trust yes` trusts those exact bytes. If the file changes (a `git pull`), it asks again. `/trust off` stops trusting it. In CI you control, use `aegis -p --trust-project` (or `AEGIS_TRUST_PROJECT=1` in the real environment; a project `.env` cannot set it).
+- **Always on** — the default deny rules (`.git`, `.harness`) and ask rules (deletes, `git push`, firewall, …), plus asking before any write to `.aegis/*`. No file can remove them. A linked (symlinked) `.aegis` folder or settings file is refused.
+
 ### Hooks (Claude Code format, tighten-only)
 
 Put hooks in **your** `~/.aegis/settings.json` (never read from a project):

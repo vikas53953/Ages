@@ -153,6 +153,15 @@ export async function runDoctor(cwd, options = {}) {
             item: "Rules",
             detail: `${rules.deny.length} deny · ${rules.ask.length} ask · ${rules.allow.length} allow · Jev ${loaded.settings.jev.mode}${existsSync(settingsPath(cwd)) ? "" : " (defaults: no .aegis/settings.json here)"}`,
         });
+        const trust = loaded.trust;
+        if (trust?.exists && !trust.trusted && trust.ignored.length) {
+            add({
+                status: "warn",
+                item: "Project settings",
+                detail: `not trusted, so not used: ${trust.ignored.join(", ")}`,
+                fix: "Run /trust inside Aegis to review and trust this folder's .aegis/settings.json",
+            });
+        }
     }
     // Shell.
     const shell = powershellExe();

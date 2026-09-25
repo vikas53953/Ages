@@ -1,5 +1,7 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { userAegisDir } from "./env.js";
 import { DEFAULT_THINKING, DEFAULT_THINKING_DISPLAY, THINKING_DISPLAYS, THINKING_LEVELS, } from "./thinking.js";
 export const JEV_MODES = ["off", "second-opinion", "every-call"];
 /**
@@ -32,19 +34,82 @@ export const DEFAULT_SETTINGS = {
 export function settingsPath(cwd) {
     return path.join(cwd, ".aegis", "settings.json");
 }
-function readRaw(cwd) {
-    let text;
+/** Always on, whatever any file says: the lock's own files are asked about even when a rule allows writes. */
+export const FLOOR_ASK = ["write .aegis/*", "edit .aegis/*"];
+/** One spelling per folder: the real path, lower-cased on Windows (C:\\Proj and c:\\proj are the same folder). */
+export function projectKey(cwd) {
+    let real = path.resolve(cwd);
     try {
-        text = readFileSync(settingsPath(cwd), "utf8");
+        real = realpathSync.native(real);
+    }
+    catch {
+        // not there yet: the resolved path
+    }
+    return process.platform === "win32" ? real.toLowerCase() : real;
+}
+/**
+ * YOUR settings for this folder: "always allow" rules, /jev and /think land here, in ~/.aegis, where the
+ * model's tools cannot write and a cloned repo cannot ship them.
+ */
+export function yourSettingsPath(cwd) {
+    const id = createHash("sha256").update(projectKey(cwd)).digest("hex").slice(0, 16);
+    return path.join(userAegisDir(), "projects", id, "settings.json");
+}
+function trustFile() {
+    return path.join(userAegisDir(), "trusted-settings.json");
+}
+function readTrust() {
+    try {
+        const parsed = JSON.parse(readFileSync(trustFile(), "utf8"));
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    }
+    catch {
+        return {};
+    }
+}
+function parseObject(text, file) {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(`${file} must be a JSON object`);
+    }
+    return parsed;
+}
+/**
+ * The project's file, read once: the same bytes are hashed for trust and parsed. A link (the .aegis folder or
+ * the file) is refused, so a repo cannot point Aegis at another file.
+ */
+function readProject(cwd) {
+    const file = settingsPath(cwd);
+    for (const item of [path.dirname(file), file]) {
+        let info;
+        try {
+            info = lstatSync(item);
+        }
+        catch {
+            return undefined;
+        }
+        if (info.isSymbolicLink())
+            throw new Error(`${item} is a link; Aegis only reads a real .aegis/settings.json`);
+    }
+    let bytes;
+    try {
+        bytes = readFileSync(file);
     }
     catch {
         return undefined;
     }
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(`${settingsPath(cwd)} must be a JSON object`);
+    return { raw: parseObject(bytes.toString("utf8"), file), hash: createHash("sha256").update(bytes).digest("hex") };
+}
+function readYours(cwd) {
+    const file = yourSettingsPath(cwd);
+    let text;
+    try {
+        text = readFileSync(file, "utf8");
     }
-    return parsed;
+    catch {
+        return undefined;
+    }
+    return parseObject(text, file);
 }
 function stringList(value, fallback, name = "rules.allow / rules.ask / rules.deny") {
     if (value === undefined)
@@ -54,14 +119,9 @@ function stringList(value, fallback, name = "rules.allow / rules.ask / rules.den
     }
     return value;
 }
-/** A list in the file replaces the default list of the same name. A broken file throws: the caller fails safe. */
-export function loadSettings(cwd) {
-    const raw = readRaw(cwd);
-    if (!raw)
-        return structuredClone(DEFAULT_SETTINGS);
+function parseSettings(raw) {
     const jev = (raw.jev ?? {});
-    const mode = jev.mode ?? DEFAULT_SETTINGS.jev.mode;
-    if (!JEV_MODES.includes(mode)) {
+    if (jev.mode !== undefined && !JEV_MODES.includes(jev.mode)) {
         throw new Error(`jev.mode must be one of: ${JEV_MODES.join(", ")}`);
     }
     const rules = (raw.rules ?? {});
@@ -72,32 +132,93 @@ export function loadSettings(cwd) {
     if (thinking.display !== undefined && !THINKING_DISPLAYS.includes(thinking.display)) {
         throw new Error(`thinking.display must be one of: ${THINKING_DISPLAYS.join(", ")}`);
     }
+    const optional = (value, name) => (value === undefined ? undefined : stringList(value, [], name));
     return {
+        jevMode: jev.mode,
         thinking: { level: thinking.level, display: thinking.display },
-        plugins: stringList(raw.plugins, DEFAULT_SETTINGS.plugins, "plugins"),
-        jev: { mode: mode },
+        plugins: optional(raw.plugins, "plugins"),
+        deny: optional(rules.deny),
+        ask: optional(rules.ask),
+        allow: optional(rules.allow),
+    };
+}
+const unique = (items) => [...new Set(items)];
+/** Trust a project file in headless runs you control (CI): the real environment only, never a project .env. */
+function trustedByEnv() {
+    return process.env.AEGIS_TRUST_PROJECT === "1";
+}
+/**
+ * The rules in effect, from three layers:
+ *  - the floor (default deny and ask rules, and asking before writes to .aegis) — always on;
+ *  - the project's .aegis/settings.json — its deny/ask rules, Jev mode and thinking always apply (they can only
+ *    make things stricter or cost more), but its allow rules and plugin list only after you /trust that exact file;
+ *  - your settings for this folder in ~/.aegis/projects (always allow rules, /jev, /think) — always trusted.
+ * A broken file throws: the caller fails safe.
+ */
+export function loadSettingsWithTrust(cwd) {
+    const project = readProject(cwd);
+    const mine = readYours(cwd);
+    const p = project ? parseSettings(project.raw) : { thinking: {} };
+    const m = mine ? parseSettings(mine) : { thinking: {} };
+    const trusted = !project || trustedByEnv() || readTrust()[projectKey(cwd)] === project.hash;
+    const ignored = [];
+    if (project && !trusted) {
+        for (const rule of p.allow ?? [])
+            if (!DEFAULT_SETTINGS.rules.allow.includes(rule))
+                ignored.push(`allow ${rule}`);
+        if (p.plugins && p.plugins.join(",") !== DEFAULT_SETTINGS.plugins.join(","))
+            ignored.push(`plugins [${p.plugins.join(", ")}]`);
+    }
+    const settings = {
+        thinking: { level: m.thinking.level ?? p.thinking.level, display: m.thinking.display ?? p.thinking.display },
+        plugins: [...(m.plugins ?? (trusted ? p.plugins : undefined) ?? DEFAULT_SETTINGS.plugins)],
+        jev: { mode: m.jevMode ?? p.jevMode ?? DEFAULT_SETTINGS.jev.mode },
         rules: {
-            deny: stringList(rules.deny, DEFAULT_SETTINGS.rules.deny),
-            ask: stringList(rules.ask, DEFAULT_SETTINGS.rules.ask),
-            allow: stringList(rules.allow, DEFAULT_SETTINGS.rules.allow),
+            deny: unique([...DEFAULT_SETTINGS.rules.deny, ...(p.deny ?? []), ...(m.deny ?? [])]),
+            ask: unique([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK, ...(p.ask ?? []), ...(m.ask ?? [])]),
+            allow: unique([...((trusted ? p.allow : undefined) ?? DEFAULT_SETTINGS.rules.allow), ...(m.allow ?? [])]),
         },
     };
+    return { settings, trust: { exists: Boolean(project), trusted, ignored, hash: project?.hash } };
+}
+export function loadSettings(cwd) {
+    return loadSettingsWithTrust(cwd).settings;
 }
 /** Settings that cannot be read fall back to Jev off and no allow rules: everything but a hard deny asks you. */
 export function loadSettingsSafe(cwd) {
     try {
-        return { settings: loadSettings(cwd) };
+        const loaded = loadSettingsWithTrust(cwd);
+        return { settings: loaded.settings, trust: loaded.trust };
     }
     catch (error) {
         return {
             settings: {
                 jev: { mode: "off" },
-                rules: { ...DEFAULT_SETTINGS.rules, allow: [] },
+                rules: { ...DEFAULT_SETTINGS.rules, ask: [...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK], allow: [] },
                 plugins: [...DEFAULT_SETTINGS.plugins],
             },
             error: error instanceof Error ? error.message : String(error),
         };
     }
+}
+/** Trust the project's .aegis/settings.json as it is now (these exact bytes), or stop trusting it. */
+export function setProjectTrust(cwd, hash) {
+    const store = readTrust();
+    if (hash)
+        store[projectKey(cwd)] = hash;
+    else
+        delete store[projectKey(cwd)];
+    mkdirSync(userAegisDir(), { recursive: true });
+    writeFileSync(trustFile(), `${JSON.stringify(store, null, 2)}\n`, "utf8");
+}
+/** Change YOUR settings for this folder (never the project's file); keeps everything else in it. */
+function updateYours(cwd, change) {
+    const file = yourSettingsPath(cwd);
+    const raw = readYours(cwd) ?? {};
+    raw.project = path.resolve(cwd); // for people reading the file
+    change(raw);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
 }
 /** The thinking level and display in effect, with defaults filled in. */
 export function thinkingOf(settings) {
@@ -108,19 +229,17 @@ export function thinkingOf(settings) {
 }
 /** Change only thinking.level or thinking.display; keep everything else in the file. */
 export function saveThinking(cwd, change) {
-    const raw = readRaw(cwd) ?? {};
-    const thinking = (raw.thinking && typeof raw.thinking === "object" ? raw.thinking : {});
-    raw.thinking = { ...thinking, ...change };
-    mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
-    writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    updateYours(cwd, (raw) => {
+        const thinking = (raw.thinking && typeof raw.thinking === "object" ? raw.thinking : {});
+        raw.thinking = { ...thinking, ...change };
+    });
 }
 /** Change only jev.mode; keep everything else in the file. */
 export function saveJevMode(cwd, mode) {
-    const raw = readRaw(cwd) ?? {};
-    const jev = (raw.jev && typeof raw.jev === "object" ? raw.jev : {});
-    raw.jev = { ...jev, mode };
-    mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
-    writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    updateYours(cwd, (raw) => {
+        const jev = (raw.jev && typeof raw.jev === "object" ? raw.jev : {});
+        raw.jev = { ...jev, mode };
+    });
 }
 export function parseJevMode(text) {
     const key = text.trim().toLowerCase();
@@ -282,12 +401,11 @@ export function suggestAllowRule(name, args, matched, cwd) {
 }
 /** Add an allow rule to .aegis/settings.json (keeping the default allow list when the file had none). */
 export function saveAllowRule(cwd, rule) {
-    const raw = readRaw(cwd) ?? {};
-    const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
-    const allow = Array.isArray(rules.allow) ? rules.allow : [...DEFAULT_SETTINGS.rules.allow];
-    if (!allow.includes(rule))
-        allow.push(rule);
-    raw.rules = { ...rules, allow };
-    mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
-    writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    updateYours(cwd, (raw) => {
+        const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
+        const allow = Array.isArray(rules.allow) ? rules.allow : [];
+        if (!allow.includes(rule))
+            allow.push(rule);
+        raw.rules = { ...rules, allow };
+    });
 }
