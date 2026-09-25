@@ -128,7 +128,9 @@ describe("--worktree: review fixes (6e05349)", () => {
     const { projectKey } = await import("../src/rules.ts");
     const trusted = await repo();
     const real = await openWorktree(trusted, "real");
-    expect(mainCheckoutOf(real.path)).toBe(trusted);
+    const { realpathSync } = await import("node:fs");
+    // Real paths on both sides: on Windows the temp folder may be spelled short (RUNNER~1).
+    expect(realpathSync.native(mainCheckoutOf(real.path)!)).toBe(realpathSync.native(trusted));
     const evil = await mkdtemp(path.join(os.tmpdir(), "aegis-wt-evil-"));
     await writeFile(path.join(evil, ".git"), `gitdir: ${path.join(trusted, ".git", "worktrees", "nope")}\n`);
     expect(mainCheckoutOf(evil)).toBeUndefined();
