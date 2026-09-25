@@ -170,9 +170,10 @@ describe("TUI app", () => {
     expect(cleared).not.toContain("old-turn");
     for (const ch of `/resume ${first.id}`) app.feed(ch);
     app.feed("\r");
-    const restored = await waitFor(app, "old-reply");
+    // Wait for the command's own line: the reloaded transcript can be drawn a frame before it (seen on Windows CI).
+    const restored = await waitFor(app, "resumed");
     expect(restored).toContain("old-turn");
-    expect(restored).toContain("resumed");
+    expect(restored).toContain("old-reply");
     // Three screen waits of up to 4 s each: more than Vitest's 5 s default on a busy machine.
   }, 20_000);
 
