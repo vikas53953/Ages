@@ -126,3 +126,4 @@
   - Text from the helper is not streamed to the screen; only its tool lines are.
   - It is not offered in `--local` mode or inside the helper itself. It is allowed by default (`explore *`) and in plan mode, and `deny explore *` turns it off.
   - Why: reading many files in the main conversation costs frontier tokens on every later turn; the helper's reads stay out of the history.
+- `/fork [n]` (Pi's /fork, Claude Code's `--fork-session`): a new session with the conversation, minus your last n turns. The summary goes along, because it covers older turns; the todo list goes along only for a full copy. The original is untouched and can be resumed. `/branch` is an alias.

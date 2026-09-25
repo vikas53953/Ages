@@ -13,6 +13,7 @@ export type Slash =
   | { type: "mcp"; action?: string; name?: string }
   | { type: "doctor" }
   | { type: "trust"; action?: string }
+  | { type: "fork"; arg?: string }
   | { type: "todos" }
   | { type: "export"; format?: string }
   | { type: "copy" }
@@ -63,6 +64,9 @@ export function parseLine(line: string): Slash {
       return { type: "compact" };
     case "doctor":
       return { type: "doctor" };
+    case "fork":
+    case "branch":
+      return { type: "fork", arg: rest[0] };
     case "trust":
       return { type: "trust", action: rest[0]?.toLowerCase() };
     case "todos":
@@ -133,6 +137,7 @@ export const HELP = [
   "  /copy              copy the last answer to the clipboard",
   "  /export            save this conversation to .harness/exports (md, or jsonl with every tool call)",
   "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",
+  "  /fork              copy this conversation into a new session and continue there; /fork 1 leaves out your last turn (try it another way)",
   "  /trust             review this folder's .aegis/settings.json; /trust yes uses its allow rules and plugins; /trust off",
   "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
   "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",

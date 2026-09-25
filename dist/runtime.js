@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.js";
 import { formatReceipt, localGenerate, runLoop } from "./loop.js";
@@ -23,7 +23,7 @@ import { compactSession, loadSummary, modelSummarizer, needsCompaction } from ".
 import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
-import { createSession, listSessions, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
+import { createSession, replaceMessages, listSessions, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { loadSettingsSafe, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
@@ -39,6 +39,37 @@ function statusTrust(cwd) {
     if (!trust?.exists)
         return "  (none)";
     return trust.trusted ? "  (trusted)" : "  (not trusted: /trust)";
+}
+/** /fork [n]: a new session with this conversation (minus your last n turns); the original stays as it was. */
+async function forkCommand(state, arg) {
+    const drop = arg === undefined ? 0 : Number(arg);
+    if (!Number.isInteger(drop) || drop < 0)
+        return { output: "usage: /fork, or /fork <n> to leave out your last n turns", session: state.session };
+    const from = state.session.id;
+    const rows = await loadMessages(state.cwd, from);
+    const starts = rows.flatMap((row, index) => (row.role === "user" ? [index] : []));
+    if (drop > starts.length)
+        return { output: `There are only ${starts.length} turn(s) to leave out.`, session: state.session };
+    const kept = drop ? rows.slice(0, starts[starts.length - drop]) : rows;
+    const session = await createSession(state.cwd);
+    await replaceMessages(state.cwd, session.id, kept);
+    // The summary covers turns before the kept ones, so it goes along; the todo list does only when nothing was dropped.
+    const copies = drop ? ["summary.md"] : ["summary.md", "todos.json"];
+    for (const name of copies) {
+        try {
+            await copyFile(path.join(sessionDir(state.cwd, from), name), path.join(sessionDir(state.cwd, session.id), name));
+        }
+        catch {
+            // not there
+        }
+    }
+    state.session = session;
+    const left = drop ? `, leaving out your last ${drop} turn(s)` : "";
+    return {
+        output: `Forked into ${session.id} (${kept.length} message(s)${left}). The original is kept: /resume ${from}`,
+        session,
+        chat: "reload",
+    };
 }
 /** Once per window: the project's settings ask for more than Aegis gives an untrusted file. */
 function untrustedNotice(state, trust) {
@@ -523,6 +554,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             session: state.session,
         };
     }
+    if (cmd.type === "fork")
+        return forkCommand(state, cmd.arg);
     if (cmd.type === "trust")
         return { output: trustCommand(state, cmd.action), session: state.session };
     if (cmd.type === "doctor")
