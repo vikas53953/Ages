@@ -8,6 +8,7 @@ import {
   matchesKey,
   ProcessTerminal,
   ScrollView,
+  truncateToWidth,
   Text,
   TuiAltScreen,
   type TUI,
@@ -16,7 +17,10 @@ import {
 } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
-import { handleLine, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.ts";
+import { formatTokenLine } from "./receipt.ts";
+import { ModelPicker } from "./tui-model-picker.ts";
 import { shortPath, welcomeLines, type WelcomeInfo } from "./welcome.ts";
 import { redactLogin } from "./login.ts";
 import { loadMessages, messageText } from "./session.ts";
@@ -25,6 +29,7 @@ import { MemoryTerminal } from "./tui-memory.ts";
 import {
   footerText,
   renderSystemMessage,
+  renderThinking,
   renderToolLine,
   renderUserMessage,
   sanitizeText,
@@ -65,6 +70,17 @@ const editorTheme = {
 };
 
 type LineHandler = typeof handleLine;
+
+class OneLine {
+  private text = "";
+  setText(text: string) {
+    this.text = text;
+  }
+  invalidate() {}
+  render(width: number) {
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
+  }
+}
 
 export type TuiApp = {
   tui: TUI;
@@ -113,17 +129,32 @@ export async function createTuiApp(
   };
   const transcript = new Text("", 0, 0);
   type LogItem = {
-    role: "user" | "assistant" | "system" | "tool";
+    role: "user" | "assistant" | "system" | "tool" | "thinking";
     text: string;
     status?: ToolStatus;
     detail?: string;
     key?: string;
+    startedAt?: number;
+    endedAt?: number;
+  };
+  let thinkingDisplay = thinkingOf(loadSettingsSafe(cwd).settings).display;
+  let thinkingLevel = thinkingOf(loadSettingsSafe(cwd).settings).level;
+  const refreshThinking = () => {
+    const current = thinkingOf(loadSettingsSafe(cwd).settings);
+    thinkingDisplay = current.display;
+    thinkingLevel = current.level;
+  };
+  /** Close an open reasoning block when the answer, a tool, or the end of the turn arrives. */
+  const endThinking = () => {
+    const last = log.at(-1);
+    if (last?.role === "thinking" && !last.endedAt) last.endedAt = Date.now();
   };
   const log: LogItem[] = [];
   let lastNotice = "";
   let streamedThisTurn = false;
   let lastConfirm = "";
-  const footer = new Text("", 0, 0);
+  // One line that never wraps, like Pi's footer: long values are cut with "…" at the terminal edge.
+  const footer = new OneLine();
   const editor = new Editor(tui, editorTheme, { paddingX: 0 });
   // Type / for commands (core + plugins), @ for files — the same pi-tui provider Pi uses.
   editor.setAutocompleteProvider(
@@ -194,6 +225,8 @@ export async function createTuiApp(
         elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
         task: state.taskPermission,
         cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
+        think: thinkingLevel,
+        tokens: formatTokenLine(state.sessionTokens),
       }),
     );
   };
@@ -203,7 +236,15 @@ export async function createTuiApp(
     const lines: string[] = [];
     for (const item of log) {
       if (item.role === "user") lines.push(...renderUserMessage(item.text, width));
-      else if (item.role === "tool") lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
+      else if (item.role === "thinking") {
+        const shown = renderThinking(
+          { text: item.text, startedAt: item.startedAt ?? Date.now(), endedAt: item.endedAt },
+          thinkingDisplay,
+          width,
+        );
+        if (!shown.length) continue;
+        lines.push(...shown);
+      } else if (item.role === "tool") lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
       else if (item.role === "assistant") lines.push(...new Markdown(item.text, 2, 0, markdownTheme).render(width));
       else lines.push(...renderSystemMessage(item.text, width));
       lines.push("");
@@ -263,6 +304,27 @@ export async function createTuiApp(
         tui.requestRender();
       }),
   );
+
+  /** /model opens a searchable list; picking runs "/model <id>" so pinning works exactly as when typed. */
+  const openModelPicker = () => {
+    overlay?.hide();
+    const picker = new ModelPicker(
+      modelChoices(state),
+      state.modelMode === "pinned" ? state.model : "auto",
+      (id) => {
+        overlay?.hide();
+        overlay = undefined;
+        editor.disableSubmit = busy;
+        tui.setFocus(editor);
+        tui.requestRender();
+        if (id) void submit(`/model ${id}`);
+      },
+      terminal.rows,
+    );
+    editor.disableSubmit = true;
+    overlay = tui.showOverlay(picker, { anchor: "bottom-center", width: "80%", maxHeight: "80%", margin: 1 });
+    tui.requestRender();
+  };
 
   const denyWaiters = () => {
     overlay?.hide();
@@ -326,6 +388,7 @@ export async function createTuiApp(
                 ? "searching"
                 : event.name;
       phase = event.target ? `${verb} ${event.target}` : verb;
+      endThinking();
       streamAt = undefined; // text after a tool starts a new answer block
       log.push({
         role: "tool",
@@ -358,8 +421,20 @@ export async function createTuiApp(
       paintTranscript();
       return;
     }
+    if (event.type === "reasoning_delta") {
+      phase = "thinking";
+      const last = log.at(-1);
+      if (last?.role === "thinking" && !last.endedAt) last.text += event.text;
+      else {
+        log.push({ role: "thinking", text: event.text, startedAt: Date.now() });
+        streamAt = undefined;
+      }
+      paintTranscript();
+      return;
+    }
     if (event.type === "text_delta") {
       phase = "waiting for model";
+      endThinking();
       const chunk = event.text;
       if (!chunk) return;
       streamedThisTurn = true;
@@ -393,6 +468,11 @@ export async function createTuiApp(
     const text = line.trim();
     if (!alive || busy || !text) return;
     editor.setText("");
+    if (text === "/model") {
+      editor.addToHistory(text);
+      openModelPicker();
+      return;
+    }
     // Never echo or keep an API key typed with /login.
     editor.addToHistory(redactLogin(text));
     add("user", redactLogin(text));
@@ -413,8 +493,12 @@ export async function createTuiApp(
           tui.requestRender();
         },
       );
+      endThinking();
       await applyChat(result);
-      if (text.startsWith("/")) await refreshWelcome();
+      if (text.startsWith("/")) {
+        refreshThinking();
+        await refreshWelcome();
+      }
       // The same notice (no key, local chat) is shown once, not after every turn.
       if (result.notice && result.notice !== lastNotice) add("system", result.notice);
       if (result.notice) lastNotice = result.notice;
@@ -462,6 +546,14 @@ export async function createTuiApp(
 
   tui.addInputListener((data) => {
     if (!alive) return { consume: true };
+    // ctrl+t opens or folds reasoning (like Pi's thinking toggle); the choice is saved per project.
+    if (matchesKey(data, Key.ctrl("t")) && !overlay) {
+      thinkingDisplay = thinkingDisplay === "show" ? "fold" : "show";
+      const loaded = loadSettingsSafe(cwd);
+      if (!loaded.error) saveThinking(cwd, { display: thinkingDisplay });
+      paintTranscript();
+      return { consume: true };
+    }
     // esc stops a running turn (at a y/N prompt the box itself treats esc as "no").
     if (matchesKey(data, Key.escape) && busy && !overlay) {
       turnAbort.abort();

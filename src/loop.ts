@@ -13,6 +13,8 @@ import { grepPath } from "./tools/grep.ts";
 import { runShell } from "./tools/shell.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
+import { inferEntry } from "./catalog.ts";
+import { reasoningOptions, type ThinkingLevel } from "./thinking.ts";
 import { loadSettingsSafe, type Settings } from "./rules.ts";
 import { messageText, repairHistory, type ChatMessage, type MessagePart } from "./session.ts";
 import type {
@@ -38,10 +40,14 @@ export type GenerateFn = (input: {
   abortSignal?: AbortSignal;
   onEvent?: (event: TurnEvent) => void;
   shouldStop?: () => boolean;
+  /** How hard the model should think (default: provider default). */
+  thinking?: ThinkingLevel;
 }) => Promise<{
   text: string;
   inputTokens: number;
   outputTokens: number;
+  /** Output tokens spent on reasoning, when the provider reports them. */
+  reasoningTokens?: number;
   finishReason?: string;
   steps?: number;
   finalStepComplete?: boolean;
@@ -182,6 +188,7 @@ export const defaultGenerate: GenerateFn = (input) => generateWith(languageModel
 /** Stream one turn from a given model object. Tests pass the AI SDK mock model here. */
 export function generateWith(model: LanguageModel): GenerateFn {
   return async (input) => {
+    const thinking = input.thinking ? reasoningOptions(input.thinking, inferEntry(input.model).api) : undefined;
     const result = streamText({
       model,
       tools: input.tools,
@@ -189,18 +196,24 @@ export function generateWith(model: LanguageModel): GenerateFn {
       system: input.system,
       abortSignal: input.abortSignal,
       messages: toModelMessages(input.messages),
+      ...(thinking ? { reasoning: thinking.reasoning, providerOptions: thinking.providerOptions as never } : {}),
     });
     let text = "";
-    for await (const delta of result.textStream) {
-      if (delta) {
-        text += delta;
-        input.onEvent?.({ type: "text_delta", text: delta });
+    // The full stream carries reasoning next to the answer text; textStream alone would drop it.
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta" && part.text) {
+        text += part.text;
+        input.onEvent?.({ type: "text_delta", text: part.text });
+      } else if (part.type === "reasoning-delta" && part.text) {
+        input.onEvent?.({ type: "reasoning_delta", text: part.text });
+      } else if (part.type === "error") {
+        throw part.error instanceof Error ? part.error : new Error(String(part.error));
       }
     }
     const [finishReason, steps, usage, response] = await Promise.all([
       result.finishReason,
       result.steps,
-      result.usage,
+      result.totalUsage,
       result.response,
     ]);
     const stepList = Array.isArray(steps) ? steps : [];
@@ -211,6 +224,7 @@ export function generateWith(model: LanguageModel): GenerateFn {
       text,
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
+      reasoningTokens: usage?.outputTokenDetails?.reasoningTokens ?? undefined,
       finishReason: String(finishReason),
       steps: stepList.length,
       finalStepComplete,
@@ -236,11 +250,13 @@ export function fromModelMessages(messages: ReadonlyArray<{ role: string; conten
   const at = new Date().toISOString();
   return messages
     .filter((message) => message.role === "assistant" || message.role === "tool")
-    .map((message) => ({
-      role: message.role as "assistant" | "tool",
-      content: JSON.parse(JSON.stringify(message.content)) as string | MessagePart[],
-      at,
-    }));
+    .map((message) => {
+      const content = JSON.parse(JSON.stringify(message.content)) as string | MessagePart[];
+      // Reasoning is shown, not kept: it would cost tokens on every later turn.
+      const kept = typeof content === "string" ? content : content.filter((part) => part.type !== "reasoning");
+      return { role: message.role as "assistant" | "tool", content: kept, at };
+    })
+    .filter((message) => typeof message.content === "string" || message.content.length > 0);
 }
 
 export function classifyTurnOutcome(input: {
@@ -281,6 +297,8 @@ export async function runLoop(input: {
   abortSignal?: AbortSignal;
   onEvent?: (event: TurnEvent) => void;
   toolsCwd?: string;
+  /** How hard the model should think this turn. */
+  thinking?: ThinkingLevel;
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -355,6 +373,7 @@ export async function runLoop(input: {
     abortSignal: input.abortSignal,
     onEvent: input.onEvent,
     shouldStop: () => Boolean(stop.reason),
+    thinking: input.thinking,
   });
   // A plugin guard (delivery agreement) that blocked a change stops the turn.
   const agreementBlock = toolsUsed.find((tool) => !tool.approved && tool.source === "agreement")?.deniedReason
@@ -412,6 +431,7 @@ export async function runLoop(input: {
     millicents: millicentsFromUsage(result.inputTokens, result.outputTokens),
     text,
     answer: result.text,
+    tokens: { input: result.inputTokens, output: result.outputTokens, reasoning: result.reasoningTokens },
     outcome,
     finishReason: result.finishReason,
     steps: result.steps,

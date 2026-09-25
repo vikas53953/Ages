@@ -83,6 +83,7 @@ export type TurnEvent =
   | { type: "awaiting_approval"; name: string; target?: string }
   | { type: "tool"; record: ToolRecord }
   | { type: "text_delta"; text: string }
+  | { type: "reasoning_delta"; text: string }
   | { type: "outcome"; outcome: TurnOutcome };
 
 export type ToolRecord = {
@@ -114,6 +115,8 @@ export type Receipt = {
   taskId?: string;
   taskFingerprint?: string;
   taskPermission?: TaskPermission;
+  /** Tokens this turn used, across every step (input, output, and the part of output spent reasoning). */
+  tokens?: { input: number; output: number; reasoning?: number };
   /** The model's own answer text, without the handoff card. */
   answer?: string;
   /** Messages this turn added to the conversation. Saved to the session, not to the receipt file. */

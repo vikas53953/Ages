@@ -1,6 +1,6 @@
 import { loadEnv, hasJevCredentials } from "./env.js";
 import { formatReceipt, localGenerate, runLoop } from "./loop.js";
-import { formatChat } from "./receipt.js";
+import { formatChat, formatTokenLine } from "./receipt.js";
 import { modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
 import { addMemory, loadMemory } from "./memory.js";
@@ -11,7 +11,8 @@ import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
 import { createSession, listSessions, loadMessages, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
-import { loadSettingsSafe, settingsPath } from "./rules.js";
+import { loadSettingsSafe, saveThinking, settingsPath, thinkingOf } from "./rules.js";
+import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.js";
 import { runPowerShell } from "./tools/fs.js";
 import { LOGIN_KEYS, loginStatus, maskKey, writeUserKey } from "./login.js";
@@ -39,7 +40,16 @@ export async function startState(cwd, opts) {
     for (const plugin of plugins)
         await plugin.onSessionStart?.(cwd);
     const permission = await pluginTaskPermission(plugins, cwd);
-    const base = { cwd, session, provider, jevHealth, taskPermission: permission, plugins, unknownPlugins: unknown };
+    const base = {
+        cwd,
+        session,
+        provider,
+        jevHealth,
+        taskPermission: permission,
+        plugins,
+        unknownPlugins: unknown,
+        sessionTokens: { input: 0, output: 0 },
+    };
     if (pinned)
         return { ...base, model: pinned, modelMode: "pinned" };
     return { ...base, model: "auto", modelMode: "auto" };
@@ -73,7 +83,31 @@ export async function welcomeInfo(state) {
         plugins: state.plugins.map((plugin) => plugin.name),
         recent: await recentSessions(state.cwd, 3, state.session.id),
         hasChatKey: state.provider !== "local",
+        thinking: (() => {
+            const current = thinkingOf(settings);
+            return `${current.level} · ${current.display === "fold" ? "folded" : current.display === "show" ? "shown" : "hidden"}`;
+        })(),
     };
+}
+/** Entries for the /model picker: "auto" first, then the live catalogue grouped by provider. */
+export function modelChoices(state) {
+    const config = loadConfig(state.cwd);
+    const models = modelsFor(state.provider, config);
+    const rows = currentCatalog().map((entry) => ({
+        id: entry.id,
+        group: entry.group,
+        note: entry.id === models.frontier
+            ? `${entry.name} · default frontier`
+            : entry.id === models.cheap
+                ? `${entry.name} · default cheap`
+                : entry.name,
+    }));
+    const defaults = rows.filter((row) => row.id === models.frontier || row.id === models.cheap);
+    return [
+        { id: "auto", group: "Aegis", note: `Jev picks ${models.cheap} or ${models.frontier} each turn` },
+        ...defaults.map((row) => ({ ...row, group: "Defaults" })),
+        ...rows.filter((row) => !defaults.includes(row)),
+    ];
 }
 /** Text every enabled plugin adds to the system prompt (context:assemble). */
 async function pluginPrompts(plugins, cwd, sessionId) {
@@ -152,7 +186,12 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
         model: state.modelMode === "pinned" ? state.model : undefined,
         abortSignal: opts.abortSignal,
         onEvent,
+        thinking: thinkingOf(loadedSettings.settings).level,
     });
+    if (receipt.tokens) {
+        state.sessionTokens.input += receipt.tokens.input;
+        state.sessionTokens.output += receipt.tokens.output;
+    }
     // Save what the model really said, tool calls and results included, so the next turn remembers it.
     await appendMessages(state.cwd, session.id, capToolResults(receipt.newMessages ?? []));
     state.jevHealth = jevHealthFromReceipt(opts.mockJev, receipt);
@@ -276,6 +315,30 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             };
         }
     }
+    if (cmd.type === "think") {
+        const loaded = loadSettingsSafe(state.cwd);
+        const current = thinkingOf(loaded.settings);
+        if (!cmd.arg) {
+            return {
+                output: [
+                    `thinking  ${current.level}   (off · low · medium · high)`,
+                    `shown     ${current.display}   (fold: "Thought for 4s ›", ctrl+t opens · show: live · hide)`,
+                ].join("\n"),
+                session: state.session,
+            };
+        }
+        if (loaded.error)
+            return { output: `Fix ${settingsPath(state.cwd)} first: ${loaded.error}`, session: state.session };
+        const level = parseThinkingLevel(cmd.arg);
+        const display = level ? undefined : parseThinkingDisplay(cmd.arg);
+        if (!level && !display)
+            return { output: "usage: /think off|low|medium|high  or  /think fold|show|hide", session: state.session };
+        saveThinking(state.cwd, level ? { level } : { display });
+        return {
+            output: level ? `thinking ${level}${level === "off" ? " (no reasoning asked for)" : ""}` : `reasoning ${display === "fold" ? "folded" : display === "show" ? "shown live" : "hidden"}`,
+            session: state.session,
+        };
+    }
     if (cmd.type === "login" || cmd.type === "logout") {
         if (!cmd.provider)
             return { output: loginStatus(), session: state.session };
@@ -307,6 +370,8 @@ export async function handleLine(line, state, opts, confirm = async () => false,
                 `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
                 `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
                 `task      ${state.taskPermission}`,
+                `thinking  ${thinkingOf(loadSettingsSafe(state.cwd).settings).level} · ${thinkingOf(loadSettingsSafe(state.cwd).settings).display}`,
+                `tokens    ${formatTokenLine(state.sessionTokens) || "none yet"} this session`,
                 `plugins   ${state.plugins.map((plugin) => plugin.name).join(", ") || "(none)"}${state.unknownPlugins.length ? `  unknown: ${state.unknownPlugins.join(", ")}` : ""}`,
                 `settings  ${settingsPath(state.cwd)}`,
                 `cwd       ${state.cwd}`,

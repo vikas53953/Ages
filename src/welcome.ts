@@ -19,6 +19,8 @@ export type WelcomeInfo = {
   plugins: string[];
   recent: { when: string; text: string }[];
   hasChatKey: boolean;
+  /** e.g. "low · folded" */
+  thinking?: string;
 };
 
 const ESC = "\x1b[";
@@ -80,6 +82,7 @@ function lockLines(info: WelcomeInfo) {
     `rules    ${deny} deny · ${ask} ask · ${allow} allow`,
     `jev      ${info.jevMode} · ${info.jevHealth}`,
     `plugins  ${info.plugins.length ? info.plugins.join(", ") : "none"}`,
+    ...(info.thinking ? [`think    ${info.thinking}`] : []),
   ];
 }
 

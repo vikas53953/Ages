@@ -56,6 +56,7 @@ function lockLines(info) {
         `rules    ${deny} deny · ${ask} ask · ${allow} allow`,
         `jev      ${info.jevMode} · ${info.jevHealth}`,
         `plugins  ${info.plugins.length ? info.plugins.join(", ") : "none"}`,
+        ...(info.thinking ? [`think    ${info.thinking}`] : []),
     ];
 }
 function firstSteps(info) {

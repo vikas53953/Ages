@@ -1,3 +1,4 @@
+import { formatTokenLine } from "./receipt.ts";
 import type { JevHealth } from "./types.ts";
 
 export const ACCENT = "\x1b[36m";
@@ -94,16 +95,22 @@ export function footerText(input: {
   task?: string;
   /** Short working folder, shown first like Pi's footer. */
   cwd?: string;
+  /** Thinking level, e.g. "low". */
+  think?: string;
+  /** Session token total, e.g. "↑ 12k ↓ 830". */
+  tokens?: string;
 }): string {
   const model = input.modelMode === "auto" ? "auto" : input.model;
   const task = `task ${input.task ?? "none"}`;
   const place = input.cwd ? `${input.cwd} · ` : "";
+  const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}`;
   if (input.busy) {
     const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));
     const phase = input.phase ?? "working";
-    return `${place}${model} · jev ${input.jev} · ${task} · ${phase}  ${elapsed}s`;
+    // While busy, what is happening comes first so a narrow terminal never cuts it off.
+    return `${phase}  ${elapsed}s · ${place}${model} · jev ${input.jev}${extra} · ${task}`;
   }
-  return `${place}${model} · jev ${input.jev} · ${input.provider} · ${task} · idle`;
+  return `${place}${model} · jev ${input.jev} · ${input.provider}${extra} · ${task} · idle`;
 }
 
 /** One compact line after each turn, in place of the full handoff card the REPL prints. */
@@ -116,8 +123,11 @@ export function turnStatusLines(receipt: {
   finishReason?: string;
   steps?: number;
   taskId?: string;
+  tokens?: { input: number; output: number; reasoning?: number };
 }): string[] {
   const seconds = `${(receipt.ms / 1000).toFixed(1)}s`;
+  const tokenText = formatTokenLine(receipt.tokens);
+  const tokenPart = tokenText ? ` · ${tokenText}` : "";
   const tools = receipt.tools.length ? `${receipt.tools.length} tool${receipt.tools.length === 1 ? "" : "s"}` : "no tools";
   const changed = receipt.tools
     .filter((tool) => tool.approved && (tool.name === "write" || tool.name === "edit"))
@@ -125,9 +135,9 @@ export function turnStatusLines(receipt: {
   const outcome = receipt.outcome ?? "completed";
   const head =
     outcome === "completed"
-      ? `✓ done · ${tools} · ${seconds} · ${receipt.model}`
+      ? `✓ done · ${tools}${tokenPart} · ${seconds} · ${receipt.model}`
       : outcome === "blocked"
-        ? `⚠ blocked · ${tools} · ${seconds}`
+        ? `⚠ blocked · ${tools}${tokenPart} · ${seconds}`
         : outcome === "cancelled"
           ? `✗ cancelled · ${seconds}`
           : `… incomplete · finish=${receipt.finishReason ?? "?"} · ${receipt.steps ?? 0} steps · ${seconds}`;
@@ -138,4 +148,18 @@ export function turnStatusLines(receipt: {
   const next = /^Next {2}(.*)$/m.exec(receipt.text)?.[1];
   if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`next    ${next}`);
   return lines;
+}
+
+/** Reasoning in the transcript: folded to one line (default), shown in full, or not at all. */
+export function renderThinking(
+  item: { text: string; startedAt: number; endedAt?: number },
+  display: "fold" | "show" | "hide",
+  cols: number,
+): string[] {
+  if (display === "hide") return [];
+  const seconds = Math.max(1, Math.round(((item.endedAt ?? Date.now()) - item.startedAt) / 1000));
+  const head = item.endedAt ? `Thought for ${seconds}s` : `Thinking… ${seconds}s`;
+  if (display === "fold") return [`${MUTED}▸ ${head} · ctrl+t to open${RESET}`];
+  const body = wrapLine(item.text.trim(), Math.max(8, cols - 4)).map((line) => `${MUTED}\x1b[3m  ${line}${RESET}`);
+  return [`${MUTED}▾ ${head} · ctrl+t to fold${RESET}`, ...body];
 }

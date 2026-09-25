@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { DEFAULT_THINKING, DEFAULT_THINKING_DISPLAY, THINKING_DISPLAYS, THINKING_LEVELS, } from "./thinking.js";
 export const JEV_MODES = ["off", "second-opinion", "every-call"];
 /**
  * Defaults when .aegis/settings.json is missing or leaves a list out.
@@ -64,7 +65,15 @@ export function loadSettings(cwd) {
         throw new Error(`jev.mode must be one of: ${JEV_MODES.join(", ")}`);
     }
     const rules = (raw.rules ?? {});
+    const thinking = (raw.thinking ?? {});
+    if (thinking.level !== undefined && !THINKING_LEVELS.includes(thinking.level)) {
+        throw new Error(`thinking.level must be one of: ${THINKING_LEVELS.join(", ")}`);
+    }
+    if (thinking.display !== undefined && !THINKING_DISPLAYS.includes(thinking.display)) {
+        throw new Error(`thinking.display must be one of: ${THINKING_DISPLAYS.join(", ")}`);
+    }
     return {
+        thinking: { level: thinking.level, display: thinking.display },
         plugins: stringList(raw.plugins, DEFAULT_SETTINGS.plugins, "plugins"),
         jev: { mode: mode },
         rules: {
@@ -89,6 +98,21 @@ export function loadSettingsSafe(cwd) {
             error: error instanceof Error ? error.message : String(error),
         };
     }
+}
+/** The thinking level and display in effect, with defaults filled in. */
+export function thinkingOf(settings) {
+    return {
+        level: settings.thinking?.level ?? DEFAULT_THINKING,
+        display: settings.thinking?.display ?? DEFAULT_THINKING_DISPLAY,
+    };
+}
+/** Change only thinking.level or thinking.display; keep everything else in the file. */
+export function saveThinking(cwd, change) {
+    const raw = readRaw(cwd) ?? {};
+    const thinking = (raw.thinking && typeof raw.thinking === "object" ? raw.thinking : {});
+    raw.thinking = { ...thinking, ...change };
+    mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
+    writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
 }
 /** Change only jev.mode; keep everything else in the file. */
 export function saveJevMode(cwd, mode) {

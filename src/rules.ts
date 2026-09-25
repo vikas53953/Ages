@@ -1,5 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  DEFAULT_THINKING,
+  DEFAULT_THINKING_DISPLAY,
+  THINKING_DISPLAYS,
+  THINKING_LEVELS,
+  type ThinkingDisplay,
+  type ThinkingLevel,
+} from "./thinking.ts";
 
 export type JevMode = "off" | "second-opinion" | "every-call";
 export type RuleAction = "allow" | "ask" | "deny";
@@ -11,6 +19,8 @@ export type Settings = {
   rules: Record<RuleAction, string[]>;
   /** Layer-1 plugins to load, in order. The core runs with none. */
   plugins: string[];
+  /** How hard the model thinks, and how its reasoning is shown. Missing = defaults (low, folded). */
+  thinking?: { level?: ThinkingLevel; display?: ThinkingDisplay };
 };
 
 export type RuleMatch = { action: RuleAction; rule: string };
@@ -79,7 +89,15 @@ export function loadSettings(cwd: string): Settings {
     throw new Error(`jev.mode must be one of: ${JEV_MODES.join(", ")}`);
   }
   const rules = (raw.rules ?? {}) as Record<string, unknown>;
+  const thinking = (raw.thinking ?? {}) as { level?: unknown; display?: unknown };
+  if (thinking.level !== undefined && !THINKING_LEVELS.includes(thinking.level as ThinkingLevel)) {
+    throw new Error(`thinking.level must be one of: ${THINKING_LEVELS.join(", ")}`);
+  }
+  if (thinking.display !== undefined && !THINKING_DISPLAYS.includes(thinking.display as ThinkingDisplay)) {
+    throw new Error(`thinking.display must be one of: ${THINKING_DISPLAYS.join(", ")}`);
+  }
   return {
+    thinking: { level: thinking.level as ThinkingLevel | undefined, display: thinking.display as ThinkingDisplay | undefined },
     plugins: stringList(raw.plugins, DEFAULT_SETTINGS.plugins, "plugins"),
     jev: { mode: mode as JevMode },
     rules: {
@@ -104,6 +122,23 @@ export function loadSettingsSafe(cwd: string): { settings: Settings; error?: str
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/** The thinking level and display in effect, with defaults filled in. */
+export function thinkingOf(settings: Settings) {
+  return {
+    level: settings.thinking?.level ?? DEFAULT_THINKING,
+    display: settings.thinking?.display ?? DEFAULT_THINKING_DISPLAY,
+  };
+}
+
+/** Change only thinking.level or thinking.display; keep everything else in the file. */
+export function saveThinking(cwd: string, change: { level?: ThinkingLevel; display?: ThinkingDisplay }) {
+  const raw = readRaw(cwd) ?? {};
+  const thinking = (raw.thinking && typeof raw.thinking === "object" ? raw.thinking : {}) as Record<string, unknown>;
+  raw.thinking = { ...thinking, ...change };
+  mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
+  writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
 }
 
 /** Change only jev.mode; keep everything else in the file. */

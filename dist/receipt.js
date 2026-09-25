@@ -71,5 +71,25 @@ export function formatChat(receipt) {
         taskId: receipt.taskId,
         taskFingerprint: receipt.taskFingerprint,
     });
-    return [...(tools.length ? [...tools, ""] : []), body].join("\n");
+    const tokens = formatTokenLine(receipt.tokens);
+    return [...(tools.length ? [...tools, ""] : []), body, ...(tokens ? ["", `tokens  ${tokens}`] : [])].join("\n");
+}
+/** 830 · 1.2k · 12k · 1.2M — the same short form Pi's footer uses. */
+export function formatTokens(count) {
+    if (count < 1000)
+        return String(count);
+    if (count < 10_000)
+        return `${(count / 1000).toFixed(1)}k`;
+    if (count < 1_000_000)
+        return `${Math.round(count / 1000)}k`;
+    if (count < 10_000_000)
+        return `${(count / 1_000_000).toFixed(1)}M`;
+    return `${Math.round(count / 1_000_000)}M`;
+}
+/** "↑ 12k ↓ 830" (+ " · 410 thinking" when the provider reports reasoning tokens). */
+export function formatTokenLine(tokens) {
+    if (!tokens || (!tokens.input && !tokens.output))
+        return "";
+    const thinking = tokens.reasoning ? ` · ${formatTokens(tokens.reasoning)} thinking` : "";
+    return `↑ ${formatTokens(tokens.input)} ↓ ${formatTokens(tokens.output)}${thinking}`;
 }

@@ -72,6 +72,6 @@ describe("tui-layout", () => {
         elapsedMs: 3200,
         task: "proposed",
       }),
-    ).toBe("auto · jev live · task proposed · waiting for model  3s");
+    ).toBe("waiting for model  3s · auto · jev live · task proposed");
   });
 });

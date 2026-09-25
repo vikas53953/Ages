@@ -12,6 +12,7 @@ export type Slash =
   | { type: "status" }
   | { type: "models" }
   | { type: "model"; id?: string }
+  | { type: "think"; arg?: string }
   | { type: "login"; provider?: string; key?: string }
   | { type: "logout"; provider?: string }
   | { type: "unknown"; name: string }
@@ -54,6 +55,9 @@ export function parseLine(line: string): Slash {
       return { type: "clear" };
     case "status":
       return { type: "status" };
+    case "think":
+    case "thinking":
+      return { type: "think", arg: arg || undefined };
     case "login": {
       const [provider, key] = rest;
       return { type: "login", provider: provider?.toLowerCase(), key };
@@ -84,7 +88,10 @@ export const HELP = [
   "  /models            list every available model",
   "  /model             show the model; pin one or go back to auto",
   "  /model auto        Jev picks cheap vs frontier",
-  "  /model <id>        pin a model (persists)",
+  "  /model <id>        pin a model (persists); /model alone opens the picker",
+  "  /think             show the thinking level and how reasoning is shown",
+  "  /think off|low|medium|high  how hard the model thinks (saved per project)",
+  "  /think fold|show|hide       reasoning folded (ctrl+t opens), shown live, or hidden",
   "  /status            provider, session, cwd, task",
   "  /login             show keys; /login opencode <key> saves one for every folder",
   "  /logout <name>     remove a saved key",
