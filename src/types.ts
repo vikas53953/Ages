@@ -83,7 +83,7 @@ export type JevHealth = "mock" | "live" | "down" | "blocked" | "off";
 export type TaskPermission = "untracked" | "proposed" | "confirmed" | "invalid";
 export type TurnOutcome = "completed" | "blocked" | "incomplete" | "cancelled";
 /** rule = decided by .aegis/settings.json; default = no rule and no Jev, so you were asked. */
-export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "default";
+export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "hook" | "default";
 
 export type TurnEvent =
   | { type: "accepted" }
@@ -114,6 +114,8 @@ export type ToolRecord = {
   rule?: string;
   /** The allow rule you saved with "always" on this call's prompt. */
   savedRule?: string;
+  /** A PreToolUse hook that denied this call or made Aegis ask. */
+  hook?: string;
   /** Set when you chose "always" but the rule could not be saved (the call still ran once). */
   saveFailed?: string;
 };

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { loadHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
 import type { ToolGuard } from "./plugin-api.ts";
@@ -167,6 +168,8 @@ export async function runGatedTool(input: {
   readOnly?: string;
   /** Plugin checks that run before the rules (delivery agreement). */
   guards?: ToolGuard[];
+  /** Your PreToolUse hooks (default: read from ~/.aegis/settings.json). They can only deny or ask. */
+  hooks?: HookConfig;
   /** Folder whose .aegis/settings.json receives "always allow" rules (the project, even when tools run elsewhere). */
   settingsCwd?: string;
 }): Promise<GatedRun> {
@@ -196,8 +199,23 @@ export async function runGatedTool(input: {
   if (rule?.action === "deny") {
     return denied({ name: input.name, target, reason: `rule: ${rule.rule}`, source: "rule", rule: rule.rule });
   }
+  // Your hooks may only tighten: deny here, or turn the call into a question below. Never allow.
+  const hook = await runPreToolHooks({
+    config: input.hooks ?? loadHooks(),
+    name: input.name,
+    args: input.args,
+    cwd: input.cwd,
+    readOnly: Boolean(input.readOnly),
+    signal: input.abortSignal,
+  });
+  if (input.abortSignal?.aborted) return cancelled(undefined, input.name);
+  if (hook?.action === "deny") {
+    const run = denied({ name: input.name, target, reason: `hook: ${hook.reason}`, source: "hook" });
+    run.record.hook = hook.hook;
+    return run;
+  }
   // Conversation-only tools (the todo list) change nothing outside the chat: no question, no Jev, only deny rules.
-  if (INTERNAL_TOOLS.has(input.name)) {
+  if (INTERNAL_TOOLS.has(input.name) && !hook) {
     const output = await input.execute();
     return {
       output,
@@ -233,17 +251,19 @@ export async function runGatedTool(input: {
     rule?.action === "allow" ? "auto" : rule?.action === "ask" ? "confirm" : undefined;
   const jevAction = decision ? decideToolAction(decision, input.config) : undefined;
   // A rule decides; Jev may only make it stricter. No rule and no Jev: ask.
-  const action: PolicyAction = ruleAction
+  const decided: PolicyAction = ruleAction
     ? jevAction
       ? stricter(ruleAction, jevAction)
       : ruleAction
     : (jevAction ?? "confirm");
+  const action: PolicyAction = hook ? stricter(decided, "confirm") : decided;
 
   const why = [
     rule ? `rule "${rule.rule}" → ${rule.action}` : "no rule matched",
     decision
       ? `Jev ${decision.source === "fail_closed" ? "could not score" : `→ ${jevAction}`}`
       : `Jev ${settings.jev.mode === "off" || !input.jev ? "off" : "not asked"}`,
+    hook ? `hook: ${hook.reason}` : "",
     loaded.error ? `settings unreadable (${loaded.error}); allow rules ignored, Jev off` : "",
   ]
     .filter(Boolean)
@@ -257,8 +277,9 @@ export async function runGatedTool(input: {
     action,
     approved: false,
     target,
-    source: decidedBy(ruleAction, jevAction, decision),
+    source: hook && decided !== action ? "hook" : decidedBy(ruleAction, jevAction, decision),
     rule: rule?.rule,
+    hook: hook?.hook,
   };
 
   if (action === "confirm") {
@@ -266,7 +287,8 @@ export async function runGatedTool(input: {
     // A rule is saved in the project's settings, so only offer one when the tool runs in the project folder
     // itself: a /task work folder's "server.mjs" is not the project's "server.mjs".
     const sameRoot = !input.settingsCwd || path.resolve(input.settingsCwd) === path.resolve(input.cwd);
-    const always = loaded.error || !sameRoot ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
+    // A hook that asked is asked every time: no "always" rule can quiet it.
+    const always = loaded.error || !sameRoot || hook ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
     const prompt = formatConfirm(input.name, input.args, decision, why);
     const raced = await Promise.race([
       input

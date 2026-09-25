@@ -24,11 +24,12 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/router.ts` | Cheap or frontier model from a turn score; `unscoredTurn` when nothing scores |
 | `src/providers.ts` | Local / OpenCode Zen / OpenAI model connection |
 | `src/tools/` | read, write, edit, grep, shell (PowerShell, off unless `AEGIS_ALLOW_SHELL=1`) |
-| `src/gated.ts` | The checkpoint every tool passes: plugin guards → rules → scorer (if on) → you → run |
+| `src/gated.ts` | The checkpoint every tool passes: plugin guards → rules → your hooks (deny/ask only) → scorer (if on) → you → run |
 | `src/rules.ts` | Read `.aegis/settings.json`: rules, Jev mode, plugin list, thinking; which "always allow" rule to offer and saving it |
 | `src/policy.ts` | Turn a score into run or ask; `stricter()` lets a scorer only tighten |
 | `src/extensions.ts` | SKILL.md skills (on demand, `skill` tool) and custom commands; a project's need /skills trust (content-hashed) |
 | `src/todos.ts` | The agent's todo list (internal tool, kept in the conversation and in `todos.json` so compaction cannot lose it) |
+| `src/hooks.ts` | PreToolUse hooks in Claude Code's format from ~/.aegis/settings.json; deny or ask only |
 | `src/webfetch.ts` | webfetch tool: https only, pinned DNS to public addresses, same-host redirects, 5 MB / 50k chars, untrusted wrapper |
 | `src/review.ts` | `/review`: hardened git diff collection and the P0–P3 review prompt |
 | `src/clipboard.ts` | `/copy` (Set-Clipboard on Windows) |

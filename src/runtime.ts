@@ -535,7 +535,7 @@ export async function handleLine(
     const rows = await loadMessages(state.cwd, state.session.id);
     const last = [...rows].reverse().find((row) => row.role === "assistant" && messageText(row).trim());
     if (!last) return { output: "No answer to copy yet.", session: state.session };
-    const copied = copyToClipboard(messageText(last).trim());
+    const copied = await copyToClipboard(messageText(last).trim());
     return { output: copied ? "Copied the last answer." : "Could not reach the clipboard here. /export md saves it to a file instead.", session: state.session };
   }
   if (cmd.type === "todos") {

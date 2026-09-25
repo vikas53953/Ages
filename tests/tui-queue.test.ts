@@ -93,7 +93,14 @@ describe("/export and /copy", () => {
     const jsonl = (await handleLine("/export jsonl", state, opts)).output;
     const rows = (await readFile(jsonl.split(" to ")[1]!.trim(), "utf8")).trim().split("\n");
     expect(rows).toHaveLength(2);
-    const copy = (await handleLine("/copy", state, opts)).output;
-    expect(copy === "Copied the last answer." || copy.includes("Could not reach the clipboard")).toBe(true);
   });
+
+  it("/copy copies the last answer, or says the clipboard could not be reached", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-copy-"));
+    const session = await createSession(cwd);
+    await appendMessage(cwd, session.id, { role: "assistant", content: "hi there", at: new Date().toISOString() });
+    const state = await startState(cwd, { local: true, mockJev: true });
+    const copy = (await handleLine("/copy", state, { mockJev: true, yes: false, local: true })).output;
+    expect(copy === "Copied the last answer." || copy.includes("Could not reach the clipboard")).toBe(true);
+  }, 30_000); // Windows starts PowerShell for Set-Clipboard
 });

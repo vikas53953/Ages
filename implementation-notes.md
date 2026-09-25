@@ -93,3 +93,10 @@
   - Todos are also saved to `<session>/todos.json`, because compaction drops the old todo call from the messages.
   - Claude Code's `Skill` tool maps to Aegis's `skill` rule; `deny webfetch *` now also covers non-http URLs; IDN hosts match in either spelling.
   - Project skill trust hashes every file in the skill folder, and symlinked skill folders are skipped. Frontmatter accepts an empty block and trailing spaces; skill names are lower-cased.
+- Hooks (Claude Code's `hooks.PreToolUse` format; research: settings shape, exit 2 blocks, `hookSpecificOutput.permissionDecision`):
+  - Read only from your `~/.aegis/settings.json`; a project cannot add hooks (they run programs).
+  - Tighten-only: deny (exit 2, `deny`/`block`, `continue:false`) or ask; `allow` is ignored so rules stay the only way to skip a question. An asked-by-hook call never offers "always".
+  - Fail toward asking: a crash, non-zero exit, timeout (default 60 s, max 600), missing program or malformed hooks block makes the call a question (headless: denied). Claude Code treats such errors as non-blocking; Aegis is stricter on purpose.
+  - Runs after deny rules and before Jev, for Aegis's tools and Claude Code engine calls alike. Matching hooks run in parallel; the strictest answer wins.
+  - Only PreToolUse for now. PostToolUse / UserPromptSubmit / Stop can come later.
+- `/copy` no longer blocks the screen: the clipboard program runs async. The Windows CI timeout on the /export test was PowerShell's start-up inside the same test; /copy now has its own test with a longer limit.

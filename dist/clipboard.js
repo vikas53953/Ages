@@ -1,9 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 /**
  * Put text on the clipboard. Windows: PowerShell reads it from stdin as UTF-8 (clip.exe and the default console
- * encoding mangle non-ASCII text). macOS: pbcopy. Linux: wl-copy or xclip. Returns false when none works.
+ * encoding mangle non-ASCII text). macOS: pbcopy. Linux: wl-copy or xclip. Resolves false when none works.
+ * Async, so a slow PowerShell start does not freeze the screen.
  */
-export function copyToClipboard(text) {
+export async function copyToClipboard(text) {
     const attempts = process.platform === "win32"
         ? [
             [
@@ -18,9 +19,24 @@ export function copyToClipboard(text) {
                 ["xclip", ["-selection", "clipboard"]],
             ];
     for (const [command, args] of attempts) {
-        const run = spawnSync(command, args, { input: text, windowsHide: true, timeout: 10_000 });
-        if (run.status === 0)
+        if (await runWithInput(command, args, text))
             return true;
     }
     return false;
+}
+function runWithInput(command, args, input) {
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(command, args, { windowsHide: true, stdio: ["pipe", "ignore", "ignore"], timeout: 10_000 });
+        }
+        catch {
+            resolve(false);
+            return;
+        }
+        child.on("error", () => resolve(false));
+        child.on("close", (code) => resolve(code === 0));
+        child.stdin.on("error", () => undefined);
+        child.stdin.end(input);
+    });
 }

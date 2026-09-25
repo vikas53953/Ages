@@ -144,6 +144,17 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 
 Rules decide first (deny, then ask, then allow). Paths are matched relative to the folder, so `C:\proj\.git\x` is `.git/x`. Jev only scores what no rule matches, and can only make a decision stricter. With no Jev key, reads and allowed calls still run and everything else asks you. "Always allow" is never offered when an ask rule matched, for chained or wrapped commands (`pwsh -c`, `cmd /c`, `iex`), or for `.git`, `.harness`, `.aegis`. Shell (PowerShell) stays off unless `AEGIS_ALLOW_SHELL=1`. None of this is OS isolation: generated code runs with your rights.
 
+
+### Hooks (Claude Code format, tighten-only)
+
+Put hooks in **your** `~/.aegis/settings.json` (never read from a project):
+
+```json
+{ "hooks": { "PreToolUse": [ { "matcher": "Bash|Write", "hooks": [ { "type": "command", "command": "C:\\tools\\check.ps1", "timeout": 30 } ] } ] } }
+```
+
+The hook gets Claude Code's JSON on stdin (`tool_name` like `Write`/`Bash`, `tool_input` with `file_path`), so scripts written for Claude Code work. Exit 2 (or `permissionDecision: "deny"`) blocks the call and stderr is the reason; `"ask"` makes Aegis ask you even when a rule allows it. `"allow"` is ignored: hooks can only make the lock stricter. A hook that crashes or times out (default 60 s) turns the call into a question. Shell form runs in PowerShell; use `"command": "node", "args": ["check.mjs"]` for exec form.
+
 ## Layers
 
 A small core (loop, tools, session, compaction, router, rules gate, TUI) and plugins (`jev`, `delivery`, `receipts`) listed under `"plugins"` in `.aegis/settings.json`. See `PROJECT-MAP.md`.
