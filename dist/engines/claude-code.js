@@ -266,18 +266,23 @@ export async function runClaudeCodeTurn(input) {
             killProcessTree(child.pid);
     };
     turnAbort.signal.addEventListener("abort", onAbort, { once: true });
+    // claude may exit before reading all of it (a bad --resume, a sign-in error): the write then fails with EPIPE,
+    // which must not crash Aegis; the exit code and stderr say what happened.
+    child.stdin.on("error", () => undefined);
+    // A prompt that starts with "/" is a task for Claude, never one of its slash commands.
+    const text = input.prompt.startsWith("/") ? `Task: ${input.prompt}` : input.prompt;
     child.stdin.end(images.length
         ? `${JSON.stringify({
             type: "user",
             message: {
                 role: "user",
                 content: [
-                    { type: "text", text: input.prompt },
+                    { type: "text", text },
                     ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
                 ],
             },
         })}\n`
-        : input.prompt);
+        : text);
     let answer = "";
     let result;
     let claudeSession = "";

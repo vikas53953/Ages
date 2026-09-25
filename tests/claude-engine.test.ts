@@ -237,3 +237,16 @@ describe("claude-code engine: images", () => {
     expect(plain.receipt?.answer).toContain("Echo: hello there");
   });
 });
+
+describe("claude-code engine: review fixes", () => {
+  it("claude exiting before it reads a big stdin does not crash Aegis; a leading / is a task", async () => {
+    const { cwd, state, opts } = await project();
+    await handleLine("/model claude-code", state, opts);
+    const big = Buffer.alloc(4 * 1024 * 1024, 7).toString("base64");
+    const huge = [{ path: "pasted 1", mediaType: "image/png" as const, bytes: 4 * 1024 * 1024, data: big }];
+    process.env.FAKE_CLAUDE_EXIT_EARLY = "1";
+    const result = await handleLine("exit-early", state, { ...opts, images: huge }).catch((error: Error) => ({ error }));
+    expect(result).toBeTruthy();
+    void cwd;
+  });
+});

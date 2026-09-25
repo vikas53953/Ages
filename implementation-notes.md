@@ -399,3 +399,7 @@
   - Checked offline against the installed Claude Code 2.1.282: a capture server on 127.0.0.1 (answering 500, so no model ran) received the image data in the `/v1/messages` request.
   - The images passed Aegis's lock first, exactly as in its own loop.
   - Pasted Studio images now reach Claude Code too; before, they were refused with a notice.
+  - Fixes from the review of engine images:
+    - P1: if `claude` quit before reading its input (a bad resume, a sign-in error), writing up to about 27 MB of images failed with EPIPE and crashed Aegis. stdin errors are now handled, and the exit code and stderr report the failure. The test was checked to fail without the fix.
+    - A prompt that starts with "/" goes to Claude Code as `Task: /…`, so it is never taken as one of Claude's slash commands.
+    - The `.harness`/`.aegis` shell floor is an extra question, not a sandbox: an obfuscated path can avoid it. The shell stays off unless you turn it on.

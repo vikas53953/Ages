@@ -33,6 +33,8 @@ function askHook(tool_name, tool_input) {
 }
 
 let prompt = "";
+// A test can make it quit at once, before reading stdin (claude failing early).
+if (process.argv.includes("--input-format") && process.env.FAKE_CLAUDE_EXIT_EARLY === "1") process.exit(3);
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (d) => (prompt += d));
 process.stdin.on("end", async () => {
