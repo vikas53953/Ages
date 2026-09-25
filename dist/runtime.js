@@ -326,7 +326,7 @@ turnOptions = {}) {
     const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
     // @path mentions: each file is read through the lock and attached to the prompt (not in --local mode).
     const mentioned = useLocal && !opts.generate
-        ? { prompt, attachments: "", records: [] }
+        ? { prompt, attachments: "", records: [], images: [] }
         : await attachMentions({
             prompt,
             cwd: state.cwd,
@@ -361,7 +361,10 @@ turnOptions = {}) {
     onEvent?.({ type: "accepted" });
     const receipt = claudeEngine
         ? await runClaudeCodeTurn({
-            prompt: mentioned.prompt,
+            // Claude Code is sent text: it opens an attached image with its own Read tool (which passes the lock).
+            prompt: mentioned.images.length
+                ? `${mentioned.prompt}\n\nOpen the attached image(s) with your Read tool to see them: ${mentioned.images.map((image) => image.path).join(", ")}`
+                : mentioned.prompt,
             cwd: state.cwd,
             sessionId: session.id,
             config,
@@ -376,6 +379,7 @@ turnOptions = {}) {
         : await runLoop({
             prompt,
             attachments: mentioned.attachments || undefined,
+            images: mentioned.images.length ? mentioned.images : undefined,
             cwd: state.cwd,
             plugins: state.plugins,
             config,

@@ -31,6 +31,7 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/todos.ts` | The agent's todo list (internal tool, kept in the conversation and in `todos.json` so compaction cannot lose it) |
 | `src/redact.ts` | Cut secret-looking values from tool output before the model sees it |
 | `src/mentions.ts` | `@path` in a prompt: attach files/folders through the lock |
+| `src/images.ts` | images in a prompt: type from first bytes, 5 MB cap, vision check, note kept in history |
 | `src/worktree.ts` | `aegis --worktree[=name]`: a separate git worktree and branch, checked out with hardened git |
 | `src/which.ts` | Find programs on PATH by full path, never in the project folder (Windows searches the working folder first) |
 | `src/hooks.ts` | PreToolUse hooks in Claude Code's format from ~/.aegis/settings.json; deny or ask only |

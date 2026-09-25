@@ -17,6 +17,7 @@ import { editPath } from "./tools/edit.js";
 import { searchInWorker } from "./tools/search.js";
 import { REDACTED_MARK } from "./redact.js";
 import { runShell } from "./tools/shell.js";
+import { modelSeesImages } from "./images.js";
 import { languageModel, modelsFor, resolveProvider } from "./providers.js";
 import { planLocal } from "./planner.js";
 import { inferEntry } from "./catalog.js";
@@ -425,9 +426,24 @@ export async function runLoop(input) {
             input.onEvent?.({ type: "tool", record });
         },
     });
+    const userText = input.attachments ? `${input.prompt}\n\n${input.attachments}` : input.prompt;
+    let images = input.images ?? [];
+    if (images.length && (generate === localGenerate || !modelSeesImages(route.model))) {
+        input.onEvent?.({
+            type: "notice",
+            text: `${route.model} cannot see images, so only their paths were sent. Pick a model that can with /model.`,
+        });
+        images = [];
+    }
     const history = [
         ...(input.history ?? []),
-        { role: "user", content: input.attachments ? `${input.prompt}\n\n${input.attachments}` : input.prompt, at: new Date().toISOString() },
+        {
+            role: "user",
+            content: images.length
+                ? [{ type: "text", text: userText }, ...images.map((image) => ({ type: "image", image: image.data, mediaType: image.mediaType }))]
+                : userText,
+            at: new Date().toISOString(),
+        },
     ];
     input.onEvent?.({ type: "waiting_model" });
     const result = await generate({

@@ -21,6 +21,7 @@ import { editPath } from "./tools/edit.ts";
 import { searchInWorker } from "./tools/search.ts";
 import { REDACTED_MARK } from "./redact.ts";
 import { runShell } from "./tools/shell.ts";
+import { modelSeesImages, type ImageAttachment } from "./images.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
 import { inferEntry } from "./catalog.ts";
@@ -421,6 +422,8 @@ export async function runLoop(input: {
   prompt: string;
   /** @file attachments sent to the model with the prompt (not to Jev, not in the receipt's prompt). */
   attachments?: string;
+  /** Images attached this turn: sent as image parts to a model that can see them, never saved in history. */
+  images?: ImageAttachment[];
   cwd: string;
   /** Scorer override (tests). Otherwise the first plugin scorer is used. */
   jev?: JevClient;
@@ -562,9 +565,24 @@ export async function runLoop(input: {
       input.onEvent?.({ type: "tool", record });
     },
   });
-  const history = [
+  const userText = input.attachments ? `${input.prompt}\n\n${input.attachments}` : input.prompt;
+  let images = input.images ?? [];
+  if (images.length && (generate === localGenerate || !modelSeesImages(route.model))) {
+    input.onEvent?.({
+      type: "notice",
+      text: `${route.model} cannot see images, so only their paths were sent. Pick a model that can with /model.`,
+    });
+    images = [];
+  }
+  const history: ChatMessage[] = [
     ...(input.history ?? []),
-    { role: "user" as const, content: input.attachments ? `${input.prompt}\n\n${input.attachments}` : input.prompt, at: new Date().toISOString() },
+    {
+      role: "user" as const,
+      content: images.length
+        ? [{ type: "text", text: userText }, ...images.map((image) => ({ type: "image", image: image.data, mediaType: image.mediaType }))]
+        : userText,
+      at: new Date().toISOString(),
+    },
   ];
   input.onEvent?.({ type: "waiting_model" });
   const result = await generate({

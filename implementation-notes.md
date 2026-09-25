@@ -265,3 +265,10 @@
   - P3:
     - Shell: output over 2 MB that arrives after the exit is now an error, not a silently cut success.
     - Worktree: a file in the way gets the clear message; a failed checkout shows git's `fatal:` line, not its progress line; a reused worktree on a detached HEAD says so.
+- Images in a prompt (`@shot.png`, or a pasted path such as Explorer's quoted "Copy as path"):
+  - Each image is a `read` through the lock, so rules, hooks and the secrets floor apply as for any file. The type comes from the first bytes (PNG, JPEG, GIF, WebP), never the name, and the 5 MB cap is checked before reading. At most 4 per message.
+  - The model gets the image only in the turn it is attached. The saved chat keeps a one-line note (`[image: shots/err.png, image/png, 12 KB …]`), not the base64. So sessions stay small, compaction and `/fork` are unchanged, and a later deny rule is respected the next time the image is attached. Codex treats pasted images between turns the same way.
+  - A pasted path is turned into a path relative to the folder, so a rule like `deny read shots/*` matches it the same way it matches an `@mention`.
+  - A model that cannot see images (DeepSeek chat, Jev, the local planner) gets only the note, and a notice tells you to switch with `/model`.
+  - The Claude Code engine is sent text, and Claude opens the image with its own Read (which passes the hook lock). Sending image blocks through `--input-format stream-json` needs a live `claude` to test, so it is left for later.
+  - Not done yet: the agent's `read` tool returning an image, and paste or drop in Studio.
