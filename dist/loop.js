@@ -17,7 +17,7 @@ import { editPath } from "./tools/edit.js";
 import { searchInWorker } from "./tools/search.js";
 import { REDACTED_MARK } from "./redact.js";
 import { runShell } from "./tools/shell.js";
-import { imageNote, isImagePath, loadImage, modelSeesImages } from "./images.js";
+import { imageNote, isImagePath, loadImage, MAX_IMAGES_PER_TURN, modelSeesImages } from "./images.js";
 import { languageModel, modelsFor, resolveProvider } from "./providers.js";
 import { planLocal } from "./planner.js";
 import { inferEntry } from "./catalog.js";
@@ -27,6 +27,8 @@ import { messageText, repairHistory } from "./session.js";
 export function createTools(input) {
     // Images the read tool loaded, by tool call: the model gets them in this turn; saved history gets the note.
     const readImages = new Map();
+    // Every image stays in the conversation for the rest of the turn: at most this many per turn.
+    let imagesShown = 0;
     const keep = async (filePath) => {
         if (!input.checkpoint)
             return;
@@ -131,15 +133,21 @@ export function createTools(input) {
                     }
                     if (!input.seesImages)
                         return `${imageNote(image)} (this model cannot see images; only the note was sent)`;
+                    if (imagesShown >= MAX_IMAGES_PER_TURN) {
+                        return `${imageNote(image)} (not shown: at most ${MAX_IMAGES_PER_TURN} images per turn; describe what you still need instead)`;
+                    }
+                    imagesShown += 1;
                     readImages.set(options.toolCallId, image);
                     return imageNote(image);
                 })
                 : gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit })),
             toModelOutput: ({ toolCallId, output }) => {
+                // Used once: a provider that reuses call ids across steps must not get a stale image on a later read.
                 const image = readImages.get(toolCallId);
+                readImages.delete(toolCallId);
                 const text = typeof output === "string" ? output : JSON.stringify(output);
                 return image
-                    ? { type: "content", value: [{ type: "text", text }, { type: "image-data", data: image.data, mediaType: image.mediaType }] }
+                    ? { type: "content", value: [{ type: "text", text }, { type: "file", mediaType: image.mediaType, data: { type: "data", data: image.data } }] }
                     : { type: "text", value: text };
             },
         }),

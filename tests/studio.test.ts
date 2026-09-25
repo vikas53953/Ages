@@ -318,3 +318,11 @@ describe("Studio: pasted images", () => {
     expect((await api("/api/prompt", { text: "x", images: "nope" })).status).toBe(400);
   });
 });
+
+describe("Studio: pasted images, review fixes", () => {
+  it("images with a command are refused", async () => {
+    const { api } = await studio();
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    expect((await api("/api/prompt", { text: "/status", images: [{ data: png }] })).status).toBe(400);
+  });
+});

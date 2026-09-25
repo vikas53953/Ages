@@ -68,6 +68,7 @@ export function findPastedImages(prompt, cwd, skip = []) {
 }
 /** The prompt with each allowed @path's contents appended; the tool records say what was read or refused. */
 export async function attachMentions(input) {
+    const imageRoom = input.imageRoom ?? MAX_IMAGES_PER_TURN;
     const mentioned = findMentions(input.prompt, input.cwd);
     const mentions = [...mentioned, ...findPastedImages(input.prompt, input.cwd, mentioned)];
     if (!mentions.length)
@@ -88,7 +89,7 @@ export async function attachMentions(input) {
             if (seenImages.has(real))
                 continue;
             seenImages.add(real);
-            if (images.length >= MAX_IMAGES_PER_TURN) {
+            if (images.length >= imageRoom) {
                 notes.push(`(${mention} was not attached: at most ${MAX_IMAGES_PER_TURN} images per message)`);
                 continue;
             }

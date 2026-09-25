@@ -280,3 +280,66 @@ describe("the read tool and images", () => {
     expect(more[1]).toContain("denied");
   });
 });
+
+describe("images: review fixes (read tool, Studio)", () => {
+  function steps(reads: Array<{ id: string; path: string }>, prompts: string[]) {
+    let call = 0;
+    return new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        const next = reads[call];
+        call += 1;
+        const chunks = next
+          ? [
+              { type: "stream-start", warnings: [] },
+              { type: "tool-call", toolCallId: next.id, toolName: "read", input: JSON.stringify({ path: next.path }) },
+              { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
+            ]
+          : [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "done" },
+              { type: "text-end", id: "t" },
+              { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+            ];
+        return { stream: simulateReadableStream({ chunks: chunks as never[] }) };
+      },
+    });
+  }
+
+  it("a reused call id does not carry an image to a later text read", async () => {
+    const cwd = await project();
+    await writeFile(path.join(cwd, "README.md"), "hello readme");
+    const prompts: string[] = [];
+    await handleLine("look", await startState(cwd, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true,
+      generate: generateWith(steps([{ id: "c1", path: "shots/err.png" }, { id: "c1", path: "README.md" }], prompts)),
+    });
+    const last = prompts.at(-1)!;
+    // The image appears once (from the first read), not again with the README result.
+    expect(last.split(PNG_1x1.toString("base64")).length - 1).toBe(1);
+  });
+
+  it("the agent sees at most four images per turn", async () => {
+    const cwd = await project();
+    const reads = [1, 2, 3, 4, 5, 6].map((n) => ({ id: `r${n}`, path: `shots/s${n}.png` }));
+    for (const n of [1, 2, 3, 4, 5, 6]) await writeFile(path.join(cwd, "shots", `s${n}.png`), PNG_1x1);
+    const prompts: string[] = [];
+    await handleLine("look at all", await startState(cwd, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true, generate: generateWith(steps(reads, prompts)),
+    });
+    const last = prompts.at(-1)!;
+    expect(last.split(PNG_1x1.toString("base64")).length - 1).toBe(4);
+    expect(last).toContain("not shown: at most 4 images per turn");
+  });
+
+  it("pasted images count first: an @mention past the limit says so", async () => {
+    const cwd = await project();
+    const pasted = [1, 2, 3, 4].map((n) => ({ path: `pasted ${n}`, mediaType: "image/png" as const, bytes: PNG_1x1.length, data: PNG_1x1.toString("base64") }));
+    const prompts: string[] = [];
+    await handleLine("and @shots/err.png", await startState(cwd, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true, images: pasted, generate: generateWith(answering(prompts)),
+    });
+    expect(prompts[0]).toContain("shots/err.png was not attached: at most 4 images");
+  });
+});

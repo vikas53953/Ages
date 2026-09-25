@@ -373,8 +373,6 @@
     }
     input.value = "";
     autosize();
-    state.images = [];
-    renderImages();
     if (!value.startsWith("/") && !value.startsWith("!")) {
       addUser(images.length ? `${value}\n📎 ${images.map((image) => image.name).join(", ")}` : value);
       $("steps").textContent = "";
@@ -385,6 +383,11 @@
     setWorking("Starting");
     try {
       await api("/api/prompt", images.length ? { text: value, images: images.map(({ name, data }) => ({ name, data })) } : { text: value });
+      // Only once the server took them: a refused send keeps the chips for another try.
+      if (images.length) {
+        state.images = state.images.filter((image) => !images.includes(image));
+        renderImages();
+      }
     } catch (error) {
       showError(error);
     }

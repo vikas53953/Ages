@@ -285,3 +285,9 @@
   - The server checks them again: a list of at most 4, base64, 5 MB each, type from the first bytes. Anything else is a 400. Only `/api/prompt` accepts a larger body (about 28 MB); every other route stays at 1 MB.
   - Pasted images are passed in as `RunOpts.images`. They skip the lock because you supplied them yourself, like typed text; no file is read. The saved chat keeps the note `pasted 1 (shot.png)`.
   - The Claude Code engine cannot take them: there is no file for its Read tool to open. A notice says to save the image in the folder and @mention it.
+  - Fixes from the review of the read-tool images and Studio paste; it found no image data in any saved file, event or export:
+    - A read's image is used once, so a provider that reuses call ids cannot attach a stale image to a later text read.
+    - The agent sees at most 4 images per turn. Past that, read returns the note and says why.
+    - Tool results use the SDK's current `file` part (`image-data` and `file-data` print deprecation warnings).
+    - Studio: a busy server answers 409 before reading a large body, and images sent with a command get a 400. The chips stay if a send is refused, and the command buttons no longer clear them.
+    - Pasted images count first toward the limit of 4, so an @mention past it is refused up front with a note, not read and then dropped. With the Claude Code engine, pasted images are left out of the saved message too, not only the prompt.

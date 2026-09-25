@@ -74,7 +74,10 @@ export async function attachMentions(input: {
   settingsError?: string;
   abortSignal?: AbortSignal;
   onEvent?: (event: TurnEvent) => void;
+  /** How many images may still be attached (images you pasted count first). */
+  imageRoom?: number;
 }): Promise<{ prompt: string; attachments: string; records: ToolRecord[]; images: ImageAttachment[] }> {
+  const imageRoom = input.imageRoom ?? MAX_IMAGES_PER_TURN;
   const mentioned = findMentions(input.prompt, input.cwd);
   const mentions = [...mentioned, ...findPastedImages(input.prompt, input.cwd, mentioned)];
   if (!mentions.length) return { prompt: input.prompt, attachments: "", records: [], images: [] };
@@ -93,7 +96,7 @@ export async function attachMentions(input: {
       const real = realpathSync.native(path.resolve(input.cwd, mention));
       if (seenImages.has(real)) continue;
       seenImages.add(real);
-      if (images.length >= MAX_IMAGES_PER_TURN) {
+      if (images.length >= imageRoom) {
         notes.push(`(${mention} was not attached: at most ${MAX_IMAGES_PER_TURN} images per message)`);
         continue;
       }

@@ -271,6 +271,10 @@ export async function startStudio(input: {
         return json(res, 200, displayMessages(await loadMessages(state.cwd, state.session.id)));
       }
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
+      // Refused before the body is read: a busy server does not take in 28 MB of images only to say no.
+      if (busy && url.pathname !== "/api/approve" && url.pathname !== "/api/stop") {
+        return json(res, 409, { error: "a turn is running; wait or stop it" });
+      }
       // A prompt may carry pasted images (4 × 5 MB, as base64); everything else stays small.
       const body = await readBody(req, url.pathname === "/api/prompt" ? PROMPT_BODY_LIMIT : undefined);
 
@@ -299,6 +303,9 @@ export async function startStudio(input: {
 
       // A model turn runs in the background (202); the page follows it on the event stream.
       const isTurn = (!line.startsWith("/") && !line.startsWith("!")) || /^\/plan\s+(?!off\s*$)\S/i.test(line);
+      if (url.pathname === "/api/prompt" && !isTurn && body.images !== undefined) {
+        return json(res, 400, { error: "images go with a message, not a command" });
+      }
       if (url.pathname === "/api/prompt" && isTurn) {
         void run(line, pastedImages(body.images));
         return json(res, 202, { ok: true, started: true });
