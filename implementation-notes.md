@@ -200,3 +200,7 @@
     - `/resume <n>` uses the list `/sessions` showed.
   - Still true (documented): in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot redact it. (Nested `.gitignore` files are now read too; see below.)
 - Nested `.gitignore` files: every folder's `.gitignore` applies below that folder, after its parents' rules, so it can re-include with `!`. Anchored patterns (`/local.txt`, `gen/x`) are relative to their own folder, as in git. `.git/info/exclude` and `core.excludesFile` are still not read.
+- Process trees on Linux and macOS: the long-standing Linux-only failure ("kills the owned process tree…") was a real bug. On POSIX, stopping a check, an MCP server or a Claude Code run sent SIGKILL to the one child only, so what it had started (npx → node server, a test's dev server) kept running.
+  - These now start as their own process group (`detached` on POSIX), and `killProcessTree` kills the group.
+  - A detached group no longer gets the terminal's hang-up, so Aegis kills the groups still running when it exits, and turns SIGTERM/SIGHUP into a normal exit so that runs. Ctrl+C handling is unchanged.
+  - Windows is unchanged (`taskkill /T`). The whole suite now passes on Linux too.

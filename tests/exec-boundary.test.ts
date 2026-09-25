@@ -216,3 +216,26 @@ setInterval(() => {}, 1 << 30);
     }
   }, 20_000);
 });
+
+describe("process groups on POSIX", () => {
+  it.runIf(process.platform !== "win32")("when Aegis is terminated, what it started (and their children) goes too", async () => {
+    const { spawn } = await import("node:child_process");
+    const { readFile: read } = await import("node:fs/promises");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-groupexit-"));
+    await writeFile(
+      path.join(cwd, "hang.mjs"),
+      `import { spawn } from "node:child_process";
+import fs from "node:fs";
+const child = spawn(process.execPath, ["-e", "require('fs').writeFileSync('grandchild.json', JSON.stringify({pid:process.pid}));setInterval(()=>{},1<<30);"], { stdio: "ignore" });
+setInterval(() => {}, 1 << 30);
+`,
+    );
+    const dist = path.resolve("dist/exec.js");
+    const aegis = spawn(process.execPath, ["-e", `import(${JSON.stringify(dist)}).then((m) => m.runOwnedArgv([process.execPath, "hang.mjs"], ${JSON.stringify(cwd)}, { timeoutMs: 60000 }));`], { cwd, stdio: "ignore" });
+    const grandchild = await waitForFile(path.join(cwd, "grandchild.json"));
+    aegis.kill("SIGTERM");
+    await new Promise((resolve) => aegis.on("exit", resolve));
+    await waitDead(grandchild.pid!);
+    void read;
+  }, 30_000);
+});

@@ -14,7 +14,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { packageRoot } from "../env.ts";
-import { killProcessTree } from "../exec.ts";
+import { killProcessTree, ownGroup, releaseGroup } from "../exec.ts";
 import { serializeConfirm } from "../confirm-queue.ts";
 import { shellAllowed } from "../tools/shell.ts";
 import { cleanTodos } from "../todos.ts";
@@ -291,7 +291,10 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     shell: shim, // npm's claude.cmd can only be started through cmd; every argument above is quoted
+    detached: process.platform !== "win32", // POSIX: stop kills its whole process group
   });
+  ownGroup(child.pid);
+  child.on("close", () => releaseGroup(child.pid));
   const onAbort = () => {
     if (child.pid) killProcessTree(child.pid);
   };

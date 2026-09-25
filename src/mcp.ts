@@ -7,7 +7,7 @@
  * A small stdio client (JSON-RPC, one message per line): initialize → tools/list → tools/call.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { killProcessTree } from "./exec.ts";
+import { killProcessTree, ownGroup, releaseGroup } from "./exec.ts";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -113,7 +113,11 @@ export class McpConnection {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: windowsShim,
+      // POSIX: its own process group, so closing it also stops what it started (npx → node server).
+      detached: process.platform !== "win32",
     });
+    ownGroup(this.child.pid);
+    this.child.on("close", () => releaseGroup(this.child.pid));
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => this.onData(chunk));
     this.child.stderr.setEncoding("utf8");
