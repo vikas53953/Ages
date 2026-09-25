@@ -13,6 +13,7 @@ export type Slash =
   | { type: "mcp"; action?: string; name?: string }
   | { type: "doctor" }
   | { type: "trust"; action?: string }
+  | { type: "rules"; arg: string }
   | { type: "fork"; arg?: string }
   | { type: "init" }
   | { type: "todos" }
@@ -72,6 +73,9 @@ export function parseLine(line: string): Slash {
       return { type: "fork", arg: rest[0] };
     case "trust":
       return { type: "trust", action: rest[0]?.toLowerCase() };
+    case "rules":
+    case "permissions":
+      return { type: "rules", arg };
     case "todos":
     case "todo":
       return { type: "todos" };
@@ -142,6 +146,8 @@ export const HELP = [
   "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",
   "  /init              let the agent write a first AGENTS.md for this project (you approve the write)",
   "  /fork              copy this conversation into a new session and continue there; /fork 1 leaves out your last turn (try it another way)",
+  "  /rules             every rule the lock uses and where it comes from; /rules <word> filters",
+  "  /rules remove <n>  remove one of your saved rules (an 'always allow' you gave); /rules deny|ask <rule> adds a stricter one",
   "  /trust             review this folder's .aegis/settings.json; /trust yes uses its allow rules and plugins; /trust off",
   "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
   "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",

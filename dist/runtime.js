@@ -28,7 +28,7 @@ import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
 import { createSession, replaceMessages, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
-import { loadSettingsSafe, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
+import { describeRules, loadSettingsSafe, removeYourRule, saveYourRule, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.js";
@@ -96,6 +96,55 @@ function untrustedNotice(state, trust) {
     return `This folder's .aegis/settings.json is not trusted yet, so these are not used: ${trust.ignored.join(", ")}. Its deny and ask rules still apply. /trust to review it.`;
 }
 /** /trust shows what the project's file would allow; /trust yes trusts exactly what was shown; /trust off forgets it. */
+/** /rules: what the lock uses, by layer, numbered; yours can be removed, and stricter ones added. */
+function rulesCommand(state, arg) {
+    const loaded = loadSettingsSafe(state.cwd);
+    if (loaded.error)
+        return `Fix your settings first: ${loaded.error}`;
+    const [verb = "", ...more] = arg.split(/\s+/);
+    const rest = more.join(" ").trim();
+    const rows = describeRules(state.cwd);
+    if (/^(remove|rm|delete|del)$/i.test(verb)) {
+        const n = Number(rest);
+        const row = Number.isInteger(n) ? rows[n - 1] : undefined;
+        if (!row)
+            return `usage: /rules remove <n>, with n from /rules (1 to ${rows.length})`;
+        if (row.source !== "yours") {
+            return row.source.startsWith("project")
+                ? `${row.action} ${row.rule} comes from ${settingsPath(state.cwd)}; change it there.`
+                : `${row.action} ${row.rule} is ${row.source === "this run" ? "set for this run (--allow/--deny)" : `a ${row.source} rule`}; it cannot be removed here.`;
+        }
+        removeYourRule(state.cwd, row.action, row.rule);
+        return `Removed: ${row.action} ${row.rule}. /rules shows the rest.`;
+    }
+    if (/^(deny|ask)$/i.test(verb)) {
+        if (!rest)
+            return `usage: /rules ${verb.toLowerCase()} <rule>, for example /rules deny webfetch *`;
+        try {
+            saveYourRule(state.cwd, verb.toLowerCase(), rest);
+        }
+        catch (error) {
+            return error instanceof Error ? error.message : String(error);
+        }
+        return `Saved for this folder: ${verb.toLowerCase()} ${rest}.`;
+    }
+    if (/^allow$/i.test(verb))
+        return "Allow rules are added by answering 'a' (always) when Aegis asks, so each one is a narrow rule you saw.";
+    const filter = arg.toLowerCase();
+    const width = String(rows.length).length;
+    const lines = rows
+        .map((row, index) => ({ row, n: index + 1 }))
+        .filter(({ row }) => !filter || `${row.action} ${row.rule} ${row.source}`.toLowerCase().includes(filter))
+        .map(({ row, n }) => `  ${String(n).padStart(width)}  ${row.action.padEnd(5)} ${row.rule}  · ${row.source}`);
+    if (!lines.length)
+        return `No rule matches "${arg}".`;
+    return [
+        `The lock, in the order it decides (deny, then ask, then allow; anything else goes to Jev or asks you):`,
+        ...lines,
+        "",
+        `Yours are in ${yourSettingsPath(state.cwd)}. /rules remove <n> removes one of yours; /rules deny|ask <rule> adds a stricter one.`,
+    ].join("\n");
+}
 function trustCommand(state, action) {
     const file = settingsPath(state.cwd);
     const loaded = loadSettingsSafe(state.cwd);
@@ -656,6 +705,8 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
         return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
     if (cmd.type === "trust")
         return { output: trustCommand(state, cmd.action), session: state.session };
+    if (cmd.type === "rules")
+        return { output: rulesCommand(state, cmd.arg), session: state.session };
     if (cmd.type === "doctor")
         return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
     if (cmd.type === "plan") {

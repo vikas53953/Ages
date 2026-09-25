@@ -291,3 +291,7 @@
     - Tool results use the SDK's current `file` part (`image-data` and `file-data` print deprecation warnings).
     - Studio: a busy server answers 409 before reading a large body, and images sent with a command get a 400. The chips stay if a send is refused, and the command buttons no longer clear them.
     - Pasted images count first toward the limit of 4, so an @mention past it is refused up front with a note, not read and then dropped. With the Claude Code engine, pasted images are left out of the saved message too, not only the prompt.
+- `/rules` (also `/permissions`), like Claude Code's `/permissions` and Codex's `/approvals`:
+  - Lists every rule in the order the lock decides (deny, ask, allow), each with its layer: built-in, always on, the project's file (or "waiting for /trust"), yours, or this run.
+  - `/rules remove <n>` removes one of yours. Project, built-in and floor rules say where they live instead.
+  - `/rules deny|ask <rule>` adds a stricter rule for this folder. Allow rules still come only from answering "a" at a question, so each one is a narrow rule the user saw.

@@ -543,3 +543,61 @@ export function saveAllowRule(cwd, rule) {
         raw.rules = { ...rules, allow };
     });
 }
+/**
+ * Every rule, deny first then ask then allow, each with its layer. A rule that several layers carry is listed once,
+ * under the first (the order the lock reads them in). Untrusted project allow rules are listed but not in effect.
+ */
+export function describeRules(cwd) {
+    const project = readProject(cwd);
+    const mine = readYours(cwd);
+    const p = project ? parseSettings(project.raw) : { thinking: {} };
+    const m = mine ? parseSettings(mine) : { thinking: {} };
+    const trusted = !project || trustedByEnv() || readTrust()[projectKey(cwd)] === project.hash;
+    const run = runRules();
+    const rows = [];
+    const add = (action, rules, source) => {
+        for (const rule of rules ?? []) {
+            if (!rows.some((row) => row.action === action && row.rule === rule))
+                rows.push({ action, rule, source });
+        }
+    };
+    add("deny", DEFAULT_SETTINGS.rules.deny, "built-in");
+    add("deny", p.deny, "project");
+    add("deny", m.deny, "yours");
+    add("deny", run.deny, "this run");
+    add("ask", FLOOR_ASK, "always on");
+    add("ask", DEFAULT_SETTINGS.rules.ask, "built-in");
+    add("ask", p.ask, "project");
+    add("ask", m.ask, "yours");
+    add("allow", DEFAULT_SETTINGS.rules.allow, "built-in");
+    add("allow", p.allow, trusted ? "project" : "project, waiting for /trust");
+    add("allow", m.allow, "yours");
+    add("allow", run.allow, "this run");
+    return rows;
+}
+/** Add a deny or ask rule to YOUR settings for this folder (only stricter: allow comes from answering "a"). */
+export function saveYourRule(cwd, action, rule) {
+    if (!rule.trim())
+        throw new Error("no rule given");
+    if (rule.length > MAX_RULE_CHARS)
+        throw new Error(`the rule is longer than ${MAX_RULE_CHARS} characters, so it is not saved`);
+    updateYours(cwd, (raw) => {
+        const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
+        const list = Array.isArray(rules[action]) ? rules[action] : [];
+        if (!list.includes(rule))
+            list.push(rule);
+        raw.rules = { ...rules, [action]: list };
+    });
+}
+/** Remove one rule from YOUR settings for this folder. False when it is not there. */
+export function removeYourRule(cwd, action, rule) {
+    let removed = false;
+    updateYours(cwd, (raw) => {
+        const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
+        const list = Array.isArray(rules[action]) ? rules[action] : [];
+        const kept = list.filter((item) => item !== rule);
+        removed = kept.length !== list.length;
+        raw.rules = { ...rules, [action]: kept };
+    });
+    return removed;
+}

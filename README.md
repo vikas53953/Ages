@@ -128,6 +128,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | Enter while busy | queues the message; it is sent when the turn ends |
 | `shift+tab` | plan mode on/off |
 | `/copy` · `/export [md\|jsonl]` | last answer to the clipboard · the conversation to `.harness/exports` |
+| `/rules` · `/rules remove 3` · `/rules deny webfetch *` | every rule the lock uses, numbered, with where it comes from (built-in, always on, the project's file, yours, this run). Remove one of your saved "always allow" rules, or add a stricter deny/ask for this folder. `/permissions` works too |
 | `a` at a prompt | always allow: saves a narrow rule (`edit scripts/*`, or that exact command) so it stops asking |
 | `ctrl+c` | stop a turn / clear the prompt; twice on an empty prompt exits |
 | `/plan` · `/plan go` · `/plan off` | plan mode: read and search only, ends with a numbered plan; `go` carries it out (`/plan <task>` plans it at once) |
