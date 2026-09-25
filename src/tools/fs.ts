@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { findOnPath, windowsPowerShell } from "../which.ts";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -18,9 +19,8 @@ let resolvedShell: string | undefined;
 export function powershellExe() {
   if (process.env.AEGIS_POWERSHELL) return process.env.AEGIS_POWERSHELL;
   if (resolvedShell) return resolvedShell;
-  const finder = process.platform === "win32" ? "where" : "which";
-  const found = spawnSync(finder, ["pwsh"], { stdio: "ignore", windowsHide: true }).status === 0;
-  resolvedShell = found ? (process.platform === "win32" ? "pwsh.exe" : "pwsh") : "powershell.exe";
+  // Full paths only: a bare name would let a pwsh.exe in the project folder run instead (see which.ts).
+  resolvedShell = findOnPath("pwsh") ?? (process.platform === "win32" ? windowsPowerShell() : "pwsh");
   return resolvedShell;
 }
 

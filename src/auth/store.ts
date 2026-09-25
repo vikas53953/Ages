@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "../env.ts";
+import { system32 } from "../which.ts";
 
 export type OAuthCredential = {
   access: string;
@@ -72,5 +73,5 @@ export function lockToUser(file: string) {
   const user = process.env.USERNAME;
   if (!user) return;
   const account = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user;
-  spawnSync("icacls", [file, "/inheritance:r", "/grant:r", `${account}:F`], { stdio: "ignore", windowsHide: true });
+  spawnSync(system32("icacls.exe"), [file, "/inheritance:r", "/grant:r", `${account}:F`], { stdio: "ignore", windowsHide: true });
 }

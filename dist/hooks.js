@@ -16,6 +16,8 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.js";
+import { powershellExe } from "./tools/fs.js";
+import { programPath } from "./which.js";
 const DEFAULT_TIMEOUT_S = 60;
 const MAX_TIMEOUT_S = 600;
 const MAX_OUTPUT = 64_000;
@@ -119,9 +121,9 @@ function spawnHook(hook, stdin, cwd, signal) {
         let child;
         try {
             child = hook.args
-                ? spawn(hook.command, hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
+                ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
                 : process.platform === "win32"
-                    ? spawn(process.env.AEGIS_POWERSHELL || "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
+                    ? spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
                         cwd,
                         env,
                         windowsHide: true,

@@ -16,6 +16,8 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
+import { powershellExe } from "./tools/fs.ts";
+import { programPath } from "./which.ts";
 
 export type HookCommand = { command: string; args?: string[]; timeout: number };
 export type HookGroup = { matcher: string; hooks: HookCommand[] };
@@ -122,9 +124,9 @@ function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: Abort
     let child;
     try {
       child = hook.args
-        ? spawn(hook.command, hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
+        ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
         : process.platform === "win32"
-          ? spawn(process.env.AEGIS_POWERSHELL || "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
+          ? spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
               cwd,
               env,
               windowsHide: true,

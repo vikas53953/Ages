@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.js";
 import { settingsPath } from "./rules.js";
+import { NO_CWD_SEARCH_ENV, programPath } from "./which.js";
 const PROTOCOL = "2025-06-18";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_RESULT = 20_000;
@@ -82,11 +83,13 @@ export class McpConnection {
     constructor(name, server, cwd) {
         this.name = name;
         // npx and many servers are .cmd files on Windows, which only start through cmd.exe; arguments come from your settings.
-        const windowsShim = process.platform === "win32" && !/\.(exe|com)$/i.test(server.command);
+        // Resolved on PATH by full path, never from the project folder (see which.ts).
+        const command = programPath(server.command);
+        const windowsShim = process.platform === "win32" && !/\.(exe|com)$/i.test(command);
         const quote = (value) => (windowsShim ? `"${value.replace(/"/g, '""')}"` : value);
-        this.child = spawn(windowsShim ? quote(server.command) : server.command, (server.args ?? []).map(quote), {
+        this.child = spawn(windowsShim ? quote(command) : command, (server.args ?? []).map(quote), {
             cwd: server.cwd ? path.resolve(cwd, server.cwd) : cwd,
-            env: { ...process.env, ...server.env },
+            env: { ...process.env, ...server.env, ...(windowsShim ? NO_CWD_SEARCH_ENV : {}) },
             stdio: ["pipe", "pipe", "pipe"],
             windowsHide: true,
             shell: windowsShim,

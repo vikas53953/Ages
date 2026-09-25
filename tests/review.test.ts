@@ -88,6 +88,52 @@ describe("/review collects the diff with git hardened", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("a repo's clean filter (from .gitattributes + .git/config) does not run when the working tree is diffed", async () => {
+    const cwd = await repo();
+    const marker = path.join(cwd, "PWNED");
+    const evil = path.join(cwd, "evil.sh");
+    await writeFile(evil, `#!/bin/sh\necho pwned > "${marker}"\ncat\n`);
+    await chmod(evil, 0o755);
+    await writeFile(path.join(cwd, ".gitattributes"), "*.js filter=evil.one\n");
+    git(cwd, "config", "filter.evil.one.clean", evil);
+    git(cwd, "config", "filter.evil.one.process", evil);
+    await writeFile(path.join(cwd, "app.js"), "changed\n");
+    const result = await collectReview(cwd, "");
+    expect("diff" in result && result.diff).toContain("+changed");
+    expect(existsSync(marker)).toBe(false);
+    // Control: plain git in the same repo does run it, so the test really exercises the filter.
+    try {
+      execFileSync("git", ["diff", "HEAD"], { cwd, stdio: "ignore" });
+    } catch {
+      // the fake filter is not a real filter; it only has to start
+    }
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it("/review commit does not run the repo's gpg.program to check a signature", async () => {
+    const cwd = await repo();
+    const marker = path.join(cwd, "PWNED");
+    const evil = path.join(cwd, "evil.sh");
+    await writeFile(evil, `#!/bin/sh\necho pwned > "${marker}"\n`);
+    await chmod(evil, 0o755);
+    git(cwd, "config", "log.showSignature", "true");
+    git(cwd, "config", "gpg.program", evil);
+    const tree = git(cwd, "rev-parse", "HEAD^{tree}").trim();
+    const parent = git(cwd, "rev-parse", "HEAD").trim();
+    const body = `tree ${tree}\nparent ${parent}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----\n\nsigned\n`;
+    await writeFile(path.join(cwd, "commit.txt"), body);
+    const sha = git(cwd, "hash-object", "-t", "commit", "-w", "commit.txt").trim();
+    const result = await collectReview(cwd, `commit ${sha}`);
+    expect("label" in result && result.label).toBe(`commit ${sha}`);
+    expect(existsSync(marker)).toBe(false);
+    try {
+      execFileSync("git", ["show", sha], { cwd, stdio: "ignore" }); // control: plain git runs it
+    } catch {
+      // fake gpg fails; it only has to start
+    }
+    expect(existsSync(marker)).toBe(true);
+  });
+
   it("an option-looking argument is never passed to git as an option", async () => {
     const cwd = await repo();
     await writeFile(path.join(cwd, "app.js"), "changed\n");
@@ -124,7 +170,7 @@ describe("/review turn", () => {
       ["write", false],
     ]);
     expect(result.receipt?.tools[1]?.deniedReason).toContain("a review only reads");
-    expect(prompts[0]).toContain("<untrusted_diff>");
+    expect(prompts[0]).toMatch(/<untrusted_diff_[0-9a-f]{8}>/);
     expect(prompts[0]).toContain("[P0]");
     expect(prompts[0]).not.toContain("You are in plan mode");
     expect(state.planMode).toBeFalsy();

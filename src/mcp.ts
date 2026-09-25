@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
 import { settingsPath } from "./rules.ts";
+import { NO_CWD_SEARCH_ENV, programPath } from "./which.ts";
 
 export type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string>; cwd?: string };
 export type McpServerEntry = McpServerConfig & { name: string; scope: "user" | "project"; trusted: boolean };
@@ -102,11 +103,13 @@ export class McpConnection {
     cwd: string,
   ) {
     // npx and many servers are .cmd files on Windows, which only start through cmd.exe; arguments come from your settings.
-    const windowsShim = process.platform === "win32" && !/\.(exe|com)$/i.test(server.command);
+    // Resolved on PATH by full path, never from the project folder (see which.ts).
+    const command = programPath(server.command);
+    const windowsShim = process.platform === "win32" && !/\.(exe|com)$/i.test(command);
     const quote = (value: string) => (windowsShim ? `"${value.replace(/"/g, '""')}"` : value);
-    this.child = spawn(windowsShim ? quote(server.command) : server.command, (server.args ?? []).map(quote), {
+    this.child = spawn(windowsShim ? quote(command) : command, (server.args ?? []).map(quote), {
       cwd: server.cwd ? path.resolve(cwd, server.cwd) : cwd,
-      env: { ...process.env, ...server.env },
+      env: { ...process.env, ...server.env, ...(windowsShim ? NO_CWD_SEARCH_ENV : {}) },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: windowsShim,

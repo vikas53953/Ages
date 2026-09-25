@@ -7,7 +7,7 @@
  * Claude Code runs headless: `claude -p --output-format stream-json --verbose`, prompt on stdin,
  * `--resume` keeps one Claude conversation per Aegis session.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -22,18 +22,16 @@ import { runGatedTool, toolTarget } from "../gated.js";
 import { scorerOf, toolGuards } from "../plugin-api.js";
 import { unscoredTurn } from "../router.js";
 import { sessionDir } from "../session.js";
+import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.js";
 export const CLAUDE_CODE_MODEL = "claude-code";
 /** Where `claude` is: AEGIS_CLAUDE_BIN, else the first `claude` on PATH. */
 export function findClaude(env = process.env) {
     if (env.AEGIS_CLAUDE_BIN)
         return existsSync(env.AEGIS_CLAUDE_BIN) ? env.AEGIS_CLAUDE_BIN : undefined;
-    const finder = process.platform === "win32" ? "where" : "which";
-    const found = spawnSync(finder, ["claude"], { encoding: "utf8", windowsHide: true });
-    if (found.status !== 0)
-        return undefined;
-    const lines = found.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    // On Windows prefer the real program (claude.exe) over npm's claude.cmd shim.
-    return lines.find((line) => /\.exe$/i.test(line)) ?? lines.find((line) => /\.(cmd|bat)$/i.test(line)) ?? lines[0];
+    // PATH folders only, never the project folder. On Windows prefer the real program (claude.exe) over npm's claude.cmd shim.
+    if (process.platform === "win32")
+        return findOnPath("claude.exe", env) ?? findOnPath("claude", env);
+    return findOnPath("claude", env);
 }
 export const CLAUDE_MISSING = "Claude Code is not installed (or not on PATH). Install it from https://claude.com/claude-code, run `claude` once to sign in with your Claude plan, then /model claude-code again.";
 /** Claude Code's tool call → the name and arguments Aegis rules match ("edit src/*", "shell npm test*"). */
@@ -242,7 +240,7 @@ export async function runClaudeCodeTurn(input) {
     const shim = /\.(cmd|bat)$/i.test(bin);
     const child = spawn(shim ? `"${bin}"` : bin, shim ? args.map((arg) => `"${arg}"`) : args, {
         cwd: input.cwd,
-        env: { ...process.env, AEGIS_HOOK_URL: `http://127.0.0.1:${port}/`, AEGIS_HOOK_TOKEN: token },
+        env: { ...process.env, ...NO_CWD_SEARCH_ENV, AEGIS_HOOK_URL: `http://127.0.0.1:${port}/`, AEGIS_HOOK_TOKEN: token },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
         shell: shim, // npm's claude.cmd can only be started through cmd; every argument above is quoted

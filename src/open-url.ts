@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { system32 } from "./which.ts";
 
 /**
  * Open an http(s) link in the default browser. No shell parses the URL: on Windows `cmd /c start` would
@@ -8,7 +9,7 @@ export function openUrl(url: string, onFail: () => void = () => {}) {
   if (!/^https?:\/\//i.test(url) || process.env.AEGIS_NO_BROWSER === "1") return false;
   const [cmd, args] =
     process.platform === "win32"
-      ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+      ? [system32("rundll32.exe"), ["url.dll,FileProtocolHandler", url]]
       : process.platform === "darwin"
         ? ["open", [url]]
         : ["xdg-open", [url]];

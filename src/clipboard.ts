@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { findOnPath, windowsPowerShell } from "./which.ts";
 
 /**
  * Put text on the clipboard. Windows: PowerShell reads it from stdin as UTF-8 (clip.exe and the default console
@@ -10,7 +12,7 @@ export async function copyToClipboard(text: string) {
     process.platform === "win32"
       ? [
           [
-            "powershell.exe",
+            windowsPowerShell(),
             ["-NoProfile", "-NonInteractive", "-Command", "[Console]::InputEncoding=[Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())"],
           ],
         ]
@@ -30,7 +32,7 @@ function runWithInput(command: string, args: string[], input: string) {
   return new Promise<boolean>((resolve) => {
     let child;
     try {
-      child = spawn(command, args, { windowsHide: true, stdio: ["pipe", "ignore", "ignore"], timeout: 10_000 });
+      child = spawn(path.isAbsolute(command) ? command : (findOnPath(command) ?? command), args, { windowsHide: true, stdio: ["pipe", "ignore", "ignore"], timeout: 10_000 });
     } catch {
       resolve(false);
       return;

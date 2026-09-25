@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { programPath, system32 } from "./which.ts";
 
 const WIN_ENV = [
   "ALLUSERSPROFILE",
@@ -55,7 +56,7 @@ export function checkProcessEnv(extra?: Record<string, string>): NodeJS.ProcessE
 export function killProcessTree(pid: number) {
   if (!pid) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+    spawnSync(system32("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
       windowsHide: true,
       stdio: "ignore",
     });
@@ -83,7 +84,7 @@ export function runOwnedArgv(
     let spawnFailed = false;
     let settled = false;
     let output = "";
-    const child = spawn(command, args, {
+    const child = spawn(programPath(command), args, {
       cwd,
       env: checkProcessEnv(opts.env),
       windowsHide: true,

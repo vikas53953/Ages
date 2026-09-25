@@ -100,3 +100,9 @@
   - Runs after deny rules and before Jev, for Aegis's tools and Claude Code engine calls alike. Matching hooks run in parallel; the strictest answer wins.
   - Only PreToolUse for now. PostToolUse / UserPromptSubmit / Stop can come later.
 - `/copy` no longer blocks the screen: the clipboard program runs async. The Windows CI timeout on the /export test was PowerShell's start-up inside the same test; /copy now has its own test with a longer limit.
+- Fixes from the independent review of TUI, /review and webfetch:
+  - P0: `/review` ran a repo's `filter.<name>.clean`/`process` program (from `.gitattributes` + `.git/config`) when diffing the working tree. Aegis now lists the repo's filter drivers (reading config runs nothing) and blanks each one's clean/smudge/process for its git calls. The test includes a control showing plain `git diff` does run the filter.
+  - P1: `/review commit` ran `gpg.program` when `log.showSignature` was set; now `--no-show-signature` and `-c log.showSignature=false`, with a control test.
+  - P1: on Windows, programs started by bare name are searched in the child's working folder first, so a repo shipping `git.exe` or `pwsh.exe` would run. New `src/which.ts` resolves from absolute PATH entries only, and Windows tools (taskkill, icacls, rundll32, Windows PowerShell) come from System32 by full path. This applies to git, PowerShell, hooks, MCP servers, delivery checks, the clipboard, the browser opener and `claude`. cmd.exe shims also get `NoDefaultCurrentDirectoryInExePath=1`.
+  - P2: page text or a diff could close the `<untrusted_…>` wrapper; the tag name now has a random suffix per call.
+  - P3: a same-host redirect adding `user:pass@` is refused; `isPublicAddress` parses every IPv6 spelling and blocks IPv4-compatible, 6to4, Teredo, site-local, NAT64 /48 and the documentation ranges; `/resume` accepts only session ids; queued `/login` keys are hidden in the queue box.

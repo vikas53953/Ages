@@ -177,7 +177,7 @@ export async function createTuiApp(
   const queued: string[] = [];
   const queueBox = new Text("", 0, 0);
   const showQueue = () => {
-    queueBox.setText(queued.length ? queued.map((text) => paint("dim", `  ⏎ queued: ${text.split("\n")[0]!.slice(0, 100)}`)).join("\n") : "");
+    queueBox.setText(queued.length ? queued.map((text) => paint("dim", `  ⏎ queued: ${redactLogin(text).split("\n")[0]!.slice(0, 100)}`)).join("\n") : "");
   };
   const dock = new VStack([todoBox, queueBox, status, editor, footer]);
   const scroll = new ScrollView(new VStack([header, transcript]), {

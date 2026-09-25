@@ -188,6 +188,9 @@ export async function replaceMessages(cwd, id, messages) {
     await writeFile(file, messages.map((row) => JSON.stringify(row)).join("\n") + (messages.length ? "\n" : ""), "utf8");
 }
 export async function switchSession(cwd, id) {
+    // A session id is a folder name Aegis made (time + random): never a path.
+    if (!/^[\w.-]+$/.test(id) || id.includes(".."))
+        throw new Error(`not a session id: ${id}`);
     const meta = await readFile(path.join(sessionDir(cwd, id), "meta.json"), "utf8");
     JSON.parse(meta);
     await writeFile(path.join(harnessRoot(cwd), "current"), id, "utf8");
