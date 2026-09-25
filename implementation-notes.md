@@ -73,3 +73,8 @@
   - `allowed-tools` and similar keys are ignored, so rules decide. Skill files stay inside the skill folder (no `..`, absolute or UNC paths; realpath checked).
   - Commands use Pi's `$1`/`${1:-x}`/`$ARGUMENTS`, and the text is appended when there is no placeholder. A `!cmd` line is kept as text and never run. A built-in or plugin command name cannot be taken over.
   - The old `skills/*.md` files are still loaded every turn.
+- TUI polish (Claude Code and Pi habits):
+  - Enter while a turn runs queues the message (shown dimmed above the prompt), and queued messages go one by one after the turn. Esc stops the turn and puts queued text back in the editor instead of running it (Pi's choice).
+  - Shift+Tab toggles plan mode.
+  - `/export [md|jsonl]` writes to `.harness/exports/<session>.<ext>`.
+  - `/copy` uses PowerShell `Set-Clipboard` with UTF-8 stdin on Windows (clip.exe mangles non-ASCII), pbcopy on macOS, and wl-copy/xclip on Linux.

@@ -124,7 +124,10 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `/task` | delivery card (confirm / accept are owner-only) — delivery plugin |
 | `/status` · `/login` | what is loaded · which keys are set |
 | `!dir` · `!!dir` | run PowerShell yourself; output joins the chat · or doesn't |
-| `esc` | stop the running turn (at a y/N prompt: no) |
+| `esc` | stop the running turn (at a y/N prompt: no); queued messages come back to the editor |
+| Enter while busy | queues the message; it is sent when the turn ends |
+| `shift+tab` | plan mode on/off |
+| `/copy` · `/export [md\|jsonl]` | last answer to the clipboard · the conversation to `.harness/exports` |
 | `a` at a prompt | always allow: saves a narrow rule (`edit scripts/*`, or that exact command) so it stops asking |
 | `ctrl+c` | stop a turn / clear the prompt; twice on an empty prompt exits |
 | `/plan` · `/plan go` · `/plan off` | plan mode: read and search only, ends with a numbered plan; `go` carries it out (`/plan <task>` plans it at once) |

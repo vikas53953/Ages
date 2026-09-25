@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.ts";
 import { formatReceipt, localGenerate, runLoop, type GenerateFn, type McpBinding, type TurnEvent } from "./loop.ts";
@@ -8,6 +9,7 @@ import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from
 import { realOrSelf, rewindPoints, rewindTo, snapshotFile } from "./checkpoints.ts";
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer, type McpState } from "./mcp.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
+import { copyToClipboard } from "./clipboard.ts";
 import { todosFromMessages } from "./todos.ts";
 import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.ts";
 import { openUrl } from "./open-url.ts";
@@ -23,7 +25,9 @@ import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } fro
 import {
   createSession,
   listSessions,
+  harnessRoot,
   loadMessages,
+  messageText,
   loadOrCreateSession,
   switchSession,
   recentSessions,
@@ -483,6 +487,35 @@ export async function handleLine(
   }
   if (cmd.type === "rewind") return rewindCommand(cmd.arg, cmd.what, state);
   if (cmd.type === "mcp") return mcpCommand(cmd.action, cmd.name, state);
+  if (cmd.type === "export") {
+    const rows = await loadMessages(state.cwd, state.session.id);
+    if (!rows.length) return { output: "Nothing to export yet.", session: state.session };
+    const format = cmd.format === "jsonl" ? "jsonl" : "md";
+    const dir = path.join(harnessRoot(state.cwd), "exports");
+    await mkdir(dir, { recursive: true });
+    const file = path.join(dir, `${state.session.id}.${format}`);
+    await writeFile(
+      file,
+      format === "jsonl"
+        ? rows.map((row) => JSON.stringify(row)).join("\n") + "\n"
+        : rows
+            .map((row) => {
+              const text = messageText(row).trim();
+              if (row.role === "tool") return "";
+              return text ? `## ${row.role === "user" ? "You" : "Aegis"}\n\n${text}\n` : "";
+            })
+            .filter(Boolean)
+            .join("\n"),
+    );
+    return { output: `Saved ${rows.length} message(s) to ${file}`, session: state.session };
+  }
+  if (cmd.type === "copy") {
+    const rows = await loadMessages(state.cwd, state.session.id);
+    const last = [...rows].reverse().find((row) => row.role === "assistant" && messageText(row).trim());
+    if (!last) return { output: "No answer to copy yet.", session: state.session };
+    const copied = copyToClipboard(messageText(last).trim());
+    return { output: copied ? "Copied the last answer." : "Could not reach the clipboard here. /export md saves it to a file instead.", session: state.session };
+  }
   if (cmd.type === "todos") {
     const todos = await currentTodos(state);
     const mark = { pending: "[ ]", in_progress: "[>]", completed: "[x]", cancelled: "[-]" } as const;

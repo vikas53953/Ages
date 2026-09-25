@@ -37,6 +37,10 @@ export function parseLine(line) {
         case "todos":
         case "todo":
             return { type: "todos" };
+        case "export":
+            return { type: "export", format: rest[0]?.toLowerCase() };
+        case "copy":
+            return { type: "copy" };
         case "mcp":
             return { type: "mcp", action: rest[0]?.toLowerCase(), name: rest[1] };
         case "plan":
@@ -91,6 +95,8 @@ export const HELP = [
     "  /theme aegis|light|contrast  colours (saved for you, every folder)",
     "  /login             show sign-ins and keys; /login opencode <key> saves one for every folder",
     "  /login chatgpt     sign in with your ChatGPT plan (add 'browser' to use this PC's browser)",
+    "  /copy              copy the last answer to the clipboard",
+    "  /export            save this conversation to .harness/exports (md, or jsonl with every tool call)",
     "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",
     "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
     "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",

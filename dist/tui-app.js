@@ -108,7 +108,13 @@ export async function createTuiApp(opts, input = {}) {
         const lines = todoLines(todos);
         todoBox.setText(lines.length ? lines.map((line) => paint("dim", `  ${line}`)).join("\n") : "");
     };
-    const dock = new VStack([todoBox, status, editor, footer]);
+    // Messages typed while a turn runs wait here (like Claude Code and Pi) and go one by one after it.
+    const queued = [];
+    const queueBox = new Text("", 0, 0);
+    const showQueue = () => {
+        queueBox.setText(queued.length ? queued.map((text) => paint("dim", `  ⏎ queued: ${text.split("\n")[0].slice(0, 100)}`)).join("\n") : "");
+    };
+    const dock = new VStack([todoBox, queueBox, status, editor, footer]);
     const scroll = new ScrollView(new VStack([header, transcript]), {
         follow: "end",
         primary: true,
@@ -226,7 +232,7 @@ export async function createTuiApp(opts, input = {}) {
                 pendingConfirms.splice(at, 1);
             overlay?.hide();
             overlay = undefined;
-            editor.disableSubmit = busy;
+            editor.disableSubmit = false;
             tui.setFocus(editor);
             resolve(ok);
             tui.requestRender();
@@ -247,7 +253,7 @@ export async function createTuiApp(opts, input = {}) {
         const picker = new ModelPicker(modelChoices(state), state.modelMode === "pinned" ? state.model : "auto", (id) => {
             overlay?.hide();
             overlay = undefined;
-            editor.disableSubmit = busy;
+            editor.disableSubmit = false;
             tui.setFocus(editor);
             tui.requestRender();
             if (id)
@@ -262,13 +268,14 @@ export async function createTuiApp(opts, input = {}) {
         overlay = undefined;
         while (pendingConfirms.length)
             pendingConfirms.shift()?.(false);
-        editor.disableSubmit = busy;
+        editor.disableSubmit = false;
         if (alive)
             tui.setFocus(editor);
     };
     const setBusy = (next) => {
         busy = next;
-        editor.disableSubmit = next || Boolean(overlay);
+        // Enter stays live while busy: the message is queued, not lost.
+        editor.disableSubmit = Boolean(overlay);
         terminal.setProgress(next);
         if (next) {
             turnStarted = Date.now();
@@ -417,8 +424,16 @@ export async function createTuiApp(opts, input = {}) {
     };
     const submit = async (line) => {
         const text = line.trim();
-        if (!alive || busy || !text)
+        if (!alive || !text)
             return;
+        if (busy) {
+            editor.addToHistory(redactLogin(text));
+            editor.setText("");
+            queued.push(text);
+            showQueue();
+            tui.requestRender();
+            return;
+        }
         editor.setText("");
         if (text === "/model") {
             editor.addToHistory(text);
@@ -476,6 +491,11 @@ export async function createTuiApp(opts, input = {}) {
         finally {
             if (alive)
                 setBusy(false);
+            // The next queued message, if any (after this turn fully settled).
+            const next = alive && !turnAbort.signal.aborted ? queued.shift() : undefined;
+            showQueue();
+            if (next)
+                setTimeout(() => void submit(next), 0);
         }
     };
     function shutdown() {
@@ -514,6 +534,20 @@ export async function createTuiApp(opts, input = {}) {
         // esc stops a running turn (at a y/N prompt the box itself treats esc as "no").
         if (matchesKey(data, Key.escape) && busy && !overlay) {
             turnAbort.abort();
+            // Stopped: queued messages go back into the editor instead of running (Pi's choice, the safer one).
+            if (queued.length) {
+                const draft = editor.getText().trim();
+                editor.setText([...queued.splice(0), draft].filter(Boolean).join("\n"));
+                showQueue();
+            }
+            return { consume: true };
+        }
+        // shift+tab turns plan mode on or off (read-only until /plan go).
+        if (matchesKey(data, Key.shift("tab")) && !overlay) {
+            state.planMode = !state.planMode;
+            add("system", state.planMode ? "plan mode on: read and search only · /plan go carries it out · shift+tab leaves" : "plan mode off");
+            paintFooter();
+            tui.requestRender();
             return { consume: true };
         }
         if (matchesKey(data, Key.ctrl("c"))) {
