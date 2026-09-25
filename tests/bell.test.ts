@@ -75,3 +75,22 @@ describe("bell", () => {
     quiet.tui.feed("n");
   });
 });
+
+describe("bell: review fixes", () => {
+  it("a settings file that does not parse is not rewritten", async () => {
+    const { writeFile, readFile } = await import("node:fs/promises");
+    const { userAegisDir } = await import("../src/env.ts");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(userAegisDir(), { recursive: true });
+    const file = path.join(userAegisDir(), "settings.json");
+    const before = await readFile(file, "utf8").catch(() => undefined);
+    await writeFile(file, "{ broken");
+    try {
+      expect(bellCommand("off")).toContain("is not valid JSON");
+      expect(await readFile(file, "utf8")).toBe("{ broken");
+    } finally {
+      if (before === undefined) await writeFile(file, "{}\n");
+      else await writeFile(file, before);
+    }
+  });
+});

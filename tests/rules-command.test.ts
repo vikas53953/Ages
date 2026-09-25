@@ -72,3 +72,34 @@ describe("/rules", () => {
     expect(describeRules(cwd).some((r) => r.rule === "shell *")).toBe(false);
   });
 });
+
+describe("/rules: review fixes", () => {
+  it("a rule saved by you that an untrusted project also asks for is shown as yours (it is in effect)", async () => {
+    const saved = process.env.AEGIS_TRUST_PROJECT;
+    delete process.env.AEGIS_TRUST_PROJECT;
+    try {
+      const cwd = await project({ allow: ["shell npm test", "shell npm run lint"] });
+      saveAllowRule(cwd, "shell npm test");
+      const rows = describeRules(cwd);
+      expect(rows.find((r) => r.rule === "shell npm test")?.source).toBe("yours");
+      expect(rows.find((r) => r.rule === "shell npm run lint")?.source).toBe("project, waiting for /trust");
+      expect(await run(cwd, "/rules remove allow shell npm test")).toContain("Removed");
+    } finally {
+      process.env.AEGIS_TRUST_PROJECT = saved;
+    }
+  });
+
+  it("a rule must name a real tool, or it would match nothing", async () => {
+    const cwd = await project({});
+    expect(await run(cwd, "/rules deny *")).toContain("a rule starts with a tool name");
+    expect(await run(cwd, "/rules deny mcp__github__*")).toContain("Saved");
+    expect(await run(cwd, "/rules ask Shell git push*")).toContain("Saved");
+    expect(matchRule(loadSettings(cwd), "shell", { command: "git push origin" }, cwd)?.action).toBe("ask");
+  });
+
+  it("ask rules are listed in the lock's order (built-in first)", async () => {
+    const cwd = await project({});
+    const asks = describeRules(cwd).filter((r) => r.action === "ask");
+    expect(asks[0]?.source).toBe("built-in");
+  });
+});

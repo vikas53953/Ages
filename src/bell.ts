@@ -16,22 +16,32 @@ function file() {
   return path.join(userAegisDir(), "settings.json");
 }
 
-function readAll(): Record<string, unknown> {
+/** The file's settings; `broken` when it exists but is not a JSON object (then nothing is saved over it). */
+function readAll(): { settings: Record<string, unknown>; broken: boolean } {
+  let text: string;
   try {
-    const parsed = JSON.parse(readFileSync(file(), "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    text = readFileSync(file(), "utf8");
   } catch {
-    return {};
+    return { settings: {}, broken: false };
   }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return { settings: parsed as Record<string, unknown>, broken: false };
+  } catch {
+    // fall through
+  }
+  return { settings: {}, broken: true };
 }
 
 export function loadBell(): BellMode {
-  const value = readAll().bell;
+  const value = readAll().settings.bell;
   return BELL_MODES.includes(value as BellMode) ? (value as BellMode) : "all";
 }
 
 export function saveBell(mode: BellMode) {
-  const settings = readAll();
+  const { settings, broken } = readAll();
+  // Rewriting a file that does not parse would throw away everything else you keep in it.
+  if (broken) throw new Error(`${file()} is not valid JSON; fix it first, then /bell again`);
   settings.bell = mode;
   mkdirSync(path.dirname(file()), { recursive: true });
   writeFileSync(file(), `${JSON.stringify(settings, null, 2)}\n`, "utf8");
@@ -51,6 +61,10 @@ export function bellCommand(arg: string | undefined) {
     return `Bell: ${loadBell()}. /bell all rings when a question waits and when a turn over ${BELL_AFTER_MS / 1000} s ends; ask or done for one of them; off for none.`;
   }
   if (!BELL_MODES.includes(choice as BellMode)) return "usage: /bell all|ask|done|off";
-  saveBell(choice as BellMode);
+  try {
+    saveBell(choice as BellMode);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   return `Bell: ${choice} (saved for you, every folder).`;
 }

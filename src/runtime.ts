@@ -171,12 +171,17 @@ async function diffCommand(state: AppState, arg: string) {
   if (!changes.length) return "Nothing changed by the agent in this session yet (shell commands are not tracked).";
   const stat = /^stat$/i.test(arg);
   const wanted = stat ? "" : arg.replaceAll("\\", "/");
+  const names = await Promise.all(changes.map(async (change) => (await projectPath(state.cwd, change.file)).split(path.sep).join("/")));
+  // Windows file names ignore case. An exact name wins; otherwise every file ending in /<name>.
+  const same = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const exact = wanted && names.some((name) => same(name, wanted));
+  const picked = (name: string) => !wanted || same(name, wanted) || (!exact && same(name.slice(-(wanted.length + 1)), `/${wanted}`));
   const out: string[] = [];
   let total = 0;
   let shown = 0;
-  for (const change of changes) {
-    const name = (await projectPath(state.cwd, change.file)).split(path.sep).join("/");
-    if (wanted && name !== wanted && !name.endsWith(`/${wanted}`)) continue;
+  for (const [index, change] of changes.entries()) {
+    const name = names[index]!;
+    if (!picked(name)) continue;
     shown += 1;
     const oldText = change.before.kind === "text" ? change.before.text : "";
     const newText = change.now.kind === "text" ? change.now.text : "";
@@ -194,7 +199,8 @@ async function diffCommand(state: AppState, arg: string) {
       continue;
     }
     if (!diff.lines.length) {
-      out.push(`${name}  back as it was`);
+      // Same lines, different bytes: only the line endings (CRLF/LF) or the final newline changed.
+      out.push(oldText === newText || label !== "changed" ? `${name}  back as it was` : `${name}  line endings or final newline changed only`);
       continue;
     }
     out.push(`--- ${name} (before this session)`, `+++ ${name} (now)`);
@@ -218,9 +224,16 @@ function rulesCommand(state: AppState, arg: string) {
   const rest = more.join(" ").trim();
   const rows = describeRules(state.cwd);
   if (/^(remove|rm|delete|del)$/i.test(verb)) {
+    // By number from /rules, or by the rule itself ("/rules remove allow write docs/*"), which cannot shift.
     const n = Number(rest);
-    const row = Number.isInteger(n) ? rows[n - 1] : undefined;
-    if (!row) return `usage: /rules remove <n>, with n from /rules (1 to ${rows.length})`;
+    const byText = /^(deny|ask|allow)\s+(.+)$/i.exec(rest);
+    const row = byText
+      ? rows.find((item) => item.action === byText[1]!.toLowerCase() && item.rule === byText[2]!.trim() && item.source === "yours") ??
+        rows.find((item) => item.action === byText[1]!.toLowerCase() && item.rule === byText[2]!.trim())
+      : Number.isInteger(n)
+        ? rows[n - 1]
+        : undefined;
+    if (!row) return `usage: /rules remove <n> (1 to ${rows.length}), or /rules remove allow <rule> as /rules shows it`;
     if (row.source !== "yours") {
       return row.source.startsWith("project")
         ? `${row.action} ${row.rule} comes from ${settingsPath(state.cwd)}; change it there.`
@@ -250,7 +263,7 @@ function rulesCommand(state: AppState, arg: string) {
     `The lock, in the order it decides (deny, then ask, then allow; anything else goes to Jev or asks you):`,
     ...lines,
     "",
-    `Yours are in ${yourSettingsPath(state.cwd)}. /rules remove <n> removes one of yours; /rules deny|ask <rule> adds a stricter one.`,
+    `Yours are in ${yourSettingsPath(state.cwd)}. /rules remove <n> (or /rules remove allow <rule>) removes one of yours; /rules deny|ask <rule> adds a stricter one.`,
   ].join("\n");
 }
 
@@ -867,7 +880,11 @@ async function handleLineInner(
     if (!cmd.name) return { output: `theme  ${themeName()}   (${THEME_NAMES.join(" · ")})`, session: state.session };
     const name = parseTheme(cmd.name);
     if (!name) return { output: `usage: /theme ${THEME_NAMES.join("|")}`, session: state.session };
-    saveUserTheme(name);
+    try {
+      saveUserTheme(name);
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), session: state.session };
+    }
     return { output: `theme ${name}`, session: state.session };
   }
   if (cmd.type === "think") {

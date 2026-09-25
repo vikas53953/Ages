@@ -39,13 +39,14 @@ function operations(a, b) {
                 i += 1;
                 j += 1;
             }
-            else if (j < m && (i >= n || lcs[i * width + j + 1] >= lcs[(i + 1) * width + j])) {
-                ops.push({ kind: "+", text: midB[j], oldLine: start + i, newLine: start + j + 1 });
-                j += 1;
-            }
-            else {
+            else if (i < n && (j >= m || lcs[(i + 1) * width + j] >= lcs[i * width + j + 1])) {
+                // Removals first, like git: a replaced line reads "-old" then "+new".
                 ops.push({ kind: "-", text: midA[i], oldLine: start + i + 1, newLine: start + j });
                 i += 1;
+            }
+            else {
+                ops.push({ kind: "+", text: midB[j], oldLine: start + i, newLine: start + j + 1 });
+                j += 1;
             }
         }
     }
@@ -76,7 +77,8 @@ export function unifiedDiff(oldText, newText, context = 3) {
     let index = 0;
     while (index < changed.length) {
         let end = index;
-        while (end + 1 < changed.length && changed[end + 1] - changed[end] <= 2 * context)
+        // Like git: changes with at most 2 × context unchanged lines between them share a hunk.
+        while (end + 1 < changed.length && changed[end + 1] - changed[end] <= 2 * context + 1)
             end += 1;
         const from = Math.max(0, changed[index] - context);
         const to = Math.min(ops.length - 1, changed[end] + context);

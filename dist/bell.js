@@ -12,21 +12,34 @@ export const BELL_AFTER_MS = 5_000;
 function file() {
     return path.join(userAegisDir(), "settings.json");
 }
+/** The file's settings; `broken` when it exists but is not a JSON object (then nothing is saved over it). */
 function readAll() {
+    let text;
     try {
-        const parsed = JSON.parse(readFileSync(file(), "utf8"));
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        text = readFileSync(file(), "utf8");
     }
     catch {
-        return {};
+        return { settings: {}, broken: false };
     }
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+            return { settings: parsed, broken: false };
+    }
+    catch {
+        // fall through
+    }
+    return { settings: {}, broken: true };
 }
 export function loadBell() {
-    const value = readAll().bell;
+    const value = readAll().settings.bell;
     return BELL_MODES.includes(value) ? value : "all";
 }
 export function saveBell(mode) {
-    const settings = readAll();
+    const { settings, broken } = readAll();
+    // Rewriting a file that does not parse would throw away everything else you keep in it.
+    if (broken)
+        throw new Error(`${file()} is not valid JSON; fix it first, then /bell again`);
     settings.bell = mode;
     mkdirSync(path.dirname(file()), { recursive: true });
     writeFileSync(file(), `${JSON.stringify(settings, null, 2)}\n`, "utf8");
@@ -47,6 +60,11 @@ export function bellCommand(arg) {
     }
     if (!BELL_MODES.includes(choice))
         return "usage: /bell all|ask|done|off";
-    saveBell(choice);
+    try {
+        saveBell(choice);
+    }
+    catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
     return `Bell: ${choice} (saved for you, every folder).`;
 }

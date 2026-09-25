@@ -565,20 +565,33 @@ export function describeRules(cwd) {
     add("deny", p.deny, "project");
     add("deny", m.deny, "yours");
     add("deny", run.deny, "this run");
-    add("ask", FLOOR_ASK, "always on");
+    // The same order as the lock reads them, so the first listed is the one a match reports.
     add("ask", DEFAULT_SETTINGS.rules.ask, "built-in");
+    add("ask", FLOOR_ASK, "always on");
     add("ask", p.ask, "project");
     add("ask", m.ask, "yours");
     add("allow", DEFAULT_SETTINGS.rules.allow, "built-in");
-    add("allow", p.allow, trusted ? "project" : "project, waiting for /trust");
-    add("allow", m.allow, "yours");
+    if (trusted)
+        add("allow", p.allow, "project");
+    // "This run" before yours: answering "a" adds to the end, so the numbers above it never shift.
     add("allow", run.allow, "this run");
+    add("allow", m.allow, "yours");
+    // Not in effect: listed last, and only where no layer in effect already carries the same rule.
+    if (!trusted)
+        add("allow", p.allow, "project, waiting for /trust");
     return rows;
 }
 /** Add a deny or ask rule to YOUR settings for this folder (only stricter: allow comes from answering "a"). */
+/** Tool names a rule can name (mcp__server__tool, with * for a whole server, too). */
+export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "skill", "explore", "todo"];
 export function saveYourRule(cwd, action, rule) {
     if (!rule.trim())
         throw new Error("no rule given");
+    // A rule for a tool that does not exist matches nothing: "deny *" would look like it blocks everything.
+    const { tool } = splitRule(rule);
+    if (!RULE_TOOLS.includes(tool) && !tool.startsWith("mcp__")) {
+        throw new Error(`a rule starts with a tool name (${RULE_TOOLS.join(", ")} or mcp__server__tool), then what it covers: ${action} shell git push*`);
+    }
     if (rule.length > MAX_RULE_CHARS)
         throw new Error(`the rule is longer than ${MAX_RULE_CHARS} characters, so it is not saved`);
     updateYours(cwd, (raw) => {

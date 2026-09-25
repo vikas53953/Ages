@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
 
@@ -64,6 +64,14 @@ export function loadUserTheme() {
 
 export function saveUserTheme(name: ThemeName) {
   const settings = readUserSettings();
+  // A file that exists but does not parse is left alone (rewriting it would drop your other settings).
+  if (!Object.keys(settings).length && existsSync(userSettingsFile()) && readFileSync(userSettingsFile(), "utf8").trim()) {
+    try {
+      JSON.parse(readFileSync(userSettingsFile(), "utf8"));
+    } catch {
+      throw new Error(`${userSettingsFile()} is not valid JSON; fix it first, then /theme again`);
+    }
+  }
   settings.theme = name;
   mkdirSync(path.dirname(userSettingsFile()), { recursive: true });
   writeFileSync(userSettingsFile(), `${JSON.stringify(settings, null, 2)}\n`, "utf8");

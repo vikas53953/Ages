@@ -115,3 +115,13 @@ describe("/diff", () => {
     expect(await run("/diff nope.txt")).toContain("No file named nope.txt");
   });
 });
+
+describe("unifiedDiff: review fixes", () => {
+  it("removals before additions, like git; hunks merge at git's boundary", () => {
+    expect(unifiedDiff("a\nb\nc\n", "a\nX\nc\n").lines).toEqual(["@@ -1,3 +1,3 @@", " a", "-b", "+X", " c"]);
+    const old = Array.from({ length: 12 }, (_, i) => `l${i + 1}`).join("\n") + "\n";
+    // Changes at lines 1 and 8: six unchanged lines between them, so one hunk (git merges at 2 × 3).
+    const now = old.replace("l1\n", "L1\n").replace("l8\n", "L8\n");
+    expect(unifiedDiff(old, now).lines.filter((line) => line.startsWith("@@"))).toHaveLength(1);
+  });
+});

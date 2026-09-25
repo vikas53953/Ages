@@ -54,7 +54,8 @@ const steps = (): Step[] => [
   { text: "Read it; could not write." },
 ];
 
-describe("aegis -p", () => {
+// Each test runs a whole turn (session files, receipts); on Windows runners that can take seconds.
+describe("aegis -p", { timeout: 20_000 }, () => {
   it("--json: every event, the question it could not ask (denied), then one result; exit 2 because a call was denied", async () => {
     const cwd = await project();
     const lines: string[] = [];

@@ -570,7 +570,8 @@ export async function createTuiApp(
       );
     } finally {
       // Read before setBusy clears it: a long turn rings when it ends (you may be in another window).
-      if (turnStarted) ring("done", Date.now() - turnStarted);
+      // Not after a stop: you pressed esc or ctrl+c, so you are here.
+      if (turnStarted && !turnAbort.signal.aborted) ring("done", Date.now() - turnStarted);
       if (alive) setBusy(false);
       // The next queued message, if any (after this turn fully settled).
       const next = alive && !turnAbort.signal.aborted ? queued.shift() : undefined;

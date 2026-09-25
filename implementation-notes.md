@@ -304,3 +304,17 @@
   - The TUI writes a BEL when a y/a/N question appears, and when a turn of 5 s or more ends. Quick answers do not ring.
   - `/bell all|ask|done|off` is saved in `~/.aegis/settings.json`. It is read at each ring, so a change applies at once.
   - `-p` and the plain REPL never ring. Studio has no sound: when its tab is in the background, the title shows "● Waiting for you" or "✓ Done" until you come back.
+- Fixes from the review of `/rules`, `/diff` and `/bell`:
+  - `/rules`:
+    - A rule you saved that an untrusted project also lists shows as yours, since it is in effect. Untrusted project allow rules are listed last.
+    - Rules must name a real tool, because `deny *` matched nothing while looking like it blocked everything.
+    - `/rules remove allow <rule>` removes by text. "This run" rules are listed before yours, so answering "a" never shifts a number.
+    - Ask rules are listed in the lock's order.
+  - `/diff`:
+    - A replaced line reads `-old` then `+new`, and hunks merge at git's boundary.
+    - A change to only the line endings or the final newline is named, not shown as "back as it was".
+    - An exact file name wins over suffix matches. Names compare case-insensitively on Windows.
+  - `/bell`:
+    - No ring after you stop a turn.
+    - `~/.aegis/settings.json` is never rewritten when it does not parse; before, `/bell` and `/theme` silently dropped your other settings.
+  - The headless tests get 20 s each: one timed out once on a slow Windows runner (a full turn per test).
