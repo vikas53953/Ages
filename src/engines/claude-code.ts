@@ -55,8 +55,9 @@ export function toAegisCall(tool: string, input: Record<string, unknown>): { nam
     case "PowerShell":
       return { name: "shell", args: { command: input.command } };
     case "Grep":
-    case "Glob":
       return { name: "grep", args: { pattern: input.pattern, path: input.path ?? "." } };
+    case "Glob":
+      return { name: "glob", args: { pattern: input.pattern, path: input.path ?? "." } };
     case "WebFetch":
       return { name: "webfetch", args: { url: String(input.url ?? ""), prompt: input.prompt } };
     case "Skill":

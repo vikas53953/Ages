@@ -112,13 +112,13 @@ function cancelled(decision, name) {
     };
 }
 /** What plan mode lets through: reading, searching, loading a skill. */
-export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill", "webfetch", "explore"]);
+export const READ_ONLY_TOOLS = new Set(["read", "grep", "glob", "skill", "webfetch", "explore"]);
 /** Tools that only touch the conversation (the todo list). */
 export const INTERNAL_TOOLS = new Set(["todo"]);
 export function toolTarget(name, args) {
     if (name === "shell")
         return String(args.command ?? "").slice(0, 120);
-    if (name === "grep")
+    if (name === "grep" || name === "glob")
         return `"${String(args.pattern ?? "")}" in ${String(args.path ?? ".")}`;
     if (name === "webfetch")
         return String(args.url ?? "").slice(0, 200);

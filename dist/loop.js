@@ -14,7 +14,7 @@ import { scorerOf, toolGuards } from "./plugin-api.js";
 import { readPath } from "./tools/read.js";
 import { writePath } from "./tools/write.js";
 import { editPath } from "./tools/edit.js";
-import { grepPath } from "./tools/grep.js";
+import { globPath, grepPath } from "./tools/grep.js";
 import { runShell } from "./tools/shell.js";
 import { languageModel, modelsFor, resolveProvider } from "./providers.js";
 import { planLocal } from "./planner.js";
@@ -113,8 +113,10 @@ export function createTools(input) {
             description: "Read a file or list a directory. Path is relative to the working folder.",
             inputSchema: z.object({
                 path: z.string().describe("Relative path. Use . for the working folder."),
+                offset: z.number().int().optional().describe("First line to read (1-based), for big files."),
+                limit: z.number().int().optional().describe("How many lines to read (up to 2000)."),
             }),
-            execute: async ({ path: filePath }) => gate("read", { path: filePath }, () => readPath(filePath, input.cwd)),
+            execute: async ({ path: filePath, offset, limit }) => gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit })),
         }),
         write: tool({
             description: "Write a new text file, or replace a whole file, inside the working folder.",
@@ -140,12 +142,20 @@ export function createTools(input) {
             }),
         }),
         grep: tool({
-            description: "Search files under a relative path with a regex.",
+            description: "Search file contents under a relative path with a regex (case-insensitive unless caseSensitive). Skips .gitignore'd, binary and huge files. glob narrows the files (e.g. \"*.ts\"); context adds lines around each hit.",
             inputSchema: z.object({
                 pattern: z.string(),
                 path: z.string().optional(),
+                glob: z.string().optional(),
+                caseSensitive: z.boolean().optional(),
+                context: z.number().int().min(0).max(5).optional(),
             }),
-            execute: async ({ pattern, path: filePath }) => gate("grep", { pattern, path: filePath ?? "." }, () => grepPath(pattern, filePath ?? ".", input.cwd)),
+            execute: async ({ pattern, path: filePath, glob, caseSensitive, context }) => gate("grep", { pattern, path: filePath ?? "." }, () => grepPath(pattern, filePath ?? ".", input.cwd, { glob, caseSensitive, context })),
+        }),
+        glob: tool({
+            description: "List files whose path matches a glob (\"**/*.ts\", \"src/*.md\"), newest first. Skips .gitignore'd files.",
+            inputSchema: z.object({ pattern: z.string(), path: z.string().optional() }),
+            execute: async ({ pattern, path: filePath }) => gate("glob", { pattern, path: filePath ?? "." }, () => globPath(pattern, filePath ?? ".", input.cwd)),
         }),
         shell: tool({
             description: "Run one PowerShell command in the working folder. Do not use this to leave the folder.",
@@ -350,7 +360,7 @@ export async function runLoop(input) {
                 },
             });
             const skill = helperTools.skill;
-            const only = { read: helperTools.read, grep: helperTools.grep, ...(skill ? { skill } : {}) };
+            const only = { read: helperTools.read, grep: helperTools.grep, glob: helperTools.glob, ...(skill ? { skill } : {}) };
             const found = await generate({
                 model: models.cheap,
                 system: EXPLORE_SYSTEM,

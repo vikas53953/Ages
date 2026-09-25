@@ -9,7 +9,7 @@ const defaults = {
     highConfidence: 0.7,
     lowConfidence: 0.5,
     dataLossThreshold: 0.5,
-    maxSteps: 8,
+    maxSteps: 25,
     shellTimeoutMs: 30_000,
     compactAtChars: 120_000,
     compactKeepTurns: 3,

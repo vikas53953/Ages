@@ -159,3 +159,8 @@
     - An untrusted project's Jev mode is ignored entirely. Even "off" routes every turn to the frontier model, which a cloned repo must not decide.
     - `/fork` copies restore points so `/rewind` works in the fork. With Claude Code, the conversation id is copied with a mark, and the fork's first turn runs `--resume <id> --fork-session`, so the two Aegis sessions never write into one Claude conversation. A partial fork says Claude Code starts fresh.
     - Studio reloads the chat when a command changes it (`/fork`, `/rewind chat`, `/new`).
+- Search and read tools (Claude Code's Read/Grep/Glob, from the gap research):
+  - `read` takes `offset` and `limit` and returns numbered lines. A cut whole-file read says how many lines there are and how to read on. Folders mark subfolders with `/`.
+  - `grep` walks with the folder's `.gitignore` (plain and glob patterns, `dir/`, `!` re-include, and "/" anchoring) plus the fixed skip list. It skips binary (NUL in the first 8 KB) and >2 MB files. It takes `glob`, `caseSensitive` (default stays insensitive) and `context` (0–5), reports a bad regex, shows 100 hits, and says how many more there were.
+  - New `glob` tool: paths newest first, 200 at most, ignore-aware. It is allowed by default and in plan mode, and the explore helper gets it. Claude Code's Glob now maps to `glob`, not `grep`.
+  - Default step budget raised from 8 to 25: medium tasks stalled at 8. Claude Code has no cap; the explore helper keeps 20.

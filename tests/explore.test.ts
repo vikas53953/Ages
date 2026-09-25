@@ -67,7 +67,7 @@ describe("explore helper", () => {
     const result = await handleLine("where is login?", state, { mockJev: true, yes: false, local: true, generate: generateWith(model) });
     // The helper saw only read/grep, its own instructions, and just the task (not the chat).
     expect(seen[1]!.tools).toEqual(expect.arrayContaining(["grep", "read"]));
-    expect(seen[1]!.tools.filter((name) => !["grep", "read", "skill"].includes(name))).toEqual([]);
+    expect(seen[1]!.tools.filter((name) => !["grep", "glob", "read", "skill"].includes(name))).toEqual([]);
     expect(seen[1]!.system).toContain("explore helper");
     expect(seen[1]!.prompt).toContain("where is login handled?");
     expect(seen[1]!.prompt).not.toContain("where is login?\"");
