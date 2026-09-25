@@ -15,6 +15,7 @@ export type Slash =
   | { type: "todos" }
   | { type: "export"; format?: string }
   | { type: "copy" }
+  | { type: "review"; arg: string }
   | { type: "clear" }
   | { type: "status" }
   | { type: "models" }
@@ -68,6 +69,8 @@ export function parseLine(line: string): Slash {
       return { type: "export", format: rest[0]?.toLowerCase() };
     case "copy":
       return { type: "copy" };
+    case "review":
+      return { type: "review", arg: rest.join(" ") };
     case "mcp":
       return { type: "mcp", action: rest[0]?.toLowerCase(), name: rest[1] };
     case "plan":
@@ -123,6 +126,7 @@ export const HELP = [
   "  /theme aegis|light|contrast  colours (saved for you, every folder)",
   "  /login             show sign-ins and keys; /login opencode <key> saves one for every folder",
   "  /login chatgpt     sign in with your ChatGPT plan (add 'browser' to use this PC's browser)",
+  "  /review            review uncommitted changes (read-only); /review main · /review commit <sha> · add notes",
   "  /copy              copy the last answer to the clipboard",
   "  /export            save this conversation to .harness/exports (md, or jsonl with every tool call)",
   "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",

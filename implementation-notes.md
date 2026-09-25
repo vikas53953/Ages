@@ -78,3 +78,8 @@
   - Shift+Tab toggles plan mode.
   - `/export [md|jsonl]` writes to `.harness/exports/<session>.<ext>`.
   - `/copy` uses PowerShell `Set-Clipboard` with UTF-8 stdin on Windows (clip.exe mangles non-ASCII), pbcopy on macOS, and wl-copy/xclip on Linux.
+- `/review` (Codex's /review and rubric):
+  - Aegis collects the diff itself: uncommitted changes plus new files' names, a branch since it split, or one commit. It then runs one read-only turn (the plan-mode refusals, without plan-mode instructions) with P0–P3 findings and a verdict. The diff is wrapped as `<untrusted_diff>`.
+  - git is hardened because a repo's `.git/config` can start programs. On the command line: `core.fsmonitor=false`, `hooksPath` set to NUL, `pager=cat`, `diff.external=` empty, no sshCommand or credential helper, `--no-ext-diff`, `--no-textconv`. `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL=NUL` also apply.
+  - Refs are checked with a pattern and `--end-of-options`, so `--output=…` is never passed to git as an option.
+  - A test repo whose config sets fsmonitor, diff.external and textconv to a script proves none of them runs. Plain `git diff` in the same repo does run it.

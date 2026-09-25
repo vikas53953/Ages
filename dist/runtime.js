@@ -10,6 +10,7 @@ import { realOrSelf, rewindPoints, rewindTo, snapshotFile } from "./checkpoints.
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer } from "./mcp.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
 import { copyToClipboard } from "./clipboard.js";
+import { collectReview, reviewPrompt } from "./review.js";
 import { todosFromMessages } from "./todos.js";
 import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.js";
 import { openUrl } from "./open-url.js";
@@ -183,7 +184,9 @@ function summarizerFor(opts, provider, config) {
         return undefined;
     return modelSummarizer(modelsFor(provider, config).cheap);
 }
-export async function runPrompt(prompt, state, opts, confirm, onEvent) {
+export async function runPrompt(prompt, state, opts, confirm, onEvent, 
+/** A read-only turn that is not plan mode (/review): same refusals, no plan instructions. */
+turnOptions = {}) {
     const config = loadEnv(state.cwd);
     const provider = opts.local ? "local" : resolveProvider();
     const claudeEngine = state.modelMode === "pinned" && state.model === CLAUDE_CODE_MODEL;
@@ -227,7 +230,7 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
     const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
-    const readOnly = state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined;
+    const readOnly = turnOptions.readOnly ?? (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined);
     const planPrompt = state.planMode ? PLAN_PROMPT : "";
     // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
     const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));
@@ -415,6 +418,13 @@ export async function handleLine(line, state, opts, confirm = async () => false,
         return rewindCommand(cmd.arg, cmd.what, state);
     if (cmd.type === "mcp")
         return mcpCommand(cmd.action, cmd.name, state);
+    if (cmd.type === "review") {
+        const collected = await collectReview(state.cwd, cmd.arg);
+        if ("error" in collected)
+            return { output: collected.error, session: state.session };
+        // One read-only turn: the reviewer can read and search, never change anything.
+        return runPrompt(reviewPrompt(collected), state, opts, confirm, onEvent, { readOnly: "a review only reads: it never changes files" });
+    }
     if (cmd.type === "export") {
         const rows = await loadMessages(state.cwd, state.session.id);
         if (!rows.length)
