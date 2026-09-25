@@ -75,7 +75,15 @@ export async function runHeadless(input: {
         // Say why: a deny rule, or a question nobody can answer in -p mode (add an allow rule or --allow).
         const reasons = (result.receipt?.tools ?? [])
           .filter((tool) => !tool.approved)
-          .map((tool) => `  ${tool.name} ${tool.target ?? ""}: ${tool.rule && tool.action === "deny" ? `denied by rule "${tool.rule}"` : "needed a yes, and nobody can answer in -p mode (use --allow or an allow rule)"}`);
+          .map((tool) => {
+            // The lock's own reason (a deny rule, a hook, plan mode, a guard, a stop); a question nobody could
+            // answer is recorded as "user declined".
+            const reason =
+              !tool.deniedReason || tool.deniedReason === "user declined"
+                ? "needed a yes, and nobody can answer in -p mode (use --allow or an allow rule)"
+                : tool.deniedReason;
+            return `  ${tool.name} ${tool.target ?? ""}: ${reason}`;
+          });
         process.stderr.write(`${denied} tool call(s) denied:\n${reasons.join("\n")}\n`);
       }
     }

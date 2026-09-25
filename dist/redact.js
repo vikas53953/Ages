@@ -41,9 +41,12 @@ const DESCRIBING = new Set([
  * this linear and lets it match after a grep "file:12:" or a numbered read's "  12  " prefix. A quoted value may
  * hold spaces and other marks; an unquoted one ends at white space or code punctuation.
  */
-const SETTING = /(?<![A-Za-z0-9_$])((?:\$env:|\$)?["']?[A-Za-z][A-Za-z0-9_-]{1,80}["']?)([ \t]*(?::=|=>|[=:])[ \t]*)(?:"([^"\n]{8,4096})"|'([^'\n]{8,4096})'|([^\s"'#,;`)\]}]{8,4096}))/g;
+const SETTING = /(?<![A-Za-z0-9_$])((?:\$env:|\$)?["']?[A-Za-z_][A-Za-z0-9_-]{1,80}["']?)([ \t]*(?::=|=>|[=:])[ \t]*)(?:"([^"\n]{8,4096})"|'([^'\n]{8,4096})'|([^\s"'#,;`)\]}]{8,4096}))/g;
 function secretName(raw) {
-    const name = raw.replace(/^\$(?:env:)?/, "").replace(/["']/g, "");
+    const name = raw.replace(/^\$(?:env:)?/, "").replace(/["']/g, "").replace(/^_+/, "");
+    // .npmrc: //registry/:_auth=<base64 user:password>
+    if (/^_auth$/i.test(raw.replace(/["']/g, "")))
+        return true;
     if (/^[A-Z0-9_]+$/.test(name)) {
         const words = name.split("_");
         if (words.includes("PUBLIC") || words.some((word) => DESCRIBING.has(word.toLowerCase()) && word !== "ID"))
@@ -62,18 +65,41 @@ function secretName(raw) {
         return true;
     return words.some((word, index) => index > 0 && SECRET_PAIRS.has(`${words[index - 1]} ${word}`)) || words.join("") === "connectionstring";
 }
+/**
+ * Is the value followed by code (so a bare word is a variable)? `,` `)` `}` `??` `||` after it, or `;` after a
+ * ":" pair or at the end of a statement. A `;` followed by more NAME=value pairs is a connection string, not code.
+ */
+function codeAfter(after, between) {
+    if (/^\s*(?:[,)}]|\?\?|\|\||&&|!)/.test(after))
+        return true;
+    if (after.startsWith(";"))
+        return between.includes(":") || /^;\s*$/.test(after);
+    return false;
+}
 /** Example values in .env.example and docs are not secrets (and the model needs to see them to copy the file). */
 const PLACEHOLDER = /^(?:changeme|change[-_]me|replace[-_ ]?me|your[-_ ]|xxx|<|example|placeholder|dummy|todo)/i;
+/** Words that are never a secret value: keywords, and fetch's credentials modes. */
+const KEYWORDS = new Set(["undefined", "null", "true", "false", "none", "nil", "same-origin", "include", "omit", "required", "optional"]);
 /**
  * Values that name something rather than being one: numbers, URLs, paths, variable references, code.
  * `code` = the value is followed by , ; ) — a struct/object literal or a call, where a bare word is a variable.
  */
 function notAValue(value, name, quoted, code) {
-    if (PLACEHOLDER.test(value))
+    if (PLACEHOLDER.test(value) || KEYWORDS.has(value.toLowerCase()))
         return true;
+    const bareName = name.replace(/^\$(?:env:)?/, "").replace(/["']/g, "");
+    if (!quoted) {
+        // `password: password`, `password=db_password`: the same word, or a snake_case variable, is a reference.
+        if (value.toLowerCase() === bareName.toLowerCase())
+            return true;
+        if (/[a-z]/.test(bareName) && /^[a-z]+(?:_[a-z]+)+$/.test(value))
+            return true;
+    }
     if (!quoted) {
         // A variable or type, not a value: `password: PasswordField;`, `token: API_TOKEN,`, `secret: Promise<string>`.
-        if (code && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value))
+        // (A lower-case word with a digit in it, like hunter2hunter2, is a value even in code.)
+        const lowerWithDigit = /^[a-z0-9_]+$/.test(value) && /\d/.test(value) && /[a-z]/.test(value);
+        if (code && !lowerWithDigit && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value))
             return true;
         // Outside code (YAML, .properties, .env): a PascalCase type, a CONST_NAME or a camelCase word without digits.
         if (/[a-z]/.test(name.replace(/^\$(?:env:)?/, ""))) {
@@ -88,7 +114,7 @@ function notAValue(value, name, quoted, code) {
     return (/^\d+(?:\.\d+)*(?:[-+][\w.]+)?$/.test(value) ||
         /^(?:https?:\/\/|\/|\.\.?[\\/]|~[\\/]|[A-Za-z]:[\\/]|\\\\|\$|%|process\.env|os\.environ|\[redacted:)/.test(value) ||
         (!quoted && value.includes("(")) ||
-        /^[A-Za-z_]\w*(?:[?!]?\.[A-Za-z_]\w*)+$/.test(value) ||
+        /^[A-Za-z_]\w*(?:[?!]?\.[A-Za-z_]\w*)+!?$/.test(value) ||
         /^[\w.-]+\\[\w.\\-]+$/.test(value));
 }
 function redactAll(text) {
@@ -106,15 +132,27 @@ function redactAll(text) {
             return `${keep}[redacted:${pattern.kind}]`;
         });
     }
-    out = out.replace(SETTING, (match, name, between, dq, sq, bare, offset, whole) => {
+    // NAME=value pairs, walked one by one: a match that is not a secret gives back its value, so an inner pair
+    // (the Password=… inside a quoted connection string) is still looked at.
+    let result = "";
+    let last = 0;
+    SETTING.lastIndex = 0;
+    for (let found = SETTING.exec(out); found; found = SETTING.exec(out)) {
+        const [match, name = "", between = "", dq, sq, bare] = found;
         const value = dq ?? sq ?? bare ?? "";
         const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : "";
-        const next = whole[offset + match.length] ?? "";
-        if (!secretName(name) || notAValue(value, name, Boolean(quote), /[,;)]/.test(next)))
-            return match;
-        count += 1;
-        return `${name}${between}${quote}[redacted:secret-value]${quote}`;
-    });
+        const after = out.slice(found.index + match.length, out.indexOf("\n", found.index + match.length) >>> 0);
+        if (secretName(name) && !notAValue(value, name, Boolean(quote), codeAfter(after, between))) {
+            count += 1;
+            result += `${out.slice(last, found.index)}${name}${between}${quote}[redacted:secret-value]${quote}`;
+            last = found.index + match.length;
+        }
+        else {
+            // Not a secret: continue right after the separator, so the value itself is searched too.
+            SETTING.lastIndex = found.index + name.length + between.length + (quote ? 1 : 0);
+        }
+    }
+    out = result + out.slice(last);
     return { text: out, count };
 }
 /** Redact; if anything goes wrong, fail closed: the model gets a note, never the unfiltered text. */

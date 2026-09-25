@@ -25,7 +25,7 @@ export function parseArgs(argv) {
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i] ?? "";
         if (arg === "--worktree" || arg.startsWith("--worktree=")) {
-            worktree = arg.includes("=") ? arg.slice("--worktree=".length) : defaultWorktreeName();
+            worktree = (arg.includes("=") ? arg.slice("--worktree=".length) : "") || defaultWorktreeName();
             continue;
         }
         if (arg === "--allow" || arg === "--deny") {
@@ -218,6 +218,10 @@ export async function main() {
     // Rules for this run only (like Claude Code's --allowedTools); never saved, and the floor still wins.
     if (args.allow.length || args.deny.length)
         process.env.AEGIS_RUN_RULES = JSON.stringify({ allow: args.allow, deny: args.deny });
+    if (args.help) {
+        console.log(help());
+        return;
+    }
     if (args.worktree) {
         // Everything after this runs in the worktree: tools, rules, sessions, restore points.
         const opened = await openWorktree(process.cwd(), args.worktree);
@@ -225,10 +229,6 @@ export async function main() {
         console.error(`${opened.created ? "Created" : "Using"} worktree ${opened.path} (branch ${opened.branch}). Your checkout is untouched; merge the branch when you are happy with it.`);
     }
     loadEnv();
-    if (args.help) {
-        console.log(help());
-        return;
-    }
     const opts = {
         mockJev: args.mockJev,
         yes: args.yes,

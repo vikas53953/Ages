@@ -61,6 +61,27 @@ export function packageRoot() {
 export function userAegisDir() {
     return process.env.AEGIS_HOME ? path.resolve(process.env.AEGIS_HOME) : path.join(os.homedir(), ".aegis");
 }
+/**
+ * The main checkout of a linked git worktree (`aegis --worktree`, or any `git worktree add`): its `.git` is a file
+ * "gitdir: <main>/.git/worktrees/<name>". Undefined for an ordinary folder. Trust, your saved rules and the
+ * project's .env belong to the project, so a worktree shares them with its main checkout.
+ */
+export function mainCheckoutOf(cwd) {
+    try {
+        const text = readFileSync(path.join(cwd, ".git"), "utf8");
+        const gitdir = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
+        if (!gitdir)
+            return undefined;
+        const absolute = path.resolve(cwd, gitdir);
+        const worktrees = path.dirname(absolute);
+        if (path.basename(worktrees) !== "worktrees" || path.basename(path.dirname(worktrees)) !== ".git")
+            return undefined;
+        return path.dirname(path.dirname(worktrees));
+    }
+    catch {
+        return undefined;
+    }
+}
 export function loadEnv(cwd = process.cwd()) {
     const root = packageRoot();
     applyEnvFile(path.join(root, ".env"));
@@ -68,6 +89,12 @@ export function loadEnv(cwd = process.cwd()) {
     // Keys saved once for every folder (like Pi's login): %USERPROFILE%\.aegis\.env. A project .env still wins.
     applyEnvFile(path.join(userAegisDir(), ".env"));
     const projectKey = (key) => PROJECT_ENV_KEYS.has(key);
+    // A worktree has no copy of the (git-ignored) .env: its main checkout's applies, then its own if any.
+    const main = mainCheckoutOf(cwd);
+    if (main) {
+        applyEnvFile(path.join(main, ".env"), projectKey);
+        applyEnvFile(path.join(main, ".env.local"), projectKey);
+    }
     applyEnvFile(path.join(cwd, ".env"), projectKey);
     applyEnvFile(path.join(cwd, ".env.local"), projectKey);
     return loadConfig(cwd);

@@ -65,3 +65,59 @@ describe("--worktree", () => {
     expect(parseArgs([]).worktree).toBeUndefined();
   });
 });
+
+describe("--worktree: review fixes", () => {
+  it("a worktree shares its project's trust and your saved rules", async () => {
+    const { loadSettingsWithTrust, saveAllowRule, setProjectTrust, loadSettings, matchRule } = await import("../src/rules.ts");
+    const saved = { ...process.env };
+    delete process.env.AEGIS_TRUST_PROJECT;
+    process.env.AEGIS_HOME = await mkdtemp(path.join(os.tmpdir(), "aegis-wt-home-"));
+    try {
+      const cwd = await repo();
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(path.join(cwd, ".aegis"));
+      await writeFile(path.join(cwd, ".aegis", "settings.json"), JSON.stringify({ rules: { allow: ["shell npm test"] } }));
+      git(cwd, "add", ".aegis");
+      git(cwd, "commit", "-q", "-m", "settings");
+      setProjectTrust(cwd, loadSettingsWithTrust(cwd).trust.hash);
+      saveAllowRule(cwd, "write docs/*");
+      const opened = await openWorktree(cwd, "shared");
+      const inWorktree = loadSettingsWithTrust(opened.path);
+      expect(inWorktree.trust.trusted).toBe(true);
+      expect(matchRule(loadSettings(opened.path), "write", { path: "docs/a.md" }, opened.path)?.action).toBe("allow");
+      expect(inWorktree.settings.rules.allow).toContain("shell npm test");
+    } finally {
+      for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  });
+
+  it("started from inside a worktree, a new one goes next to the main checkout (no nesting)", async () => {
+    const cwd = await repo();
+    const a = await openWorktree(cwd, "a");
+    const b = await openWorktree(a.path, "b");
+    expect(path.dirname(b.path)).toBe(path.dirname(a.path));
+  });
+
+  it("refuses a folder that is not its worktree; recovers a worktree folder deleted by hand", async () => {
+    const cwd = await repo();
+    const { mkdir, rm } = await import("node:fs/promises");
+    const foreign = path.join(path.dirname(cwd), "app.worktrees", "foreign");
+    await mkdir(foreign, { recursive: true });
+    await writeFile(path.join(foreign, "x.txt"), "not a worktree");
+    await expect(openWorktree(cwd, "foreign")).rejects.toThrow("not a worktree of this repository");
+    const made = await openWorktree(cwd, "gone");
+    await rm(made.path, { recursive: true, force: true });
+    const again = await openWorktree(cwd, "gone");
+    expect(again.created).toBe(true);
+  });
+
+  it("clear messages: no commits yet; bad names; an empty --worktree= picks a name", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "aegis-wt-empty-"));
+    execFileSync("git", ["init", "-q", "-b", "main", base]);
+    await expect(openWorktree(base, "x")).rejects.toThrow("at least one commit");
+    const cwd = await repo();
+    for (const bad of ["a.lock", "a.", "CON", "nul.txt"]) await expect(openWorktree(cwd, bad), bad).rejects.toThrow("not a usable worktree name");
+    expect(parseArgs(["--worktree="]).worktree).toMatch(/^session-/);
+  });
+});

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { userAegisDir } from "./env.js";
+import { mainCheckoutOf, userAegisDir } from "./env.js";
 import { DEFAULT_THINKING, DEFAULT_THINKING_DISPLAY, THINKING_DISPLAYS, THINKING_LEVELS, } from "./thinking.js";
 export const JEV_MODES = ["off", "second-opinion", "every-call"];
 /**
@@ -75,7 +75,8 @@ export function isSecretFile(relative) {
 }
 /** One spelling per folder: the real path, lower-cased on Windows (C:\\Proj and c:\\proj are the same folder). */
 export function projectKey(cwd) {
-    let real = path.resolve(cwd);
+    // A linked worktree is the same project as its main checkout: same trust, same saved rules.
+    let real = path.resolve(mainCheckoutOf(cwd) ?? cwd);
     try {
         real = realpathSync.native(real);
     }

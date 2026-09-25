@@ -47,6 +47,12 @@ export function runPowerShell(command, cwd, timeoutMs, signal) {
         const killTree = () => {
             if (killed)
                 return;
+            // Already finished (only a helper holds the pipes): not a stop or a timeout, just close the pipes.
+            if (child.exitCode !== null || child.signalCode !== null) {
+                child.stdout.destroy();
+                child.stderr.destroy();
+                return;
+            }
             killed = true;
             // Only while it runs: after exit its pid may already belong to something else (Windows recycles them fast).
             if (pid && child.exitCode === null && child.signalCode === null)

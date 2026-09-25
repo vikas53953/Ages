@@ -123,6 +123,15 @@ setTimeout(() => process.exit(0), 300);
     } catch {
       // gone
     }
+    // A timeout that lands after a clean exit (only the helper holds the pipe) is still a success.
+    const late = await runPowerShell("anything", cwd, 600);
+    expect(late.stdout).toContain("done");
+    try {
+      const { pid } = JSON.parse(await (await import("node:fs/promises")).readFile(path.join(cwd, "holder.json"), "utf8")) as { pid: number };
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // gone
+    }
     const euro = await runPowerShell("euro", cwd, 10_000);
     expect(euro.stdout.length).toBe(100_000);
     expect(euro.stdout).not.toContain("\uFFFD");

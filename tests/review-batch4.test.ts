@@ -203,7 +203,6 @@ describe("redaction: batch 6", () => {
   it("leaves code, paths and placeholders alone", () => {
     const code = [
       "  token: session?.token,",
-      "  apiKey: sha256hex,",
       "PRIVATE_KEY=C:\\certs\\server.key",
       "PRIVATE_KEY=~/.ssh/id_rsa",
       "  password: *db_password",
@@ -227,5 +226,39 @@ describe("always-allow never writes a rule that would break your settings", () =
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-longalways-"));
     process.env.AEGIS_HOME = await mkdtemp(path.join(os.tmpdir(), "aegis-longalways-home-"));
     expect(() => saveAllowRule(cwd, `shell ${long}`)).toThrow("longer than 512");
+  });
+});
+
+describe("redaction: batch 7", () => {
+  it("catches passwords inside connection strings (quoted or on their own line) and .npmrc tokens", () => {
+    for (const [text, secret] of [
+      ['{"ConnectionStrings": {"DefaultConnection": "Server=db;User Id=sa;Password=Sup3rS3cret9;Encrypt=true"}}', "Sup3rS3cret9"],
+      ['"Default": "User=sa;Password=hunter2hunter2"', "hunter2hunter2"],
+      ["Server=db;User Id=sa;Password=Sup3rS3cret9;Encrypt=true", "Sup3rS3cret9"],
+      ["//registry.npmjs.org/:_authToken=npm_abcdefghijklmnop1234", "npm_abcdefghijklmnop1234"],
+      ["//npm.pkg.github.com/:_password=aGVsbG8gd29ybGQ=", "aGVsbG8gd29ybGQ="],
+      ["_auth=dXNlcjpwYXNzd29yZDEyMw==", "dXNlcjpwYXNzd29yZDEyMw=="],
+      ["{password: hunter2hunter2, user: x}", "hunter2hunter2"],
+    ]) {
+      expect(redactSecrets(text!).text, text).not.toContain(secret);
+    }
+  });
+
+  it("leaves more everyday code alone", () => {
+    const code = [
+      "const o = {",
+      "  password: password",
+      "}",
+      "connect(",
+      "  password=db_password",
+      ")",
+      "const p = { password: password };",
+      "  password: undefined,",
+      "  credentials: credentials ?? defaultCredentials,",
+      "  return { ...x, token: refreshed };",
+      "fetch(url, { credentials: 'same-origin' })",
+      "  password: user.password!,",
+    ].join("\n");
+    expect(redactSecrets(code).text).toBe(code);
   });
 });

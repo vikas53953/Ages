@@ -245,3 +245,16 @@
 - `aegis --worktree[=name]` (Claude Code's `--worktree`): a separate git worktree at `<repo>.worktrees/<name>` on branch `aegis/<name>`, reused when the name comes again. Aegis `chdir`s into it before anything else, so tools, rules, sessions and restore points all live there, and your checkout is untouched until you merge.
   - The checkout uses the hardened git from `/review`, with the repo's filter drivers blanked and hooks off, so a cloned repo's smudge filter or post-checkout hook cannot run. The test includes a control where plain `git worktree add` does run it. The trade-off is that Git LFS files stay pointers; `git lfs pull` fetches them.
   - Names are limited to letters, digits and `._-`, and cannot start with `-` or contain `..`.
+- Fixes from the review of the worktree, shell v2 and headless batch:
+  - P1 redaction misses in common Windows/.NET and npm files:
+    - Pairs are now walked one by one, and a non-secret match gives its value back, so the `Password=` inside a quoted connection string (appsettings.json) is found.
+    - Names may start with `_` (`.npmrc` `_authToken=`, `_password=`, `_auth=`).
+    - A `;` after an `=` pair counts as code only at the end of the line; a connection string continues with more pairs.
+  - P2 worktree:
+    - A linked worktree is the same project as its main checkout (`mainCheckoutOf` reads the `.git` file). Trust, your saved rules, plugins, Jev mode and the project `.env` are shared; before, every `--worktree` run started untrusted with no rules.
+    - Checkout gets 30 minutes instead of git's 30-second default here, and a failure removes the half-made folder and the new branch, then reports git's own message.
+  - P3:
+    - Worktree: a reused folder must be a worktree of this repository and reports its real branch; a hand-deleted folder is pruned; a worktree started from inside another goes next to the main checkout; "no commits" and bare repositories get clear messages; names ending in `.` / `.lock` and Windows-reserved names are refused; `--worktree=` picks a name; `--help` no longer creates one.
+    - Shell: a stop or timeout that lands after a clean exit, while only a helper holds the pipe, is a success.
+    - Headless: each denied call shows the lock's own reason (rule, hook, plan mode, guard, stop).
+    - Redaction in code: the same word (`password: password`), snake_case variables, keywords, `??`/`||` and `}` contexts, and fetch's `credentials: 'same-origin'` are left alone. `{password: hunter2hunter2, …}` is caught.

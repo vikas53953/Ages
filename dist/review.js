@@ -25,12 +25,12 @@ const SAFE_CONFIG = [
     "-c", "log.showSignature=false",
 ];
 const SAFE_DIFF = ["--no-ext-diff", "--no-textconv", "--no-color"];
-export async function git(cwd, args, extraConfig = []) {
+export async function git(cwd, args, extraConfig = [], timeoutMs = 30_000) {
     const { stdout } = await run(programPath("git"), ["--no-pager", ...SAFE_CONFIG, ...extraConfig, ...args], {
         cwd,
         windowsHide: true,
         maxBuffer: 20_000_000,
-        timeout: 30_000,
+        timeout: timeoutMs,
         env: {
             ...process.env,
             GIT_CONFIG_NOSYSTEM: "1",
