@@ -156,6 +156,8 @@ export function toolTarget(name, args) {
         return `"${String(args.query ?? "").slice(0, 120)}"`;
     if (name === "agent")
         return `${String(args.name ?? "")}: ${String(args.task ?? "").slice(0, 100)}`;
+    if (name === "remember")
+        return String(args.note ?? "").slice(0, 120);
     if (name === "explore")
         return String(args.task ?? "").slice(0, 120);
     return String(args.path ?? "");

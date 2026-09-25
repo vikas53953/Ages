@@ -388,3 +388,6 @@
   - An agent on a model that can see images gets the image from `read`, as the main loop does.
   - The agent that made a call is shown in the TUI tool line, in the receipt line and in `-p --json` (`agent`).
   - Agent and command files may be `.MD`.
+- `remember` tool (auto memory, like Claude Code's): the model asks to keep one line (under 300 characters) in `.harness/memory.md`, which goes into every later prompt.
+  - It is on the always-on ask floor (`remember *`), so no allow rule skips it and "always" is never offered. You see the exact note each time. In `-p` it is always a No.
+  - Notes that look like secrets are refused before the question. Agents and the explore helper do not get it.

@@ -90,6 +90,8 @@ export const SECRET_FILES = [
 export const FLOOR_ASK = [
   "write .aegis/*",
   "edit .aegis/*",
+  // A note the model wants kept goes into every later prompt: you see each one.
+  "remember *",
   // Aegis's own records: restore points keep copies of files you changed, secrets files included.
   "read .harness/*",
   ...SECRET_FILES.flatMap((file) => [`read ${file}`, `grep ${file}`]),
@@ -394,6 +396,7 @@ export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: st
   if (name === "websearch" || name === "explore") return String(args.query ?? args.task ?? "").trim();
   // "allow agent reviewer" names the agent; what it then does passes the lock call by call.
   if (name === "agent") return String(args.name ?? "").trim();
+  if (name === "remember") return String(args.note ?? "").trim();
   let raw = String(args.path ?? ".");
   if (cwd) {
     // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too. Real paths on
@@ -642,7 +645,7 @@ export function describeRules(cwd: string): RuleRow[] {
 
 /** Add a deny or ask rule to YOUR settings for this folder (only stricter: allow comes from answering "a"). */
 /** Tool names a rule can name (mcp__server__tool, with * for a whole server, too). */
-export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "websearch", "skill", "explore", "agent", "todo"];
+export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "websearch", "skill", "explore", "agent", "remember", "todo"];
 
 export function saveYourRule(cwd: string, action: "deny" | "ask", rule: string) {
   if (!rule.trim()) throw new Error("no rule given");
