@@ -33,6 +33,14 @@ export function capToolResults(messages, cap = TOOL_RESULT_CAP) {
                 if ((output.type === "text" || output.type === "error-text") && typeof output.value === "string") {
                     return { ...part, output: { ...output, value: capText(output.value, cap) } };
                 }
+                // An image the read tool showed the model is not kept: its note (the text part) is.
+                if (output.type === "content" && Array.isArray(output.value)) {
+                    const parts = output.value;
+                    if (parts.some((item) => item.type !== "text")) {
+                        const text = parts.filter((item) => item.type === "text").map((item) => String(item.text)).join("\n");
+                        return { ...part, output: { type: "text", value: capText(text, cap) } };
+                    }
+                }
                 if (output.type === "json") {
                     const text = JSON.stringify(output.value);
                     if (text.length > cap)

@@ -21,7 +21,7 @@ import { editPath } from "./tools/edit.ts";
 import { searchInWorker } from "./tools/search.ts";
 import { REDACTED_MARK } from "./redact.ts";
 import { runShell } from "./tools/shell.ts";
-import { modelSeesImages, type ImageAttachment } from "./images.ts";
+import { imageNote, isImagePath, loadImage, modelSeesImages, type ImageAttachment } from "./images.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
 import { inferEntry } from "./catalog.ts";
@@ -90,7 +90,11 @@ export function createTools(input: {
   skills?: SkillEntry[];
   /** Runs the read-only explore helper (absent in --local mode and inside the helper itself). */
   explore?: (task: string) => Promise<string>;
+  /** The model can see images: read of a .png/.jpg/.gif/.webp returns the image itself, not only a note. */
+  seesImages?: boolean;
 }) {
+  // Images the read tool loaded, by tool call: the model gets them in this turn; saved history gets the note.
+  const readImages = new Map<string, ImageAttachment>();
   const keep = async (filePath: string) => {
     if (!input.checkpoint) return;
     let absolute: string;
@@ -193,8 +197,27 @@ export function createTools(input: {
         offset: z.number().int().optional().describe("First line to read (1-based), for big files."),
         limit: z.number().int().optional().describe("How many lines to read (up to 2000)."),
       }),
-      execute: async ({ path: filePath, offset, limit }) =>
-        gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit })),
+      execute: async ({ path: filePath, offset, limit }, options) =>
+        isImagePath(filePath)
+          ? gate("read", { path: filePath }, async () => {
+              let image: ImageAttachment;
+              try {
+                image = await loadImage(filePath, input.cwd);
+              } catch (error) {
+                return error instanceof Error ? error.message : String(error);
+              }
+              if (!input.seesImages) return `${imageNote(image)} (this model cannot see images; only the note was sent)`;
+              readImages.set(options.toolCallId, image);
+              return imageNote(image);
+            })
+          : gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit })),
+      toModelOutput: ({ toolCallId, output }) => {
+        const image = readImages.get(toolCallId);
+        const text = typeof output === "string" ? output : JSON.stringify(output);
+        return image
+          ? { type: "content", value: [{ type: "text", text }, { type: "image-data", data: image.data, mediaType: image.mediaType }] }
+          : { type: "text", value: text };
+      },
     }),
     write: tool({
       description: "Write a new text file, or replace a whole file, inside the working folder.",
@@ -545,6 +568,7 @@ export async function runLoop(input: {
         };
   const tools = createTools({
     cwd: input.toolsCwd ?? input.cwd,
+    seesImages: generate !== localGenerate && modelSeesImages(route.model),
     jev: scorer,
     guards: toolGuards(plugins),
     settingsCwd: input.cwd,

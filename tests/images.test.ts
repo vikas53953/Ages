@@ -218,3 +218,65 @@ describe("images: review fixes (cf729bb)", () => {
     expect(findPastedImages(`"shots/env.png"`, cwd)).toEqual([]);
   });
 });
+
+describe("the read tool and images", () => {
+  function reading(file: string, prompts: string[]) {
+    let call = 0;
+    const stream = (chunks: unknown[]) => ({ stream: simulateReadableStream({ chunks: chunks as never[] }) });
+    return new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        call += 1;
+        if (call === 1) {
+          return stream([
+            { type: "stream-start", warnings: [] },
+            { type: "tool-call", toolCallId: "c1", toolName: "read", input: JSON.stringify({ path: file }) },
+            { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
+          ]);
+        }
+        return stream([
+          { type: "stream-start", warnings: [] },
+          { type: "text-start", id: "t" },
+          { type: "text-delta", id: "t", delta: "seen" },
+          { type: "text-end", id: "t" },
+          { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+        ]);
+      },
+    });
+  }
+
+  it("the model sees an image it reads, in that turn; the saved session keeps only the note", async () => {
+    const cwd = await project();
+    const state = await startState(cwd, { local: true, mockJev: true });
+    const prompts: string[] = [];
+    await handleLine("look at the screenshot", state, { mockJev: true, yes: false, local: true, generate: generateWith(reading("shots/err.png", prompts)) });
+    const data = PNG_1x1.toString("base64");
+    expect(prompts[1]).toContain(data);
+    expect(prompts[1]).toContain("image/png");
+    const saved = await readFile(path.join(sessionDir(cwd, state.session.id), "messages.jsonl"), "utf8");
+    expect(saved).toContain('[image: \\"shots/err.png\\"');
+    expect(saved).not.toContain(data);
+    // The next turn replays the note, not the image.
+    const later: string[] = [];
+    await handleLine("and now?", state, { mockJev: true, yes: false, local: true, generate: generateWith(answering(later)) });
+    expect(later[0]).toContain("shots/err.png");
+    expect(later[0]).not.toContain(data);
+  });
+
+  it("a model without vision, or a deny rule, gets no image from read", async () => {
+    const blind = await project({}, "deepseek-v4-pro");
+    const prompts: string[] = [];
+    await handleLine("look", await startState(blind, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true, generate: generateWith(reading("shots/err.png", prompts)),
+    });
+    expect(prompts[1]).not.toContain(PNG_1x1.toString("base64"));
+    expect(prompts[1]).toContain("cannot see images");
+    const denied = await project({ deny: ["read shots/*"] });
+    const more: string[] = [];
+    await handleLine("look", await startState(denied, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true, generate: generateWith(reading("shots/err.png", more)),
+    });
+    expect(more[1]).not.toContain(PNG_1x1.toString("base64"));
+    expect(more[1]).toContain("denied");
+  });
+});
