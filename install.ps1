@@ -26,8 +26,15 @@ Write-Host "Installing Aegis from $url ..." -ForegroundColor Cyan
 npm install -g $url
 if ($LASTEXITCODE -ne 0) { Fail "npm install failed (exit $LASTEXITCODE)." }
 
-$installed = aegis --version
-if ($LASTEXITCODE -ne 0) { Fail "installed, but 'aegis' is not on PATH. Open a new terminal and run: aegis --version" }
+if (-not (Get-Command aegis -ErrorAction SilentlyContinue)) {
+  Fail "installed, but 'aegis' is not on PATH yet. Open a new terminal and run: aegis --version"
+}
+$installed = aegis --version 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+  Write-Host $installed
+  Fail "'aegis' was installed from '$ref' but does not start (see the error above). To install the current build: `$env:AEGIS_REF = 'claude/quirky-ramanujan-6bpqc3'; irm https://raw.githubusercontent.com/$repo/main/install.ps1 | iex"
+}
+$installed = $installed.Trim()
 
 Write-Host ""
 Write-Host "  $installed installed." -ForegroundColor Green
