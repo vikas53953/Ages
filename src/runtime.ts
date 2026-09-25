@@ -25,6 +25,7 @@ import {
 import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
 import { loadSettingsSafe, saveThinking, settingsPath, thinkingOf } from "./rules.ts";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.ts";
+import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.ts";
 import type { AegisPlugin, CommandContext } from "./plugin-api.ts";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
 import { runPowerShell } from "./tools/fs.ts";
@@ -380,6 +381,13 @@ export async function handleLine(
         session: state.session,
       };
     }
+  }
+  if (cmd.type === "theme") {
+    if (!cmd.name) return { output: `theme  ${themeName()}   (${THEME_NAMES.join(" · ")})`, session: state.session };
+    const name = parseTheme(cmd.name);
+    if (!name) return { output: `usage: /theme ${THEME_NAMES.join("|")}`, session: state.session };
+    saveUserTheme(name);
+    return { output: `theme ${name}`, session: state.session };
   }
   if (cmd.type === "think") {
     const loaded = loadSettingsSafe(state.cwd);

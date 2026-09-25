@@ -118,7 +118,7 @@ describe("TUI app", () => {
   it("queues confirms, shows the action, and defaults Enter to No", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-ask-"));
     const terminal = new MemoryTerminal();
-    const answers: boolean[] = [];
+    const answers: Array<boolean | "always"> = [];
     const app = await createTuiApp(
       { mockJev: true, yes: false, local: true },
       {
@@ -248,7 +248,7 @@ describe("TUI app", () => {
 
 describe("ConfirmBox", () => {
   it("ignores pasted blobs and treats Enter as No", () => {
-    const seen: boolean[] = [];
+    const seen: Array<boolean | "always"> = [];
     const box = new ConfirmBox("Aegis: write\n  path: x", (ok) => seen.push(ok));
     box.handleInput("\x1b[200~y\ny\x1b[201~");
     expect(seen).toEqual([]);

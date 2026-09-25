@@ -5,31 +5,31 @@ import { handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js"
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.js";
 import { formatTokenLine } from "./receipt.js";
 import { ModelPicker } from "./tui-model-picker.js";
+import { loadUserTheme, paint } from "./theme.js";
 import { shortPath, welcomeLines } from "./welcome.js";
 import { redactLogin } from "./login.js";
 import { loadMessages, messageText } from "./session.js";
 import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
 import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
-const dim = (text) => `\x1b[2m${text}\x1b[0m`;
-const sgr = (code) => (text) => `\x1b[${code}m${text}\x1b[0m`;
-/** How the model's Markdown answers look: Aegis teal for headings, links and code. */
-const markdownTheme = {
-    heading: sgr("1;36"),
-    link: sgr("4;36"),
-    linkUrl: dim,
-    code: sgr("36"),
+const dim = (text) => paint("dim", text);
+/** How the model's Markdown answers look, in the current theme's colours. */
+const markdownTheme = () => ({
+    heading: (text) => paint("strong", text),
+    link: (text) => `\x1b[4m${paint("accent", text)}`,
+    linkUrl: (text) => paint("dim", text),
+    code: (text) => paint("accent", text),
     codeBlock: (text) => text,
-    codeBlockBorder: dim,
-    quote: sgr("3"),
-    quoteBorder: dim,
-    hr: dim,
-    listBullet: sgr("36"),
-    bold: sgr("1"),
-    italic: sgr("3"),
-    strikethrough: sgr("9"),
-    underline: sgr("4"),
-};
+    codeBlockBorder: (text) => paint("dim", text),
+    quote: (text) => paint("italic", text),
+    quoteBorder: (text) => paint("dim", text),
+    hr: (text) => paint("dim", text),
+    listBullet: (text) => paint("accent", text),
+    bold: (text) => `\x1b[1m${text}\x1b[22m`,
+    italic: (text) => `\x1b[3m${text}\x1b[23m`,
+    strikethrough: (text) => `\x1b[9m${text}\x1b[29m`,
+    underline: (text) => `\x1b[4m${text}\x1b[24m`,
+});
 const editorTheme = {
     borderColor: dim,
     selectList: {
@@ -52,6 +52,7 @@ class OneLine {
 }
 export async function createTuiApp(opts, input = {}) {
     const cwd = input.cwd ?? process.cwd();
+    loadUserTheme();
     const terminal = input.terminal ?? new ProcessTerminal();
     const runLine = input.handleLine ?? handleLine;
     const state = await startState(cwd, opts);
@@ -134,10 +135,10 @@ export async function createTuiApp(opts, input = {}) {
         if (busy) {
             const seconds = Math.max(0, Math.floor((Date.now() - turnStarted) / 1000));
             const frame = SPINNER[spin++ % SPINNER.length];
-            status.setText(`\x1b[36m${frame}\x1b[0m ${phase}… \x1b[2m${seconds}s · esc to stop\x1b[0m`);
+            status.setText(`${paint("accent", frame ?? "")} ${phase}… ${paint("dim", `${seconds}s · esc to stop`)}`);
         }
         else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
-            status.setText("\x1b[2mPress ctrl+c again to exit\x1b[0m");
+            status.setText(paint("dim", "Press ctrl+c again to exit"));
         }
         else {
             status.setText("");
@@ -174,7 +175,7 @@ export async function createTuiApp(opts, input = {}) {
             else if (item.role === "tool")
                 lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
             else if (item.role === "assistant")
-                lines.push(...new Markdown(item.text, 2, 0, markdownTheme).render(width));
+                lines.push(...new Markdown(item.text, 2, 0, markdownTheme()).render(width));
             else
                 lines.push(...renderSystemMessage(item.text, width));
             lines.push("");
@@ -204,7 +205,7 @@ export async function createTuiApp(opts, input = {}) {
         }
         paintTranscript();
     };
-    const confirm = serializeConfirm((question) => new Promise((resolve) => {
+    const confirm = serializeConfirm((question, options) => new Promise((resolve) => {
         lastConfirm = question;
         overlay?.hide();
         let settled = false;
@@ -224,7 +225,7 @@ export async function createTuiApp(opts, input = {}) {
         };
         pendingConfirms.push(finish);
         editor.disableSubmit = true;
-        overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows), {
+        overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows, options?.always), {
             anchor: "bottom-center",
             width: "96%",
             maxHeight: "80%",
@@ -333,7 +334,9 @@ export async function createTuiApp(opts, input = {}) {
             const item = [...log].reverse().find((row) => row.role === "tool" && row.status === "pending" && row.key === key);
             const decidedBy = record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`;
             const detail = record.approved
-                ? `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
+                ? record.savedRule
+                    ? `you: always allow · saved rule ${record.savedRule}`
+                    : `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
                 : `denied · ${record.deniedReason ?? "no reason"}`;
             if (item) {
                 item.status = record.approved ? "ran" : "denied";
@@ -420,6 +423,8 @@ export async function createTuiApp(opts, input = {}) {
             await applyChat(result);
             if (text.startsWith("/")) {
                 refreshThinking();
+                if (text.startsWith("/theme"))
+                    paintTranscript();
                 await refreshWelcome();
             }
             // The same notice (no key, local chat) is shown once, not after every turn.

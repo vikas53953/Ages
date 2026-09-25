@@ -66,7 +66,18 @@ export type JevClient = {
   evaluateTool(state: ToolState, abortSignal?: AbortSignal): Promise<ToolDecision>;
 };
 
-export type ConfirmFn = (question: string) => Promise<boolean>;
+/** What a y/N prompt can offer beyond yes and no. */
+export type ConfirmOptions = {
+  /** An allow rule that "always" would save, e.g. "edit scripts/*". Absent: only yes / no. */
+  always?: string;
+  /** Structured facts for a richer card (the Studio face): tool, target, why. */
+  tool?: string;
+  target?: string;
+  why?: string;
+};
+/** true = yes this once, false = no, "always" = yes and save the offered allow rule. */
+export type ConfirmAnswer = boolean | "always";
+export type ConfirmFn = (question: string, options?: ConfirmOptions) => Promise<ConfirmAnswer>;
 
 export type JevHealth = "mock" | "live" | "down" | "blocked" | "off";
 export type TaskPermission = "untracked" | "proposed" | "confirmed" | "invalid";
@@ -97,6 +108,8 @@ export type ToolRecord = {
   target?: string;
   source?: ToolSource;
   rule?: string;
+  /** The allow rule you saved with "always" on this call's prompt. */
+  savedRule?: string;
 };
 
 export type Receipt = {

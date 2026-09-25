@@ -36,6 +36,8 @@ export function parseLine(line) {
             return { type: "clear" };
         case "status":
             return { type: "status" };
+        case "theme":
+            return { type: "theme", name: arg || undefined };
         case "think":
         case "thinking":
             return { type: "think", arg: arg || undefined };
@@ -73,6 +75,7 @@ export const HELP = [
     "  /think off|low|medium|high  how hard the model thinks (saved per project)",
     "  /think fold|show|hide       reasoning folded (ctrl+t opens), shown live, or hidden",
     "  /status            provider, session, cwd, task",
+    "  /theme aegis|light|contrast  colours (saved for you, every folder)",
     "  /login             show keys; /login opencode <key> saves one for every folder",
     "  /logout <name>     remove a saved key",
     "  /exit              quit",

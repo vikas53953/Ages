@@ -6,6 +6,7 @@ import {
   type Focusable,
 } from "@earendil-works/pi-tui";
 import { wrapLine } from "./tui-layout.ts";
+import type { ConfirmAnswer } from "./types.ts";
 
 export class ConfirmBox implements Component, Focusable {
   focused = false;
@@ -13,8 +14,10 @@ export class ConfirmBox implements Component, Focusable {
 
   constructor(
     private readonly question: string,
-    private readonly onAnswer: (ok: boolean) => void,
+    private readonly onAnswer: (ok: ConfirmAnswer) => void,
     private readonly rows = 24,
+    /** The allow rule "a" would save; without it only y / N are offered. */
+    private readonly always?: string,
   ) {}
 
   handleInput(data: string) {
@@ -50,6 +53,10 @@ export class ConfirmBox implements Component, Focusable {
       this.onAnswer(true);
       return;
     }
+    if (this.always && /^a$/i.test(data)) {
+      this.onAnswer("always");
+      return;
+    }
     if (data.includes("\x1b[200~") || data.includes("\n") || data.length > 1) return;
   }
 
@@ -67,7 +74,10 @@ export class ConfirmBox implements Component, Focusable {
       wrapped.length > view
         ? `  lines ${this.offset + 1}-${this.offset + slice.length} of ${wrapped.length}`
         : "";
-    return [...slice, ` ${marker}[y/N]  Enter = No${more}`];
+    const keys = this.always
+      ? `[y] yes  [a] always allow: ${this.always}  [N] no  Enter = No`
+      : "[y/N]  Enter = No";
+    return [...slice, ` ${marker}${keys}${more}`];
   }
 
   private viewport() {

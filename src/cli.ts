@@ -7,8 +7,9 @@ import { loadEnv } from "./env.ts";
 import { queuedLines } from "./repl.ts";
 import { handleLine, startState, welcomeInfo, type RunOpts } from "./runtime.ts";
 import { welcomeLines } from "./welcome.ts";
+import { loadUserTheme } from "./theme.ts";
 import { runTui } from "./tui.ts";
-import type { ConfirmFn } from "./types.ts";
+import type { ConfirmAnswer, ConfirmFn } from "./types.ts";
 
 export function parseArgs(argv: string[]) {
   const flags = new Set<string>();
@@ -67,16 +68,16 @@ export function createConfirm(input: {
   yes?: boolean;
   answers?: string[];
 }): ConfirmFn {
-  return async (question) => {
+  const read = (answer: string, always?: string): ConfirmAnswer =>
+    always && /^a(lways)?$/i.test(answer.trim()) ? "always" : /^y(es)?$/i.test(answer.trim());
+  return async (question, options) => {
     if (input.yes) return true;
-    if (input.answers) {
-      const next = input.answers.shift() ?? "n";
-      return /^y(es)?$/i.test(next.trim());
-    }
+    if (input.answers) return read(input.answers.shift() ?? "n", options?.always);
     const rl = createInterface({ input: stdin, output: stdout });
     try {
-      const answer = await rl.question(question);
-      return /^y(es)?$/i.test(answer.trim());
+      const hint = options?.always ? `(a = always allow: ${options.always}) ` : "";
+      const answer = await rl.question(`${question}${hint}`);
+      return read(answer, options?.always);
     } finally {
       rl.close();
     }
@@ -86,6 +87,7 @@ export function createConfirm(input: {
 async function repl(opts: RunOpts) {
   const cwd = process.cwd();
   const state = await startState(cwd, opts);
+  loadUserTheme();
   const color = Boolean(stdout.isTTY) && !process.env.NO_COLOR;
   console.log(welcomeLines(await welcomeInfo(state), stdout.columns || 100, color).join("\n"));
   const rl = createInterface({ input: stdin, output: stdout, prompt: "aegis> " });

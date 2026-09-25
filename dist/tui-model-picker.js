@@ -1,7 +1,6 @@
+import { on } from "./theme.js";
 import { CURSOR_MARKER, Key, matchesKey } from "@earendil-works/pi-tui";
-const ACCENT = "\x1b[36m";
 const BOLD = "\x1b[1m";
-const DIM = "\x1b[2m";
 const INVERT = "\x1b[7m";
 const RESET = "\x1b[0m";
 /**
@@ -101,8 +100,8 @@ export class ModelPicker {
         const view = this.viewport();
         const start = Math.min(Math.max(0, this.index - Math.floor(view / 2)), Math.max(0, list.length - view));
         const lines = [
-            ` ${BOLD}Pick a model${RESET}  ${DIM}current ${this.current || "auto"}${RESET}`,
-            ` ${ACCENT}›${RESET} ${this.query}${this.focused ? CURSOR_MARKER : ""}${this.query ? "" : `${DIM}type to filter${RESET}`}`,
+            ` ${BOLD}Pick a model${RESET}  ${on("dim")}current ${this.current || "auto"}${RESET}`,
+            ` ${on("accent")}›${RESET} ${this.query}${this.focused ? CURSOR_MARKER : ""}${this.query ? "" : `${on("dim")}type to filter${RESET}`}`,
             "",
         ];
         let group = "";
@@ -111,15 +110,15 @@ export class ModelPicker {
             const item = list[i];
             if (item.group !== group) {
                 group = item.group;
-                lines.push(` ${DIM}${group.toUpperCase()}${RESET}`);
+                lines.push(` ${on("dim")}${group.toUpperCase()}${RESET}`);
             }
             const mark = item.id === this.current ? "●" : " ";
             const label = `${mark} ${item.id.padEnd(idWidth)}  ${item.note}`.slice(0, cols - 4);
-            lines.push(i === this.index ? ` ${INVERT}${label}${RESET}` : ` ${label.replace(item.note, `${DIM}${item.note}${RESET}`)}`);
+            lines.push(i === this.index ? ` ${INVERT}${label}${RESET}` : ` ${label.replace(item.note, `${on("dim")}${item.note}${RESET}`)}`);
         }
         if (!list.length)
-            lines.push(` ${DIM}No model matches "${this.query}"${RESET}`);
-        lines.push("", ` ${DIM}↑↓ move · enter pick · esc close · ${list.length} of ${this.items.length}${RESET}`);
+            lines.push(` ${on("dim")}No model matches "${this.query}"${RESET}`);
+        lines.push("", ` ${on("dim")}↑↓ move · enter pick · esc close · ${list.length} of ${this.items.length}${RESET}`);
         return lines;
     }
 }

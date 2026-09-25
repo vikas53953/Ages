@@ -4,12 +4,16 @@ export class ConfirmBox {
     question;
     onAnswer;
     rows;
+    always;
     focused = false;
     offset = 0;
-    constructor(question, onAnswer, rows = 24) {
+    constructor(question, onAnswer, rows = 24, 
+    /** The allow rule "a" would save; without it only y / N are offered. */
+    always) {
         this.question = question;
         this.onAnswer = onAnswer;
         this.rows = rows;
+        this.always = always;
     }
     handleInput(data) {
         if (matchesKey(data, Key.up)) {
@@ -44,6 +48,10 @@ export class ConfirmBox {
             this.onAnswer(true);
             return;
         }
+        if (this.always && /^a$/i.test(data)) {
+            this.onAnswer("always");
+            return;
+        }
         if (data.includes("\x1b[200~") || data.includes("\n") || data.length > 1)
             return;
     }
@@ -59,7 +67,10 @@ export class ConfirmBox {
         const more = wrapped.length > view
             ? `  lines ${this.offset + 1}-${this.offset + slice.length} of ${wrapped.length}`
             : "";
-        return [...slice, ` ${marker}[y/N]  Enter = No${more}`];
+        const keys = this.always
+            ? `[y] yes  [a] always allow: ${this.always}  [N] no  Enter = No`
+            : "[y/N]  Enter = No";
+        return [...slice, ` ${marker}${keys}${more}`];
     }
     viewport() {
         return Math.max(8, Math.min(this.rows - 6, Math.floor(this.rows * 0.7)));

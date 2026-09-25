@@ -1,6 +1,6 @@
 import { decideToolAction, stricter } from "./policy.js";
 import { raceAbort, waitForAbort } from "./abort.js";
-import { isMutation, loadSettingsSafe, matchRule } from "./rules.js";
+import { isMutation, loadSettingsSafe, matchRule, saveAllowRule, suggestAllowRule } from "./rules.js";
 import { isGitRepo } from "./tools/fs.js";
 const DISPLAY_LIMIT = 80_000;
 function clipDisplay(text) {
@@ -177,13 +177,22 @@ export async function runGatedTool(input) {
     };
     if (action === "confirm") {
         input.onEvent?.({ type: "awaiting_approval", name: input.name, target });
+        const always = loaded.error ? undefined : suggestAllowRule(input.name, input.args, rule);
         const prompt = formatConfirm(input.name, input.args, decision, why);
         const raced = await Promise.race([
-            input.confirm(prompt).then((ok) => ({ kind: "answer", ok })),
+            input
+                .confirm(prompt, { always, tool: input.name, target, why })
+                .then((ok) => ({ kind: "answer", ok })),
             waitForAbort(input.abortSignal).then(() => ({ kind: "abort" })),
         ]);
         if (raced.kind === "abort" || input.abortSignal?.aborted) {
             return cancelled(decision, input.name);
+        }
+        if (raced.ok === "always" && always) {
+            // Save it so the lock learns: next time this call is allowed by your rule, without asking.
+            saveAllowRule(input.settingsCwd ?? input.cwd, always);
+            settings.rules.allow = [...settings.rules.allow, always];
+            record.savedRule = always;
         }
         if (!raced.ok) {
             record.deniedReason = "user declined";

@@ -186,3 +186,38 @@ export function matchRule(settings, name, args) {
 export function isMutation(name) {
     return name === "write" || name === "edit" || name === "shell";
 }
+/**
+ * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.
+ * Offered only for grey-zone calls (no rule matched): an ask rule (Remove-Item, git push…) keeps asking.
+ * write/edit → that folder ("edit scripts/*"), or the exact file at the top level. shell → that exact
+ * command, never a chained or redirected one. Never for .git, .harness or .aegis.
+ */
+export function suggestAllowRule(name, args, matched) {
+    if (matched)
+        return undefined;
+    if (name === "shell") {
+        const command = ruleTarget(name, args);
+        if (!command || CHAIN.test(command) || command.includes("*"))
+            return undefined;
+        return `shell ${command}`;
+    }
+    if (name === "write" || name === "edit") {
+        const target = ruleTarget(name, args);
+        if (!target || target.includes("*") || /^(\.git|\.harness|\.aegis)(\/|$)/i.test(target))
+            return undefined;
+        const dir = path.posix.dirname(target);
+        return dir === "." ? `${name} ${target}` : `${name} ${dir}/*`;
+    }
+    return undefined;
+}
+/** Add an allow rule to .aegis/settings.json (keeping the default allow list when the file had none). */
+export function saveAllowRule(cwd, rule) {
+    const raw = readRaw(cwd) ?? {};
+    const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
+    const allow = Array.isArray(rules.allow) ? rules.allow : [...DEFAULT_SETTINGS.rules.allow];
+    if (!allow.includes(rule))
+        allow.push(rule);
+    raw.rules = { ...rules, allow };
+    mkdirSync(path.dirname(settingsPath(cwd)), { recursive: true });
+    writeFileSync(settingsPath(cwd), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+}

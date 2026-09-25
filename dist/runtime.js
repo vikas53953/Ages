@@ -13,6 +13,7 @@ import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } fro
 import { createSession, listSessions, loadMessages, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { loadSettingsSafe, saveThinking, settingsPath, thinkingOf } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
+import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.js";
 import { runPowerShell } from "./tools/fs.js";
 import { LOGIN_KEYS, loginStatus, maskKey, writeUserKey } from "./login.js";
@@ -314,6 +315,15 @@ export async function handleLine(line, state, opts, confirm = async () => false,
                 session: state.session,
             };
         }
+    }
+    if (cmd.type === "theme") {
+        if (!cmd.name)
+            return { output: `theme  ${themeName()}   (${THEME_NAMES.join(" · ")})`, session: state.session };
+        const name = parseTheme(cmd.name);
+        if (!name)
+            return { output: `usage: /theme ${THEME_NAMES.join("|")}`, session: state.session };
+        saveUserTheme(name);
+        return { output: `theme ${name}`, session: state.session };
     }
     if (cmd.type === "think") {
         const loaded = loadSettingsSafe(state.cwd);

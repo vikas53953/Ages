@@ -1,7 +1,7 @@
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
 import type { ToolGuard } from "./plugin-api.ts";
-import { isMutation, loadSettingsSafe, matchRule, type RuleMatch, type Settings } from "./rules.ts";
+import { isMutation, loadSettingsSafe, matchRule, saveAllowRule, suggestAllowRule, type RuleMatch, type Settings } from "./rules.ts";
 import type {
   ConfirmFn,
   GateConfig,
@@ -154,6 +154,8 @@ export async function runGatedTool(input: {
   settings?: Settings;
   /** Plugin checks that run before the rules (delivery agreement). */
   guards?: ToolGuard[];
+  /** Folder whose .aegis/settings.json receives "always allow" rules (the project, even when tools run elsewhere). */
+  settingsCwd?: string;
 }): Promise<GatedRun> {
   const target = toolTarget(input.name, input.args);
   if (input.stop?.reason) {
@@ -237,13 +239,22 @@ export async function runGatedTool(input: {
 
   if (action === "confirm") {
     input.onEvent?.({ type: "awaiting_approval", name: input.name, target });
+    const always = loaded.error ? undefined : suggestAllowRule(input.name, input.args, rule);
     const prompt = formatConfirm(input.name, input.args, decision, why);
     const raced = await Promise.race([
-      input.confirm(prompt).then((ok) => ({ kind: "answer" as const, ok })),
+      input
+        .confirm(prompt, { always, tool: input.name, target, why })
+        .then((ok) => ({ kind: "answer" as const, ok })),
       waitForAbort(input.abortSignal).then(() => ({ kind: "abort" as const })),
     ]);
     if (raced.kind === "abort" || input.abortSignal?.aborted) {
       return cancelled(decision, input.name);
+    }
+    if (raced.ok === "always" && always) {
+      // Save it so the lock learns: next time this call is allowed by your rule, without asking.
+      saveAllowRule(input.settingsCwd ?? input.cwd, always);
+      settings.rules.allow = [...settings.rules.allow, always];
+      record.savedRule = always;
     }
     if (!raced.ok) {
       record.deniedReason = "user declined";

@@ -21,6 +21,7 @@ import { handleLine, modelChoices, startState, welcomeInfo, type HandleResult, t
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.ts";
 import { formatTokenLine } from "./receipt.ts";
 import { ModelPicker } from "./tui-model-picker.ts";
+import { loadUserTheme, paint } from "./theme.ts";
 import { shortPath, welcomeLines, type WelcomeInfo } from "./welcome.ts";
 import { redactLogin } from "./login.ts";
 import { loadMessages, messageText } from "./session.ts";
@@ -36,28 +37,27 @@ import {
   turnStatusLines,
   type ToolStatus,
 } from "./tui-layout.ts";
-import type { ConfirmFn } from "./types.ts";
+import type { ConfirmAnswer, ConfirmFn } from "./types.ts";
 import type { TurnEvent } from "./loop.ts";
 
-const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
-const sgr = (code: string) => (text: string) => `\x1b[${code}m${text}\x1b[0m`;
-/** How the model's Markdown answers look: Aegis teal for headings, links and code. */
-const markdownTheme = {
-  heading: sgr("1;36"),
-  link: sgr("4;36"),
-  linkUrl: dim,
-  code: sgr("36"),
+const dim = (text: string) => paint("dim", text);
+/** How the model's Markdown answers look, in the current theme's colours. */
+const markdownTheme = () => ({
+  heading: (text: string) => paint("strong", text),
+  link: (text: string) => `\x1b[4m${paint("accent", text)}`,
+  linkUrl: (text: string) => paint("dim", text),
+  code: (text: string) => paint("accent", text),
   codeBlock: (text: string) => text,
-  codeBlockBorder: dim,
-  quote: sgr("3"),
-  quoteBorder: dim,
-  hr: dim,
-  listBullet: sgr("36"),
-  bold: sgr("1"),
-  italic: sgr("3"),
-  strikethrough: sgr("9"),
-  underline: sgr("4"),
-};
+  codeBlockBorder: (text: string) => paint("dim", text),
+  quote: (text: string) => paint("italic", text),
+  quoteBorder: (text: string) => paint("dim", text),
+  hr: (text: string) => paint("dim", text),
+  listBullet: (text: string) => paint("accent", text),
+  bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+  italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
+  strikethrough: (text: string) => `\x1b[9m${text}\x1b[29m`,
+  underline: (text: string) => `\x1b[4m${text}\x1b[24m`,
+});
 const editorTheme = {
   borderColor: dim,
   selectList: {
@@ -103,6 +103,7 @@ export async function createTuiApp(
   } = {},
 ): Promise<TuiApp> {
   const cwd = input.cwd ?? process.cwd();
+  loadUserTheme();
   const terminal = input.terminal ?? new ProcessTerminal();
   const runLine = input.handleLine ?? handleLine;
   const state = await startState(cwd, opts);
@@ -191,7 +192,7 @@ export async function createTuiApp(
   let streamAt: number | undefined;
   let turnAbort = new AbortController();
   let overlay: { hide: () => void } | undefined;
-  const pendingConfirms: Array<(ok: boolean) => void> = [];
+  const pendingConfirms: Array<(ok: ConfirmAnswer) => void> = [];
   let closed: () => void = () => {};
   const finished = new Promise<void>((resolve) => {
     closed = resolve;
@@ -204,9 +205,9 @@ export async function createTuiApp(
     if (busy) {
       const seconds = Math.max(0, Math.floor((Date.now() - turnStarted) / 1000));
       const frame = SPINNER[spin++ % SPINNER.length];
-      status.setText(`\x1b[36m${frame}\x1b[0m ${phase}… \x1b[2m${seconds}s · esc to stop\x1b[0m`);
+      status.setText(`${paint("accent", frame ?? "")} ${phase}… ${paint("dim", `${seconds}s · esc to stop`)}`);
     } else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
-      status.setText("\x1b[2mPress ctrl+c again to exit\x1b[0m");
+      status.setText(paint("dim", "Press ctrl+c again to exit"));
     } else {
       status.setText("");
     }
@@ -245,7 +246,7 @@ export async function createTuiApp(
         if (!shown.length) continue;
         lines.push(...shown);
       } else if (item.role === "tool") lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
-      else if (item.role === "assistant") lines.push(...new Markdown(item.text, 2, 0, markdownTheme).render(width));
+      else if (item.role === "assistant") lines.push(...new Markdown(item.text, 2, 0, markdownTheme()).render(width));
       else lines.push(...renderSystemMessage(item.text, width));
       lines.push("");
     }
@@ -276,12 +277,12 @@ export async function createTuiApp(
   };
 
   const confirm: ConfirmFn = serializeConfirm(
-    (question) =>
-      new Promise<boolean>((resolve) => {
+    (question, options) =>
+      new Promise<ConfirmAnswer>((resolve) => {
         lastConfirm = question;
         overlay?.hide();
         let settled = false;
-        const finish = (ok: boolean) => {
+        const finish = (ok: ConfirmAnswer) => {
           if (settled) return;
           settled = true;
           const at = pendingConfirms.indexOf(finish);
@@ -295,7 +296,7 @@ export async function createTuiApp(
         };
         pendingConfirms.push(finish);
         editor.disableSubmit = true;
-        overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows), {
+        overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows, options?.always), {
           anchor: "bottom-center",
           width: "96%",
           maxHeight: "80%",
@@ -409,7 +410,9 @@ export async function createTuiApp(
       const item = [...log].reverse().find((row) => row.role === "tool" && row.status === "pending" && row.key === key);
       const decidedBy = record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`;
       const detail = record.approved
-        ? `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
+        ? record.savedRule
+          ? `you: always allow · saved rule ${record.savedRule}`
+          : `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
         : `denied · ${record.deniedReason ?? "no reason"}`;
       if (item) {
         item.status = record.approved ? "ran" : "denied";
@@ -497,6 +500,7 @@ export async function createTuiApp(
       await applyChat(result);
       if (text.startsWith("/")) {
         refreshThinking();
+        if (text.startsWith("/theme")) paintTranscript();
         await refreshWelcome();
       }
       // The same notice (no key, local chat) is shown once, not after every turn.

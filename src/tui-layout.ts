@@ -1,8 +1,7 @@
 import { formatTokenLine } from "./receipt.ts";
+import { on, paint } from "./theme.ts";
 import type { JevHealth } from "./types.ts";
 
-export const ACCENT = "\x1b[36m";
-export const MUTED = "\x1b[2m";
 export const RESET = "\x1b[0m";
 
 export function stripAnsi(text: string) {
@@ -48,26 +47,23 @@ export function welcomeBanner(input: {
 
 export function renderUserMessage(text: string, cols: number): string[] {
   const wrapAt = Math.max(8, cols - 3);
-  return wrapLine(text, wrapAt).map((line, index) => (index === 0 ? `${ACCENT}›${RESET} ${line}` : `  ${line}`));
+  return wrapLine(text, wrapAt).map((line, index) => (index === 0 ? `${on("accent")}›${RESET} ${line}` : `  ${line}`));
 }
 
 export type ToolStatus = "pending" | "ran" | "denied";
 
-const DOT: Record<ToolStatus, string> = {
-  pending: "\x1b[33m●\x1b[0m",
-  ran: "\x1b[32m●\x1b[0m",
-  denied: "\x1b[31m●\x1b[0m",
-};
+const DOT_ROLE: Record<ToolStatus, "warn" | "ok" | "err"> = { pending: "warn", ran: "ok", denied: "err" };
+const dot = (status: ToolStatus) => paint(DOT_ROLE[status], "●");
 
 /** "● read README.md   rule read *" — one line per tool call, dot coloured by what happened. */
 export function renderToolLine(item: { text: string; status: ToolStatus; detail?: string }, cols: number): string[] {
-  const head = `${DOT[item.status]} ${item.text}`;
-  const detail = item.detail ? `${MUTED}${item.detail}${RESET}` : "";
+  const head = `${dot(item.status)} ${item.text}`;
+  const detail = item.detail ? `${on("dim")}${item.detail}${RESET}` : "";
   const lines = wrapLine(item.text, Math.max(8, cols - 4)).map((line, index) =>
-    index === 0 ? `${DOT[item.status]} ${line}` : `  ${line}`,
+    index === 0 ? `${dot(item.status)} ${line}` : `  ${line}`,
   );
   if (!detail) return lines.length ? lines : [head];
-  return [...lines, ...wrapLine(item.detail!, Math.max(8, cols - 6)).map((line) => `  ${MUTED}└ ${line}${RESET}`)];
+  return [...lines, ...wrapLine(item.detail!, Math.max(8, cols - 6)).map((line) => `  ${on("dim")}└ ${line}${RESET}`)];
 }
 
 export function renderAssistantMessage(text: string, cols: number): string[] {
@@ -75,7 +71,7 @@ export function renderAssistantMessage(text: string, cols: number): string[] {
 }
 
 export function renderSystemMessage(text: string, cols: number): string[] {
-  return wrapLine(text, Math.max(1, cols - 3)).map((line) => `${MUTED}  ${line}${RESET}`);
+  return wrapLine(text, Math.max(1, cols - 3)).map((line) => `${on("dim")}  ${line}${RESET}`);
 }
 
 export function jevStatus(mockJev: boolean, hasKey: boolean, healthy?: boolean): "mock" | "live" | "down" | "blocked" {
@@ -159,7 +155,7 @@ export function renderThinking(
   if (display === "hide") return [];
   const seconds = Math.max(1, Math.round(((item.endedAt ?? Date.now()) - item.startedAt) / 1000));
   const head = item.endedAt ? `Thought for ${seconds}s` : `Thinking… ${seconds}s`;
-  if (display === "fold") return [`${MUTED}▸ ${head} · ctrl+t to open${RESET}`];
-  const body = wrapLine(item.text.trim(), Math.max(8, cols - 4)).map((line) => `${MUTED}\x1b[3m  ${line}${RESET}`);
-  return [`${MUTED}▾ ${head} · ctrl+t to fold${RESET}`, ...body];
+  if (display === "fold") return [`${on("dim")}▸ ${head} · ctrl+t to open${RESET}`];
+  const body = wrapLine(item.text.trim(), Math.max(8, cols - 4)).map((line) => `${on("dim")}${on("italic")}  ${line}${RESET}`);
+  return [`${on("dim")}▾ ${head} · ctrl+t to fold${RESET}`, ...body];
 }

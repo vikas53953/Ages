@@ -13,6 +13,7 @@ export type Slash =
   | { type: "models" }
   | { type: "model"; id?: string }
   | { type: "think"; arg?: string }
+  | { type: "theme"; name?: string }
   | { type: "login"; provider?: string; key?: string }
   | { type: "logout"; provider?: string }
   | { type: "unknown"; name: string }
@@ -55,6 +56,8 @@ export function parseLine(line: string): Slash {
       return { type: "clear" };
     case "status":
       return { type: "status" };
+    case "theme":
+      return { type: "theme", name: arg || undefined };
     case "think":
     case "thinking":
       return { type: "think", arg: arg || undefined };
@@ -93,6 +96,7 @@ export const HELP = [
   "  /think off|low|medium|high  how hard the model thinks (saved per project)",
   "  /think fold|show|hide       reasoning folded (ctrl+t opens), shown live, or hidden",
   "  /status            provider, session, cwd, task",
+  "  /theme aegis|light|contrast  colours (saved for you, every folder)",
   "  /login             show keys; /login opencode <key> saves one for every folder",
   "  /logout <name>     remove a saved key",
   "  /exit              quit",

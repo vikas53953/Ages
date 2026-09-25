@@ -38,6 +38,7 @@ export function createTools(input) {
             onEvent: input.onEvent,
             settings: input.settings,
             guards: input.guards,
+            settingsCwd: input.settingsCwd,
         }).then((result) => {
             input.onTool(result.record);
             return result.output;
@@ -240,6 +241,7 @@ export async function runLoop(input) {
         cwd: input.toolsCwd ?? input.cwd,
         jev: scorer,
         guards: toolGuards(plugins),
+        settingsCwd: input.cwd,
         config: input.config,
         confirm: input.confirm,
         abortSignal: input.abortSignal,

@@ -5,6 +5,7 @@
  */
 import os from "node:os";
 import path from "node:path";
+import { THEMES, themeName } from "./theme.ts";
 
 export type WelcomeInfo = {
   name: string;
@@ -28,7 +29,7 @@ type Paint = (text: string) => string;
 
 function palette(color: boolean) {
   const wrap = (code: string): Paint => (color ? (text) => `${ESC}${code}m${text}${ESC}0m` : (text) => text);
-  return { accent: wrap("36"), strong: wrap("1;36"), bold: wrap("1"), dim: wrap("2") };
+  return { accent: wrap(THEMES[themeName()].accent), strong: wrap(THEMES[themeName()].strong), bold: wrap("1"), dim: wrap(THEMES[themeName()].dim) };
 }
 
 /** Visible width: ANSI colour codes take no room. Every character we draw is single-width. */
