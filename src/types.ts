@@ -55,6 +55,10 @@ export type GateConfig = {
   dataLossThreshold: number;
   maxSteps: number;
   shellTimeoutMs: number;
+  /** Compact before a turn once saved history is bigger than this many characters (about 4 per token). 0 = never. */
+  compactAtChars: number;
+  /** Recent user turns kept word for word when compacting. */
+  compactKeepTurns: number;
 };
 
 export type JevClient = {

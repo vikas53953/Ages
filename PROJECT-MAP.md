@@ -11,7 +11,7 @@ Harness is our Pi-shaped coding-agent CLI. Jev decides. Code enforces. The model
 | `src/repl.ts` | Queue stdin lines so piped commands are not dropped |
 | `src/commands.ts` | Parse /help /new /compact /status /exit |
 | `src/session.ts` | Save and resume a conversation, tool calls and results included; `repairHistory` drops broken call/result pairs |
-| `src/compact.ts` | Fold old turns into a summary |
+| `src/compact.ts` | Fold old turns into `summary.md` (model-written, line-by-line fallback); auto-runs when history passes `compactAtChars` |
 | `src/memory.ts` | Notes the agent must keep |
 | `src/skills.ts` | Load `skills/*.md` |
 | `src/context.ts` | Load `AGENTS.md` / `HARNESS.md` |

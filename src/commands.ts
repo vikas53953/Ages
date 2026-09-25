@@ -89,7 +89,7 @@ export const HELP = [
   "  /memory            show memory",
   "  /memory <note>     remember a note",
   "  /skills            list loaded skills",
-  "  /compact           fold old turns into a summary",
+  "  /compact           fold old turns into a summary (also automatic when history is big)",
   "  /clear             start a new session",
   "  /models            list every available model",
   "  /model             show auto or pinned model",

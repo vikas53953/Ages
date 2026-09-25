@@ -13,6 +13,8 @@ const defaults: GateConfig = {
   dataLossThreshold: 0.5,
   maxSteps: 8,
   shellTimeoutMs: 30_000,
+  compactAtChars: 120_000,
+  compactKeepTurns: 3,
 };
 
 export function loadConfig(cwd = process.cwd()): GateConfig {

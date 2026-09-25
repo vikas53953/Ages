@@ -12,3 +12,4 @@
 - Unreadable settings: Jev off, allow rules ignored, deny/ask kept; a notice says so.
 - Slice 2: the session now stores the model's real messages (assistant text + tool calls, then tool results), not the receipt card. Tool results are capped at 8,000 characters when saved. Old text-only sessions still load.
 - AI SDK v7 detail: `result.response.messages` holds only the last step; the turn's messages are collected from every step (`steps[].response.messages`).
+- Slice 3: compaction is core. Before a turn, if saved history is over `compactAtChars` (120,000 chars, about 30k tokens) the old turns are summarized by the cheap model into `.harness/sessions/<id>/summary.md`; the last `compactKeepTurns` (3) user turns stay word for word. The summary goes into the system prompt, not a fake message. The cut is always at a user turn so tool call/result pairs stay together. No model (local) or model error: the line-by-line summary is used and the notice says so.

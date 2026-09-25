@@ -5,6 +5,7 @@ export function buildSystemPrompt(input: {
   memory: string;
   skills: Skill[];
   context?: string;
+  summary?: string;
 }) {
   const parts = [
     "You are Aegis, a custom coding-agent CLI. Jev locks spend and danger.",
@@ -15,6 +16,9 @@ export function buildSystemPrompt(input: {
   ];
   if (input.context) {
     parts.push("Project context:", input.context);
+  }
+  if (input.summary) {
+    parts.push("Earlier in this session (compacted summary; the recent turns follow as messages):", input.summary);
   }
   if (input.memory) {
     parts.push("Memory the operator asked you to keep:", input.memory);

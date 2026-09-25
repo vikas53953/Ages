@@ -3,12 +3,12 @@ import { liveJev } from "./jev/evaluate.ts";
 import { mockJev } from "./jev/mock.ts";
 import { formatReceipt, localGenerate, runLoop, type GenerateFn, type TurnEvent } from "./loop.ts";
 import { formatChat } from "./receipt.ts";
-import { resolveProvider, type ChatProvider } from "./providers.ts";
+import { modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, isExactYes, parseLine } from "./commands.ts";
 import { addMemory, loadMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
 import { loadContext } from "./context.ts";
-import { compactSession } from "./compact.ts";
+import { compactSession, loadSummary, modelSummarizer, needsCompaction, type Summarizer } from "./compact.ts";
 import { buildSystemPrompt } from "./system.ts";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.ts";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.ts";
@@ -52,6 +52,8 @@ export type RunOpts = {
   model?: string;
   abortSignal?: AbortSignal;
   generate?: GenerateFn;
+  /** Tests swap the compaction summarizer here. */
+  summarize?: Summarizer;
 };
 
 export type AppState = {
@@ -117,6 +119,13 @@ export async function startState(
   return { cwd, session, provider, model: "auto", modelMode: "auto", jevHealth, taskPermission: permission };
 }
 
+/** The cheap chat model writes compaction summaries. Local mode has no model, so the extractive summary is used. */
+function summarizerFor(opts: RunOpts, provider: ChatProvider, config: ReturnType<typeof loadEnv>): Summarizer | undefined {
+  if (opts.summarize) return opts.summarize;
+  if (opts.local || provider === "local") return undefined;
+  return modelSummarizer(modelsFor(provider, config).cheap);
+}
+
 export async function runPrompt(
   prompt: string,
   state: AppState,
@@ -141,7 +150,20 @@ export async function runPrompt(
     .filter(Boolean)
     .join("\n") || undefined;
   const session = await loadOrCreateSession(state.cwd);
-  const history = await loadMessages(state.cwd, session.id);
+  let history = await loadMessages(state.cwd, session.id);
+  let compacted = "";
+  if (needsCompaction(history, config.compactAtChars)) {
+    const result = await compactSession(state.cwd, session.id, {
+      keepTurns: config.compactKeepTurns,
+      summarize: summarizerFor(opts, provider, config),
+      abortSignal: opts.abortSignal,
+    });
+    if (result.summarized) {
+      compacted = `Auto-compacted ${result.summarized} old messages (${result.method}${result.error ? `, model failed: ${result.error}` : ""}).`;
+      history = await loadMessages(state.cwd, session.id);
+    }
+  }
+  const summary = await loadSummary(state.cwd, session.id);
   const memory = await loadMemory(state.cwd);
   const skills = await loadSkills(state.cwd);
   const context = await loadContext(state.cwd);
@@ -158,7 +180,7 @@ export async function runPrompt(
     sessionId: session.id,
     generate: opts.generate ?? (useLocal ? localGenerate : undefined),
     system: [
-      buildSystemPrompt({ cwd: state.cwd, memory, skills, context }),
+      buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
       "Task records (authoritative). Chat is not a stored agreement.",
       taskContext,
       "Do not ask the owner to reply yes. The supported confirm action is /task confirm <id> <hash>, or yes only while a pending confirm for that exact hash is shown in this session. /task new <id> proposes a different task and does not overwrite another. Never mark owner acceptance.",
@@ -175,7 +197,7 @@ export async function runPrompt(
   state.taskPermission = receipt.taskPermission ?? (await taskPermission(state.cwd));
   return {
     output: formatReceipt(receipt),
-    notice,
+    notice: [notice, compacted].filter(Boolean).join("\n") || undefined,
     session,
     receipt,
   };
@@ -234,11 +256,22 @@ export async function handleLine(
     };
   }
   if (cmd.type === "compact") {
-    const result = await compactSession(state.cwd, state.session.id);
+    const config = loadEnv(state.cwd);
+    const provider = opts.local ? "local" : resolveProvider();
+    const result = await compactSession(state.cwd, state.session.id, {
+      keepTurns: config.compactKeepTurns,
+      summarize: summarizerFor(opts, provider, config),
+      abortSignal: opts.abortSignal,
+    });
     return {
       output: result.summarized
-        ? `compacted ${result.summarized} messages, kept ${result.kept}`
-        : "nothing to compact",
+        ? [
+            `compacted ${result.summarized} messages into ${result.path} (${result.method}), kept ${result.kept}`,
+            result.error ? `model summary failed (${result.error}); used the line-by-line summary` : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : `nothing to compact (fewer than ${config.compactKeepTurns + 1} turns)`,
       session: state.session,
     };
   }
