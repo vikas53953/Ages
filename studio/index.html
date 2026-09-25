@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegis Studio</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" aria-label="Sessions">
+    <div class="brand">
+      <svg viewBox="0 0 20 22" aria-hidden="true"><path d="M10 1 18 4v7c0 5-3.4 8.6-8 10C5.4 19.6 2 16 2 11V4z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 6v10M6.5 9.5h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Aegis</span><small id="version"></small>
+    </div>
+    <button class="newchat" id="newChat" type="button">+ New chat</button>
+    <div class="label">Sessions</div>
+    <nav class="sessions" id="sessions"></nav>
+    <div class="label">Folder</div>
+    <div class="folder" id="folder"></div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <span id="title">New chat</span>
+      <span class="top-meta" id="topMeta"></span>
+    </header>
+    <section class="chat" id="chat" aria-live="polite"></section>
+    <div class="working" id="working" hidden><span class="spin" aria-hidden="true"></span><span id="workingText">Working</span><button type="button" id="stop" class="linkbtn">Stop</button></div>
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="picker" id="picker" hidden>
+        <input id="pickerSearch" type="text" placeholder="Search models" aria-label="Search models">
+        <div class="plist" id="plist" role="listbox" aria-label="Models"></div>
+      </div>
+      <textarea id="input" rows="1" placeholder="Ask Aegis to read, change or run something in this folder…" aria-label="Message"></textarea>
+      <div class="bar">
+        <div class="chips">
+          <button class="chip" type="button" id="modelChip" aria-haspopup="listbox">Model <b id="modelName">auto</b> ▾</button>
+          <button class="chip" type="button" id="thinkChip" title="How hard the model thinks">Thinking <b id="thinkLevel">low</b></button>
+          <button class="chip" type="button" id="showChip" title="How reasoning appears">Reasoning <b id="showMode">folded</b></button>
+        </div>
+        <button class="send" id="send" type="submit" aria-label="Send">Send ↵</button>
+      </div>
+    </form>
+  </main>
+
+  <aside class="lock" aria-label="The lock">
+    <div class="label">The lock · this turn</div>
+    <ol class="steps" id="steps"><li class="empty">Every file read, edit and command shows here with what allowed it.</li></ol>
+    <div class="card meter">
+      <div class="label">Tokens this session</div>
+      <div class="big" id="tokenTotal">0</div>
+      <div class="sub" id="tokenSplit">↑ 0 in · ↓ 0 out</div>
+    </div>
+    <div class="label">Files changed</div>
+    <ul class="files" id="files"><li class="empty">None yet</li></ul>
+    <div class="label">Setup</div>
+    <dl class="setup" id="setup"></dl>
+  </aside>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -16,7 +16,8 @@ import { MockLanguageModelV4 } from "ai/test";
 import { loadSummary } from "../src/compact.ts";
 import { generateWith } from "../src/loop.ts";
 import { handleLine, startState, type AppState, type RunOpts } from "../src/runtime.ts";
-import { settingsPath } from "../src/rules.ts";
+import { matchRule, settingsPath, suggestAllowRule, DEFAULT_SETTINGS } from "../src/rules.ts";
+import { startStudio, type StudioEvent } from "../src/studio.ts";
 import { loadMessages, messageText } from "../src/session.ts";
 import { powershellExe, runPowerShell } from "../src/tools/fs.ts";
 
@@ -340,6 +341,71 @@ const checks: Check[] = [
       assert(a.session.id !== b.session.id, "two launches shared a session");
       assert(c.session.id === b.session.id, "continue did not pick the last session");
       return "new, new, continued";
+    },
+  },
+  {
+    id: "12",
+    slice: "Studio",
+    title: "aegis ui: key check, approval card over HTTP, 'always' saves the rule, file written",
+    run: async () => {
+      const cwd = await folder("studio", { jev: { mode: "off" } });
+      const model = scripted([{ tool: "write", input: { path: isWindows ? "scripts\\ping.ps1" : "scripts/ping.ps1", contents: "Test-Connection 127.0.0.1" } }, { text: "done" }]);
+      const studio = await startStudio({ cwd, opts: opts(model) });
+      try {
+        const base = `http://127.0.0.1:${studio.port}`;
+        assert((await fetch(`${base}/api/state`)).status === 401, "API answered without the key");
+        const page = await fetch(`${base}/`);
+        assert(page.status === 200 && (page.headers.get("content-security-policy") ?? "").includes("default-src 'self'"), "page or CSP missing");
+        const headers = { "x-aegis-token": studio.token, "content-type": "application/json" };
+        const events = await fetch(`${base}/api/events?t=${studio.token}`);
+        const reader = events.body!.getReader();
+        await fetch(`${base}/api/prompt`, { method: "POST", headers, body: JSON.stringify({ text: "add a ping script" }) });
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let rule = "";
+        let done: Extract<StudioEvent, { kind: "done" }> | undefined;
+        const deadline = Date.now() + 15_000;
+        while (!done && Date.now() < deadline) {
+          const { value, done: ended } = await reader.read();
+          if (ended) break;
+          buffer += decoder.decode(value);
+          for (let at = buffer.indexOf("\n\n"); at >= 0; at = buffer.indexOf("\n\n")) {
+            const frame = buffer.slice(0, at);
+            buffer = buffer.slice(at + 2);
+            if (!frame.startsWith("data: ")) continue;
+            const event = JSON.parse(frame.slice(6)) as StudioEvent;
+            if (event.kind === "approval") {
+              rule = event.options?.always ?? "";
+              await fetch(`${base}/api/approve`, { method: "POST", headers, body: JSON.stringify({ id: event.id, answer: "always" }) });
+            }
+            if (event.kind === "done") done = event;
+          }
+        }
+        await reader.cancel();
+        assert(done?.isTurn, "turn did not finish");
+        assert(rule === "write scripts/*", `offered rule: ${rule}`);
+        const saved = JSON.parse(await readFile(settingsPath(cwd), "utf8")) as { rules: { allow: string[] } };
+        assert(saved.rules.allow.includes("write scripts/*"), "rule not saved");
+        assert(existsSync(path.join(cwd, "scripts", "ping.ps1")), "file not written");
+        return `offered "${rule}", saved, file written, 401 without key`;
+      } finally {
+        await studio.close();
+      }
+    },
+  },
+  {
+    id: "13",
+    slice: "Rules",
+    title: "Full Windows paths are matched as folder paths: C:\\…\\.git is denied, .aegis never offered",
+    run: async () => {
+      const cwd = await folder("abspath");
+      const git = path.join(cwd, ".git", "config");
+      const aegis = path.join(cwd, ".AEGIS", "settings.json");
+      assert(matchRule(DEFAULT_SETTINGS, "write", { path: git }, cwd)?.action === "deny", `not denied: ${git}`);
+      assert(suggestAllowRule("write", { path: aegis }, undefined, cwd) === undefined, "always offered for .aegis");
+      const offered = suggestAllowRule("edit", { path: path.join(cwd, "scripts", "a.ps1") }, undefined, cwd);
+      assert(offered === "edit scripts/*", `offered: ${offered}`);
+      return `${short(git, 60)} → deny; .AEGIS not offered; scripts → "${offered}"`;
     },
   },
   {

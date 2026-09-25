@@ -479,7 +479,10 @@ export async function createTuiApp(opts, input = {}) {
         if (!alive)
             return { consume: true };
         // ctrl+t opens or folds reasoning (like Pi's thinking toggle); the choice is saved per project.
+        // A deliberate "/think hide" stays hidden: ctrl+t does nothing until /think fold or /think show.
         if (matchesKey(data, Key.ctrl("t")) && !overlay) {
+            if (thinkingDisplay === "hide")
+                return { consume: true };
             thinkingDisplay = thinkingDisplay === "show" ? "fold" : "show";
             const loaded = loadSettingsSafe(cwd);
             if (!loaded.error)

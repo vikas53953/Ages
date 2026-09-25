@@ -158,11 +158,19 @@ export function parseJevMode(text: string): JevMode | undefined {
   return undefined;
 }
 
-/** What a rule is matched against: the file path for read/write/edit/grep, the command for shell. */
-export function ruleTarget(name: string, args: Record<string, unknown>) {
+/**
+ * What rules match against: the shell command, or the path relative to the working folder with "/" separators.
+ * With `cwd`, absolute paths inside the folder become relative ("C:\\proj\\.git\\x" → ".git/x"),
+ * so "deny write .git/*" cannot be dodged by spelling the path out in full.
+ */
+export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: string) {
   if (name === "shell") return String(args.command ?? "").trim();
-  const raw = String(args.path ?? ".").replaceAll("\\", "/");
-  const clean = path.posix.normalize(raw).replace(/^\.\//, "");
+  let raw = String(args.path ?? ".");
+  if (cwd && path.isAbsolute(raw)) {
+    const relative = path.relative(cwd, path.resolve(cwd, raw));
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) raw = relative || ".";
+  }
+  const clean = path.posix.normalize(raw.replaceAll("\\", "/")).replace(/^\.\//, "");
   return clean || ".";
 }
 
@@ -185,6 +193,9 @@ function splitRule(rule: string) {
 /** Characters that chain or redirect PowerShell commands. */
 const CHAIN = /[;&|`\n\r<>]|\$\(/;
 
+/** Commands that run another command inside them; "always allow" is never offered for these. */
+const WRAPPED = /(^|\s)(pwsh|powershell|cmd|bash|sh|wsl)(\.exe)?(\s|$)|\b(Invoke-Expression|iex|Start-Process|saps)\b|\s-(c|command|encodedcommand|e)(\s|$)|\s\/c(\s|$)/i;
+
 function shellPieces(command: string) {
   return [command, ...command.split(/[;&|\n\r]+/).map((piece) => piece.trim()).filter(Boolean)];
 }
@@ -205,8 +216,9 @@ export function matchRule(
   settings: Settings,
   name: string,
   args: Record<string, unknown>,
+  cwd?: string,
 ): RuleMatch | undefined {
-  const target = ruleTarget(name, args);
+  const target = ruleTarget(name, args, cwd);
   for (const action of ["deny", "ask", "allow"] as const) {
     const rule = settings.rules[action].find((candidate) => matches(candidate, action, name, target));
     if (rule) return { action, rule };
@@ -221,19 +233,26 @@ export function isMutation(name: string) {
 /**
  * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.
  * Offered only for grey-zone calls (no rule matched): an ask rule (Remove-Item, git push…) keeps asking.
- * write/edit → that folder ("edit scripts/*"), or the exact file at the top level. shell → that exact
+ * write/edit → that folder and everything under it ("edit scripts/*"), or the exact file at the top level. shell → that exact
  * command, never a chained or redirected one. Never for .git, .harness or .aegis.
  */
-export function suggestAllowRule(name: string, args: Record<string, unknown>, matched: RuleMatch | undefined) {
+export function suggestAllowRule(
+  name: string,
+  args: Record<string, unknown>,
+  matched: RuleMatch | undefined,
+  cwd?: string,
+) {
   if (matched) return undefined;
   if (name === "shell") {
     const command = ruleTarget(name, args);
-    if (!command || CHAIN.test(command) || command.includes("*")) return undefined;
+    if (!command || CHAIN.test(command) || command.includes("*") || WRAPPED.test(command)) return undefined;
     return `shell ${command}`;
   }
   if (name === "write" || name === "edit") {
-    const target = ruleTarget(name, args);
-    if (!target || target.includes("*") || /^(\.git|\.harness|\.aegis)(\/|$)/i.test(target)) return undefined;
+    const target = ruleTarget(name, args, cwd);
+    // Only plain paths inside the folder: never absolute, "..", ".", or the protected folders.
+    if (!target || target === "." || target.includes("*") || target.startsWith("/") || /^[a-z]:/i.test(target)) return undefined;
+    if (/^\.\.(\/|$)/.test(target) || /^(\.git|\.harness|\.aegis)(\/|$)/i.test(target)) return undefined;
     const dir = path.posix.dirname(target);
     return dir === "." ? `${name} ${target}` : `${name} ${dir}/*`;
   }

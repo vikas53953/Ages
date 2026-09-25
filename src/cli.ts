@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { startStudio } from "./studio.ts";
 import { stdin, stdout } from "node:process";
 import { APP_CMD, APP_VERSION } from "./brand.ts";
 import { HELP } from "./commands.ts";
@@ -15,6 +17,7 @@ export function parseArgs(argv: string[]) {
   const flags = new Set<string>();
   const rest: string[] = [];
   let model: string | undefined;
+  let port: number | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
     if (arg === "--model" || arg === "-m") {
@@ -24,6 +27,11 @@ export function parseArgs(argv: string[]) {
     }
     if (arg.startsWith("--model=")) {
       model = arg.slice("--model=".length);
+      continue;
+    }
+    if (arg === "--port") {
+      port = Number(argv[i + 1]);
+      i += 1;
       continue;
     }
     if (arg.startsWith("--") || /^-[a-z]$/i.test(arg)) flags.add(arg);
@@ -36,6 +44,8 @@ export function parseArgs(argv: string[]) {
     help: flags.has("--help") || flags.has("-h"),
     version: flags.has("--version") || flags.has("-v"),
     continue: flags.has("--continue") || flags.has("-c"),
+    noOpen: flags.has("--no-open"),
+    port,
     repl: flags.has("--repl"),
     tui: flags.has("--tui"),
     model,
@@ -50,12 +60,15 @@ function help() {
     "  aegis                      start in this folder (new session)",
     "  aegis -c                   continue the last session here",
     "  aegis \"a question\"         answer once and exit",
+    "  aegis ui                   open Aegis Studio in your browser (same sessions, rules and plugins)",
     "",
     "Flags: -c, --continue   continue the last session instead of starting a new one",
     "       -m, --model <id> pin this model for the session",
     "       --repl           plain prompt (pipes, scripts). A terminal opens the TUI",
     "       --local          no chat model: list, read and search only",
     "       -v, --version    print the version",
+    "       --port <n>       aegis ui: port to listen on (default: a free one)",
+    "       --no-open        aegis ui: print the link without opening the browser",
     "       -h, --help       this help",
     "       --yes            auto-approve y/N prompts (tests only)",
     "       --mock-jev       fake Jev scores (tests only)",
@@ -119,6 +132,35 @@ async function repl(opts: RunOpts) {
   if (!closed) rl.close();
 }
 
+/** `aegis ui`: serve Studio on 127.0.0.1, open the browser, run until ctrl+c. Continues the last session. */
+async function runStudio(opts: RunOpts, input: { port?: number; open: boolean; fresh: boolean }) {
+  const studio = await startStudio({ cwd: process.cwd(), opts, port: input.port, continueSession: !input.fresh });
+  console.log(`Aegis Studio  ${studio.url}`);
+  console.log("Runs on this PC only (127.0.0.1). The link carries a one-time key; keep it private. ctrl+c stops.");
+  if (input.open) openBrowser(studio.url);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => resolve());
+    process.once("SIGTERM", () => resolve());
+  });
+  await studio.close();
+}
+
+function openBrowser(url: string) {
+  const [cmd, args] =
+    process.platform === "win32"
+      ? ["cmd", ["/c", "start", "", url]]
+      : process.platform === "darwin"
+        ? ["open", [url]]
+        : ["xdg-open", [url]];
+  try {
+    const child = spawn(cmd, args as string[], { stdio: "ignore", detached: true, windowsHide: true });
+    child.on("error", () => console.log("Open the link above in your browser."));
+    child.unref();
+  } catch {
+    console.log("Open the link above in your browser.");
+  }
+}
+
 function wantTui(args: { tui: boolean; repl: boolean; prompt: string }) {
   if (args.prompt) return false;
   if (args.repl) return false;
@@ -145,6 +187,10 @@ export async function main() {
     // Like Pi and Claude Code: every launch is a new session; -c continues the last one.
     newSession: !args.continue,
   };
+  if (args.prompt === "ui" || args.prompt === "studio") {
+    await runStudio({ ...opts, newSession: false }, { port: args.port, open: !args.noOpen, fresh: false });
+    return;
+  }
   if (args.prompt) {
     const abort = new AbortController();
     process.once("SIGINT", () => abort.abort());

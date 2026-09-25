@@ -125,9 +125,9 @@ export async function runGatedTool(input) {
             return denied({ name: input.name, target, reason: block, source: "agreement" });
         }
     }
-    const loaded = input.settings ? { settings: input.settings } : loadSettingsSafe(input.cwd);
+    const loaded = input.settings ? { settings: input.settings, error: input.settingsError } : loadSettingsSafe(input.cwd);
     const settings = loaded.settings;
-    const rule = matchRule(settings, input.name, input.args);
+    const rule = matchRule(settings, input.name, input.args, input.cwd);
     if (rule?.action === "deny") {
         return denied({ name: input.name, target, reason: `rule: ${rule.rule}`, source: "rule", rule: rule.rule });
     }
@@ -177,7 +177,7 @@ export async function runGatedTool(input) {
     };
     if (action === "confirm") {
         input.onEvent?.({ type: "awaiting_approval", name: input.name, target });
-        const always = loaded.error ? undefined : suggestAllowRule(input.name, input.args, rule);
+        const always = loaded.error ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
         const prompt = formatConfirm(input.name, input.args, decision, why);
         const raced = await Promise.race([
             input
@@ -190,9 +190,16 @@ export async function runGatedTool(input) {
         }
         if (raced.ok === "always" && always) {
             // Save it so the lock learns: next time this call is allowed by your rule, without asking.
-            saveAllowRule(input.settingsCwd ?? input.cwd, always);
-            settings.rules.allow = [...settings.rules.allow, always];
-            record.savedRule = always;
+            // If the file cannot be written, the answer still counts as "yes" for this one call.
+            try {
+                saveAllowRule(input.settingsCwd ?? input.cwd, always);
+                if (!settings.rules.allow.includes(always))
+                    settings.rules.allow = [...settings.rules.allow, always];
+                record.savedRule = always;
+            }
+            catch {
+                // the call runs once; nothing is remembered
+            }
         }
         if (!raced.ok) {
             record.deniedReason = "user declined";

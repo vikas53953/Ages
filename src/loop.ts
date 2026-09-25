@@ -67,6 +67,8 @@ export function createTools(input: {
   stop?: TurnStop;
   onEvent?: (event: TurnEvent) => void;
   settings?: Settings;
+  /** Set when .aegis/settings.json could not be read: no "always allow" is offered. */
+  settingsError?: string;
 }) {
   const confirm = serializeConfirm(input.confirm);
   const gate = (name: string, args: JsonObject, execute: () => Promise<string>) => {
@@ -89,6 +91,7 @@ export function createTools(input: {
       stop: input.stop,
       onEvent: input.onEvent,
       settings: input.settings,
+      settingsError: input.settingsError,
       guards: input.guards,
       settingsCwd: input.settingsCwd,
     }).then((result) => {
@@ -306,7 +309,8 @@ export async function runLoop(input: {
   const stop: TurnStop = {};
   input.onEvent?.({ type: "accepted" });
   // Rules and Jev mode come from the project folder, even when tools run in a task work folder.
-  const settings = loadSettingsSafe(input.cwd).settings;
+  const loadedSettings = loadSettingsSafe(input.cwd);
+  const settings = loadedSettings.settings;
   const plugins = input.plugins ?? [];
   const scorer = input.jev ?? scorerOf(plugins);
   if (input.abortSignal?.aborted) throw new Error("cancelled");
@@ -356,6 +360,7 @@ export async function runLoop(input: {
     stop,
     onEvent: input.onEvent,
     settings,
+    settingsError: loadedSettings.error,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });

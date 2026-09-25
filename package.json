@@ -22,7 +22,8 @@
     "README.md",
     "AGENTS.md",
     "install.ps1",
-    "install.sh"
+    "install.sh",
+    "studio"
   ],
   "scripts": {
     "aegis": "tsx src/cli.ts",

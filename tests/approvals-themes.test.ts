@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConfirm } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { runGatedTool } from "../src/gated.ts";
-import { DEFAULT_SETTINGS, loadSettings, saveAllowRule, settingsPath, suggestAllowRule } from "../src/rules.ts";
+import { DEFAULT_SETTINGS, loadSettings, loadSettingsSafe, matchRule, saveAllowRule, settingsPath, suggestAllowRule } from "../src/rules.ts";
 import { handleLine, startState } from "../src/runtime.ts";
 import { loadUserTheme, on, setTheme, themeName } from "../src/theme.ts";
 import { ConfirmBox } from "../src/tui-confirm.ts";
@@ -42,6 +42,37 @@ describe("which 'always allow' rule is offered", () => {
     expect(suggestAllowRule("write", { path: ".aegis/settings.json" }, undefined)).toBeUndefined();
     expect(suggestAllowRule("edit", { path: ".git/config" }, undefined)).toBeUndefined();
     expect(suggestAllowRule("read", { path: "a.txt" }, undefined)).toBeUndefined();
+  });
+
+  it("treats absolute paths as paths inside the folder, so .aegis and .git stay protected", () => {
+    const cwd = path.resolve(os.tmpdir(), "proj");
+    const abs = (...parts: string[]) => path.join(cwd, ...parts);
+    expect(suggestAllowRule("write", { path: abs(".aegis", "settings.json") }, undefined, cwd)).toBeUndefined();
+    expect(suggestAllowRule("edit", { path: abs(".GIT", "config") }, undefined, cwd)).toBeUndefined();
+    expect(suggestAllowRule("edit", { path: abs("scripts", "ping.ps1") }, undefined, cwd)).toBe("edit scripts/*");
+    expect(suggestAllowRule("write", { path: abs("notes.md") }, undefined, cwd)).toBe("write notes.md");
+    // Outside the folder, empty, "." or ".." paths never become rules.
+    expect(suggestAllowRule("write", { path: path.resolve(cwd, "..", "other", "x.md") }, undefined, cwd)).toBeUndefined();
+    expect(suggestAllowRule("write", { path: "" }, undefined, cwd)).toBeUndefined();
+    expect(suggestAllowRule("write", { path: "." }, undefined, cwd)).toBeUndefined();
+    expect(suggestAllowRule("edit", { path: "scripts/../../x/y" }, undefined, cwd)).toBeUndefined();
+    // The deny rules see the same relative path.
+    expect(matchRule(DEFAULT_SETTINGS, "write", { path: abs(".git", "config") }, cwd)?.action).toBe("deny");
+  });
+
+  it("never offers 'always' for a command that runs another command", () => {
+    for (const command of [
+      'pwsh -c "Remove-Item -Recurse x"',
+      "powershell.exe -Command Get-ChildItem",
+      "cmd /c del x",
+      "Invoke-Expression $x",
+      "iex foo",
+      "Start-Process notepad",
+      "pwsh -EncodedCommand AAAA",
+    ]) {
+      expect(suggestAllowRule("shell", { command }, undefined), command).toBeUndefined();
+    }
+    expect(suggestAllowRule("shell", { command: "npm run build" }, undefined)).toBe("shell npm run build");
   });
 
   it("saves the rule without dropping the default allow list", async () => {
@@ -85,6 +116,54 @@ describe("answering 'always' at the gate", () => {
     expect(asked).toHaveLength(1);
     expect(second.record.rule).toBe("edit scripts/*");
     expect(runs).toBe(2);
+  });
+
+  it("with unreadable settings, offers no 'always' and still runs a plain yes", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-badsettings-"));
+    await mkdir(path.join(cwd, ".aegis"));
+    await writeFile(settingsPath(cwd), "{ not json");
+    const loaded = loadSettingsSafe(cwd);
+    const asked: Array<ConfirmOptions | undefined> = [];
+    const run = await runGatedTool({
+      name: "write",
+      args: { path: "scripts/a.ps1", contents: "x" },
+      cwd,
+      jev: noJev,
+      config: loadConfig(),
+      settings: loaded.settings,
+      settingsError: loaded.error,
+      confirm: async (_q, options) => {
+        asked.push(options);
+        return "always";
+      },
+      execute: async () => "written",
+    });
+    expect(asked[0]?.always).toBeUndefined();
+    expect(run.output).toBe("written");
+    expect(run.record.savedRule).toBeUndefined();
+    expect(await readFile(settingsPath(cwd), "utf8")).toBe("{ not json");
+  });
+
+  it("if saving the rule fails, the call still runs once and nothing is remembered", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-savefail-"));
+    await mkdir(path.join(cwd, ".aegis"));
+    await writeFile(settingsPath(cwd), JSON.stringify({ jev: { mode: "off" } }));
+    const settings = loadSettings(cwd);
+    await writeFile(settingsPath(cwd), "[]"); // becomes unreadable after the turn loaded it
+    const run = await runGatedTool({
+      name: "edit",
+      args: { path: "scripts/a.ps1", old_string: "a", new_string: "b" },
+      cwd,
+      jev: noJev,
+      config: loadConfig(),
+      settings,
+      confirm: async () => "always",
+      execute: async () => "edited",
+    });
+    expect(run.output).toBe("edited");
+    expect(run.record.approved).toBe(true);
+    expect(run.record.savedRule).toBeUndefined();
+    expect(settings.rules.allow).not.toContain("edit scripts/*");
   });
 
   it("offers no 'always' when an ask rule matched", async () => {

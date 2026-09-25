@@ -11,16 +11,21 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/cli.ts` | Flags (`--version`, `--repl`, `--local`, …); TUI on a TTY, plain prompt otherwise |
 | `src/welcome.ts` | Startup screen: Claude-Code-style box (welcome, shield, the lock, recent sessions) + Pi-style key hints |
 | `src/login.ts` | `/login` `/logout`: keys saved once in `~/.aegis/.env` |
-| `src/tui.ts`, `src/tui-app.ts`, `src/tui-layout.ts` | Full-screen terminal UI: transcript, composer, footer, y/N pop-up |
+| `src/tui.ts`, `src/tui-app.ts`, `src/tui-layout.ts` | Full-screen terminal UI: transcript, composer, footer, y/a/N pop-up, folded reasoning |
+| `src/tui-model-picker.ts` | `/model` picker overlay (type to filter, exact id ranked first) |
+| `src/tui-confirm.ts`, `src/confirm-queue.ts` | The y / a (always) / N box; one question at a time |
+| `src/thinking.ts` | Thinking level (off/low/medium/high) and reasoning display (fold/show/hide) → provider options |
+| `src/theme.ts` | Terminal colour themes (aegis, light, contrast), saved in `~/.aegis/settings.json` |
+| `src/studio.ts` + `studio/` | **Aegis Studio** (`aegis ui`): local web server (127.0.0.1, key + Host check, strict CSP) and the page; drives `handleLine` like the TUI |
 | `src/runtime.ts` | App shell: loads plugins from settings, runs slash commands, runs one prompt |
 | `src/repl.ts` | Queue stdin lines so piped commands are not dropped |
-| `src/commands.ts` | Parse core commands: /help /new /sessions /resume /memory /skills /compact /clear /models /model /status /exit |
+| `src/commands.ts` | Parse core commands: /help /new /sessions /resume /memory /skills /compact /clear /models /model /think /theme /login /logout /status /exit |
 | `src/loop.ts` | One turn: scorer route → model → tools → turn-end hooks |
 | `src/router.ts` | Cheap or frontier model from a turn score; `unscoredTurn` when nothing scores |
 | `src/providers.ts` | Local / OpenCode Zen / OpenAI model connection |
 | `src/tools/` | read, write, edit, grep, shell (PowerShell, off unless `AEGIS_ALLOW_SHELL=1`) |
 | `src/gated.ts` | The checkpoint every tool passes: plugin guards → rules → scorer (if on) → you → run |
-| `src/rules.ts` | Read `.aegis/settings.json`: rules, Jev mode, plugin list |
+| `src/rules.ts` | Read `.aegis/settings.json`: rules, Jev mode, plugin list, thinking; which "always allow" rule to offer and saving it |
 | `src/policy.ts` | Turn a score into run or ask; `stricter()` lets a scorer only tighten |
 | `src/session.ts` | Save and resume a conversation, tool calls and results included |
 | `src/compact.ts` | Fold old turns into `summary.md` (model-written, line-by-line fallback); automatic when history is big |
