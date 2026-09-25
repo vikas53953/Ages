@@ -62,7 +62,7 @@ describe("slash autocomplete and /login", () => {
   it("builds the / list from the help text", () => {
     const commands = slashCommandsFromHelp(HELP.split("\n"));
     expect(commands.find((c) => c.name === "model")).toMatchObject({ argumentHint: "[auto|<id>]" });
-    expect(commands.find((c) => c.name === "resume")).toMatchObject({ argumentHint: "<id>" });
+    expect(commands.find((c) => c.name === "resume")).toMatchObject({ argumentHint: "<n>" });
     expect(commands.map((c) => c.name)).toContain("login");
   });
 
