@@ -46,3 +46,20 @@ describe("git branch in the footer", () => {
     expect(text.startsWith("~/app (main) · auto")).toBe(true);
   });
 });
+
+describe("git branch: review fixes", () => {
+  it.skipIf(process.platform === "win32")("a named pipe called HEAD does not freeze Aegis", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-head-fifo-"));
+    await mkdir(path.join(cwd, ".git"));
+    execFileSync("mkfifo", [path.join(cwd, ".git", "HEAD")]);
+    expect(gitBranch(cwd)).toBeUndefined();
+  });
+
+  it("a huge HEAD is not read", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-head-big-"));
+    await mkdir(path.join(cwd, ".git"));
+    await writeFile(path.join(cwd, ".git", "HEAD"), `ref: refs/heads/${"x".repeat(10_000)}`);
+    expect(gitBranch(cwd)).toBeUndefined();
+  });
+});

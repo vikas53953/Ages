@@ -2,8 +2,31 @@
  * The current git branch for the footer, read from .git/HEAD (like Pi's footer). No git program runs: a
  * repository's config cannot make this execute anything, and it costs one small file read.
  */
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
+/**
+ * A small regular file's text, or undefined. Checked before opening: a named pipe called HEAD would block a
+ * plain read forever (and freeze the TUI), and a huge file is not read whole.
+ */
+function smallFile(file, limit = 4096) {
+    try {
+        const info = statSync(file);
+        if (!info.isFile() || info.size > limit)
+            return undefined;
+        const fd = openSync(file, "r");
+        try {
+            const buf = Buffer.alloc(limit);
+            const length = readSync(fd, buf, 0, limit, 0);
+            return buf.subarray(0, length).toString("utf8");
+        }
+        finally {
+            closeSync(fd);
+        }
+    }
+    catch {
+        return undefined;
+    }
+}
 /** The git folder for `cwd`: .git itself, or where a worktree's ".git" file points. Searched upward. */
 function gitDir(cwd) {
     let dir = path.resolve(cwd);
@@ -14,7 +37,7 @@ function gitDir(cwd) {
             if (info.isDirectory())
                 return candidate;
             if (info.isFile()) {
-                const target = /^gitdir:\s*(.+)$/m.exec(readFileSync(candidate, "utf8"))?.[1]?.trim();
+                const target = /^gitdir:\s*(.+)$/m.exec(smallFile(candidate) ?? "")?.[1]?.trim();
                 return target ? path.resolve(dir, target) : undefined;
             }
         }
@@ -33,13 +56,9 @@ export function gitBranch(cwd) {
     const dir = gitDir(cwd);
     if (!dir)
         return undefined;
-    let head;
-    try {
-        head = readFileSync(path.join(dir, "HEAD"), "utf8").trim();
-    }
-    catch {
+    const head = smallFile(path.join(dir, "HEAD"))?.trim();
+    if (!head)
         return undefined;
-    }
     const ref = /^ref:\s*refs\/heads\/(.+)$/.exec(head)?.[1];
     // Only the characters branch names use: a crafted HEAD must not put escape codes into your terminal.
     if (ref)

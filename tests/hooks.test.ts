@@ -251,3 +251,26 @@ describe("PostToolUse hooks", () => {
     expect((await gate(post(crash))).run.output).toContain("check is unknown");
   });
 });
+
+describe("hooks and multi_edit (review fixes)", () => {
+  it("a secret scanner for Edit sees every change's new text; a MultiEdit matcher runs", async () => {
+    const { runPreToolHooks } = await import("../src/hooks.ts");
+    const scanner = await script(
+      "scan",
+      `let body = "";
+process.stdin.on("data", (c) => (body += c));
+process.stdin.on("end", () => {
+  const input = JSON.parse(body);
+  if (String(input.tool_input.new_string ?? "").includes("AKIA")) {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "key " + input.tool_name } }));
+  }
+});`,
+    );
+    const args = { path: "a.ts", edits: JSON.stringify([{ old_string: "a", new_string: "b" }, { old_string: "k", new_string: "AKIAXXXXXXXXXXXXXXXX" }]) };
+    for (const matcher of ["Edit", "MultiEdit", "multi_edit"]) {
+      const verdict = await runPreToolHooks({ config: hooks(matcher, scanner), name: "edit", args, cwd: dir });
+      expect(verdict?.action, matcher).toBe("deny");
+      expect(verdict?.reason).toContain("MultiEdit");
+    }
+  });
+});

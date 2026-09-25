@@ -327,3 +327,9 @@
   - Fix: Claude Code's own MultiEdit showed an empty diff in the question (only one old_string/new_string pair was read). It now shows every change.
 - `/memory` numbers the notes, and `/memory remove <n>` forgets one. Before, notes could only be added.
 - `aegis -r` (`--resume`): the TUI starts with `/sessions` already run, and `/resume <n>` opens one, much like `claude --resume`. It reuses the same numbered list, so there is no second picker to keep in step.
+- Fixes from the review of `multi_edit` and the branch display:
+  - P1: hooks now see a multi-edit as Claude Code's `MultiEdit`, and matchers `Edit`, `MultiEdit` and `multi_edit` all run. `tool_input.new_string` carries every change's new text, so a secret scanner written for Edit still catches a key. Claude Code's own MultiEdit edits travel as JSON text too, since tool args stay flat.
+  - P1: a named pipe (FIFO) called `.git/HEAD` froze Aegis: the footer's synchronous read never returned. HEAD and a `.git` file are now read only if they are small regular files (checked before opening), with a bounded read.
+  - P3:
+    - Each change in the multi-edit question is capped at 4 KB and says when it was cut; the whole list is capped too. Unreadable edits say "answer No".
+    - `websearch` rules are accepted by `/rules`.

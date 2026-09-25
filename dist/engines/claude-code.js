@@ -46,7 +46,7 @@ export function toAegisCall(tool, input) {
             return { name: "write", args: { path: file, contents: input.content } };
         case "MultiEdit":
             // Every change is shown in the question, not only the first.
-            return { name: "edit", args: { path: file, edits: Array.isArray(input.edits) ? input.edits : [] } };
+            return { name: "edit", args: { path: file, edits: JSON.stringify(Array.isArray(input.edits) ? input.edits : []) } };
         case "Edit":
         case "NotebookEdit":
             return { name: "edit", args: { path: file, old_string: input.old_string, new_string: input.new_string } };

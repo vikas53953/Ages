@@ -34,8 +34,16 @@ const CLAUDE_NAMES = {
     todo: "TodoWrite",
     skill: "Skill",
 };
-export function claudeToolName(name) {
+export function claudeToolName(name, args) {
+    // An edit with a list of changes is Claude Code's MultiEdit (multi_edit, or Claude Code's own).
+    if (name === "edit" && args?.edits !== undefined)
+        return "MultiEdit";
     return CLAUDE_NAMES[name] ?? name;
+}
+/** Names a hook matcher is checked against: Aegis's, Claude Code's, and "Edit" for a MultiEdit too. */
+function hookNames(name, args) {
+    const claude = claudeToolName(name, args);
+    return claude === "MultiEdit" ? [name, "multi_edit", "MultiEdit", "Edit"] : [name, claude];
 }
 function hooksFile() {
     return path.join(userAegisDir(), "settings.json");
@@ -249,12 +257,18 @@ function claudeInput(args, cwd) {
             // leave as text
         }
     }
+    // A scanner written for Edit reads new_string: give it every change's new text too.
+    if (Array.isArray(toolInput.edits) && toolInput.new_string === undefined) {
+        const edits = toolInput.edits;
+        toolInput.new_string = edits.map((edit) => String(edit?.new_string ?? "")).join("\n");
+        toolInput.old_string = edits.map((edit) => String(edit?.old_string ?? "")).join("\n");
+    }
     return toolInput;
 }
 export async function runPreToolHooks(input) {
     if (input.config.error)
         return { action: "ask", reason: `your hooks are not valid (${input.config.error}), so Aegis asks`, hook: "settings" };
-    const names = [input.name, claudeToolName(input.name)];
+    const names = hookNames(input.name, input.args);
     const hooks = input.config.PreToolUse.filter((group) => matcherMatches(group.matcher, names)).flatMap((group) => group.hooks);
     if (!hooks.length)
         return undefined;
@@ -262,7 +276,7 @@ export async function runPreToolHooks(input) {
         hook_event_name: "PreToolUse",
         cwd: input.cwd,
         permission_mode: input.readOnly ? "plan" : "default",
-        tool_name: claudeToolName(input.name),
+        tool_name: claudeToolName(input.name, input.args),
         tool_input: claudeInput(input.args, input.cwd),
         aegis_tool_name: input.name,
     });
@@ -276,14 +290,14 @@ export async function runPreToolHooks(input) {
  * that crashes or times out is reported, so a check that did not run is never mistaken for a pass.
  */
 export async function runPostToolHooks(input) {
-    const names = [input.name, claudeToolName(input.name)];
+    const names = hookNames(input.name, input.args);
     const hooks = (input.config.PostToolUse ?? []).filter((group) => matcherMatches(group.matcher, names)).flatMap((group) => group.hooks);
     if (!hooks.length)
         return [];
     const payload = JSON.stringify({
         hook_event_name: "PostToolUse",
         cwd: input.cwd,
-        tool_name: claudeToolName(input.name),
+        tool_name: claudeToolName(input.name, input.args),
         tool_input: claudeInput(input.args, input.cwd),
         tool_response: input.output.slice(0, MAX_OUTPUT),
         aegis_tool_name: input.name,

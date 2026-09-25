@@ -583,7 +583,7 @@ export function describeRules(cwd) {
 }
 /** Add a deny or ask rule to YOUR settings for this folder (only stricter: allow comes from answering "a"). */
 /** Tool names a rule can name (mcp__server__tool, with * for a whole server, too). */
-export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "skill", "explore", "todo"];
+export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "websearch", "skill", "explore", "todo"];
 export function saveYourRule(cwd, action, rule) {
     if (!rule.trim())
         throw new Error("no rule given");

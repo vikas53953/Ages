@@ -112,3 +112,14 @@ describe("multi_edit", () => {
     expect(formatConfirm(call.name, call.args as never)).toContain("  + y");
   });
 });
+
+describe("multi_edit: review fixes", () => {
+  it("unreadable edits say so; a long change says it was cut; websearch rules are accepted", async () => {
+    expect(formatConfirm("edit", { path: "a", edits: "[" })).toContain("edits: (unreadable; answer No)");
+    const long = formatConfirm("edit", { path: "a", edits: JSON.stringify([{ old_string: "x", new_string: "y".repeat(9_000) }, { old_string: "p", new_string: "q" }]) });
+    expect(long).toContain("this change is");
+    expect(long).toContain("edit 2:");
+    const { RULE_TOOLS } = await import("../src/rules.ts");
+    expect(RULE_TOOLS).toContain("websearch");
+  });
+});

@@ -76,6 +76,11 @@ function existingText(cwd: string, file: unknown) {
   }
 }
 
+/** One change of a multi-edit in the question: long ones are cut, and say so. */
+function clipEdit(text: string) {
+  return text.length <= 4_000 ? text : `${text.slice(0, 4_000)}\n  … [this change is ${text.length - 4_000} bytes longer]`;
+}
+
 /** multi_edit's edits (a JSON string, as tool args are flat) or Claude Code's MultiEdit list. */
 export function editList(value: unknown): Array<{ old_string?: unknown; new_string?: unknown }> | undefined {
   let list = value;
@@ -94,8 +99,11 @@ export function formatConfirm(name: string, args: JsonObject, decision?: ToolDec
   const details = edits
     ? [
         `  path: ${String(args.path ?? "")}  (${edits.length} edits, all or nothing)`,
-        ...edits.map((edit, index) => clipDisplay(`  edit ${index + 1}:\n${formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? ""))}`)),
+        // Each change clipped, and the whole list too, so one huge change cannot bury the others.
+        clipDisplay(edits.map((edit, index) => `  edit ${index + 1}:\n${clipEdit(formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? "")))}`).join("\n")),
       ].join("\n")
+    : name === "edit" && args.edits !== undefined
+      ? `  path: ${String(args.path ?? "")}\n  edits: (unreadable; answer No)`
     : name === "edit"
       ? [
           `  path: ${String(args.path ?? "")}`,

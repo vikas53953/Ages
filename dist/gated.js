@@ -60,6 +60,10 @@ function existingText(cwd, file) {
         return undefined;
     }
 }
+/** One change of a multi-edit in the question: long ones are cut, and say so. */
+function clipEdit(text) {
+    return text.length <= 4_000 ? text : `${text.slice(0, 4_000)}\n  … [this change is ${text.length - 4_000} bytes longer]`;
+}
 /** multi_edit's edits (a JSON string, as tool args are flat) or Claude Code's MultiEdit list. */
 export function editList(value) {
     let list = value;
@@ -78,21 +82,24 @@ export function formatConfirm(name, args, decision, why, existing) {
     const details = edits
         ? [
             `  path: ${String(args.path ?? "")}  (${edits.length} edits, all or nothing)`,
-            ...edits.map((edit, index) => clipDisplay(`  edit ${index + 1}:\n${formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? ""))}`)),
+            // Each change clipped, and the whole list too, so one huge change cannot bury the others.
+            clipDisplay(edits.map((edit, index) => `  edit ${index + 1}:\n${clipEdit(formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? "")))}`).join("\n")),
         ].join("\n")
-        : name === "edit"
-            ? [
-                `  path: ${String(args.path ?? "")}`,
-                clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
-            ].join("\n")
-            : name === "write" && existing !== undefined
+        : name === "edit" && args.edits !== undefined
+            ? `  path: ${String(args.path ?? "")}\n  edits: (unreadable; answer No)`
+            : name === "edit"
                 ? [
-                    `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
-                    clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                    `  path: ${String(args.path ?? "")}`,
+                    clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
                 ].join("\n")
-                : Object.entries(args)
-                    .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
-                    .join("\n");
+                : name === "write" && existing !== undefined
+                    ? [
+                        `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
+                        clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                    ].join("\n")
+                    : Object.entries(args)
+                        .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
+                        .join("\n");
     const score = decision
         ? `${decision.class}  data_loss=${decision.dataLoss.toFixed(2)}  via ${decision.source}`
         : "not scored by Jev";
