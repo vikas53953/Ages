@@ -403,3 +403,4 @@
     - P1: if `claude` quit before reading its input (a bad resume, a sign-in error), writing up to about 27 MB of images failed with EPIPE and crashed Aegis. stdin errors are now handled, and the exit code and stderr report the failure. The test was checked to fail without the fix.
     - A prompt that starts with "/" goes to Claude Code as `Task: /…`, so it is never taken as one of Claude's slash commands.
     - The `.harness`/`.aegis` shell floor is an extra question, not a sandbox: an obfuscated path can avoid it. The shell stays off unless you turn it on.
+- `aegis doctor` also shows web search (on with your key, or how to turn it on) and your skills, commands and agents, with a warning when a project's files wait for `/skills trust`.

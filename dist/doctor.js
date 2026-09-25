@@ -15,6 +15,8 @@ import { resolveProvider } from "./providers.js";
 import { loadSettingsSafe, settingsPath } from "./rules.js";
 import { powershellExe } from "./tools/fs.js";
 import { shellAllowed } from "./tools/shell.js";
+import { loadExtensions } from "./extensions.js";
+import { websearchKey } from "./websearch.js";
 const MIN_NODE = [22, 19];
 function version(command, args = ["--version"]) {
     const shim = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
@@ -177,6 +179,21 @@ export async function runDoctor(cwd, options = {}) {
         item: "Agent shell",
         detail: shellAllowed() ? "on (AEGIS_ALLOW_SHELL=1): shell commands still pass your rules" : "off: the agent cannot run commands (you still can, with !cmd)",
     });
+    // Optional extras: web search with your key, custom agents.
+    add({
+        status: "ok",
+        item: "Web search",
+        detail: websearchKey() ? "on (BRAVE_API_KEY): each query passes your rules" : "off (optional: put BRAVE_API_KEY in %USERPROFILE%\\.aegis\\.env)",
+    });
+    const extensions = await loadExtensions(cwd).catch(() => undefined);
+    if (extensions) {
+        add({
+            status: extensions.untrustedProject ? "warn" : "ok",
+            item: "Skills & agents",
+            detail: `${extensions.skills.length} skill(s), ${extensions.commands.length} command(s), ${extensions.agents.length} agent(s)${extensions.agents.length ? ` (${extensions.agents.map((agent) => agent.name).slice(0, 6).join(", ")})` : ""}`,
+            fix: extensions.untrustedProject ? `This project has ${extensions.untrustedProject} skill/command/agent file(s) not used yet: read them, then /skills trust` : undefined,
+        });
+    }
     // MCP servers (not started here).
     for (const server of mcpServers(cwd)) {
         add({
