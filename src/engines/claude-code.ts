@@ -58,7 +58,9 @@ export function toAegisCall(tool: string, input: Record<string, unknown>): { nam
     case "Glob":
       return { name: "grep", args: { pattern: input.pattern, path: input.path ?? "." } };
     case "WebFetch":
-      return { name: "webfetch", args: { command: String(input.url ?? "") } };
+      return { name: "webfetch", args: { url: String(input.url ?? ""), prompt: input.prompt } };
+    case "WebSearch":
+      return { name: "websearch", args: { query: String(input.query ?? "") } };
     default:
       return { name: tool.toLowerCase(), args: input };
   }

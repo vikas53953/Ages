@@ -209,7 +209,8 @@ describe("Claude Code tools → Aegis rule names", () => {
     expect(toAegisCall("Bash", { command: "git push" })).toEqual({ name: "shell", args: { command: "git push" } });
     expect(toAegisCall("PowerShell", { command: "Remove-Item x" })).toEqual({ name: "shell", args: { command: "Remove-Item x" } });
     expect(toAegisCall("Glob", { pattern: "**/*.ts" })).toEqual({ name: "grep", args: { pattern: "**/*.ts", path: "." } });
-    expect(toAegisCall("WebFetch", { url: "https://x.dev" }).name).toBe("webfetch");
+    expect(toAegisCall("WebFetch", { url: "https://x.dev/a" })).toMatchObject({ name: "webfetch", args: { url: "https://x.dev/a" } });
+    expect(toAegisCall("WebSearch", { query: "pi harness" })).toEqual({ name: "websearch", args: { query: "pi harness" } });
     expect(toAegisCall("Agent", { prompt: "go" }).name).toBe("agent");
   });
 });

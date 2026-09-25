@@ -66,6 +66,10 @@ export function toolTarget(name, args) {
         return String(args.command ?? "").slice(0, 120);
     if (name === "grep")
         return `"${String(args.pattern ?? "")}" in ${String(args.path ?? ".")}`;
+    if (name === "webfetch")
+        return String(args.url ?? "").slice(0, 200);
+    if (name === "websearch")
+        return String(args.query ?? "").slice(0, 120);
     return String(args.path ?? "");
 }
 function denied(input) {

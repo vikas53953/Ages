@@ -12,6 +12,7 @@ import {
   loadSettings,
   loadSettingsSafe,
   matchRule,
+  suggestAllowRule,
   parseJevMode,
   saveJevMode,
   settingsPath,
@@ -351,5 +352,26 @@ describe("turn routing with Jev off", () => {
     });
     expect(receipt.model).toBe("glm-5.3");
     expect(receipt.routeReason).toBe("selected");
+  });
+});
+
+describe("webfetch rules match the host", () => {
+  const withRules = (rules: object) => ({ ...DEFAULT_SETTINGS, rules: { ...DEFAULT_SETTINGS.rules, ...rules } });
+  it("exact host, subdomain wildcard, and * never crossing a dot", () => {
+    const s = withRules({ allow: ["webfetch docs.microsoft.com", "webfetch *.github.com"], deny: ["webfetch evil.*"], ask: [] });
+    const fetch = (url: string) => matchRule(s, "webfetch", { url })?.action;
+    expect(fetch("https://docs.microsoft.com/en-us/powershell")).toBe("allow");
+    expect(fetch("https://DOCS.microsoft.com./x")).toBe("allow");
+    expect(fetch("https://learn.microsoft.com/")).toBeUndefined();
+    expect(fetch("https://api.github.com/repos")).toBe("allow");
+    expect(fetch("https://a.b.github.com/")).toBe("allow");
+    expect(fetch("https://github.com/")).toBeUndefined(); // *.x.com is subdomains only
+    expect(fetch("https://evil.com/")).toBe("deny");
+    expect(fetch("https://evil.example.com/")).toBeUndefined(); // * does not cross a dot
+    expect(fetch("file:///etc/passwd")).toBeUndefined();
+  });
+  it("'always allow' offers the exact host", () => {
+    expect(suggestAllowRule("webfetch", { url: "https://docs.microsoft.com/x" }, undefined)).toBe("webfetch docs.microsoft.com");
+    expect(suggestAllowRule("webfetch", { url: "not a url" }, undefined)).toBeUndefined();
   });
 });

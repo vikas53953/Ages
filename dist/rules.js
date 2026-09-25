@@ -140,6 +140,10 @@ export function parseJevMode(text) {
 export function ruleTarget(name, args, cwd) {
     if (name === "shell")
         return String(args.command ?? "").trim();
+    if (name === "webfetch")
+        return urlHost(args.url);
+    if (name === "websearch")
+        return String(args.query ?? "").trim();
     let raw = String(args.path ?? ".");
     if (cwd) {
         // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too.
@@ -149,6 +153,36 @@ export function ruleTarget(name, args, cwd) {
     }
     const clean = path.posix.normalize(raw.replaceAll("\\", "/")).replace(/^\.\//, "");
     return clean || ".";
+}
+/** The host a URL points at, lower-cased, without a trailing dot; "" when it is not an http(s) URL. */
+export function urlHost(value) {
+    try {
+        const url = new URL(String(value ?? ""));
+        if (url.protocol !== "http:" && url.protocol !== "https:")
+            return "";
+        return url.hostname.toLowerCase().replace(/\.$/, "");
+    }
+    catch {
+        return "";
+    }
+}
+/**
+ * Host rules, like Claude Code's WebFetch(domain:…): "docs.microsoft.com" exactly; "*.microsoft.com" any
+ * subdomain (not microsoft.com itself); "*" alone any host; a "*" anywhere else never crosses a dot.
+ */
+function hostMatches(pattern, host) {
+    const want = pattern.toLowerCase().replace(/\.$/, "");
+    if (want === "*")
+        return host.length > 0;
+    if (!host)
+        return false;
+    if (want.startsWith("*."))
+        return host.endsWith(want.slice(1)) && host.length > want.length - 1;
+    const body = want
+        .split("*")
+        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^.]*");
+    return new RegExp(`^${body}$`).test(host);
 }
 function globToRegex(glob) {
     const body = glob
@@ -177,6 +211,8 @@ function matches(rule, action, name, target) {
     // "mcp__github__*" names every tool of one MCP server; other tool names match exactly.
     if (tool.includes("*") ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase())
         return false;
+    if (name === "webfetch")
+        return hostMatches(pattern, target);
     const regex = globToRegex(pattern);
     if (name !== "shell")
         return regex.test(target);
@@ -208,6 +244,11 @@ export function isMutation(name) {
 export function suggestAllowRule(name, args, matched, cwd) {
     if (matched)
         return undefined;
+    if (name === "webfetch") {
+        // "Always allow" for that exact host only.
+        const host = urlHost(args.url);
+        return host && !host.includes("*") ? `webfetch ${host}` : undefined;
+    }
     if (name === "shell") {
         const command = ruleTarget(name, args);
         if (!command || CHAIN.test(command) || command.includes("*") || WRAPPED.test(command))
