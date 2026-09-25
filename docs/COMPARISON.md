@@ -7,8 +7,8 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 1. Aegis is ahead on the lock: rules first, hooks that can only tighten, project trust by hash, secret redaction at the gate, and shell off by default. No reference tool ships all of this.
 2. Aegis is ahead on Windows: PowerShell, CRLF edits, 8.3 paths, `icacls`, System32-only lookups. The others treat Windows as second or third.
 3. Aegis is behind on models: no first-party Claude or Gemini plan sign-in, and the Claude route depends on running Claude Code as an engine.
-4. Aegis is behind on OS sandboxing (Claude Code, Codex), websearch, HTTP MCP, and a real subagent system beyond `explore`.
-5. Aegis is behind on ecosystem: no IDE extension, no GitHub Action, no cloud runs, no plugin marketplace, small user base.
+4. Aegis is behind on OS sandboxing (Claude Code, Codex) and a real subagent system beyond `explore`. (websearch and HTTP MCP were added the same night.)
+5. Aegis is behind on ecosystem: no IDE extension, no cloud runs, no plugin marketplace, small user base. (A GitHub Action now ships.)
 
 ## Safety & permissions
 
@@ -40,9 +40,9 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 | edit / multi_edit / write | ✅ CRLF-safe, all-or-nothing | ✅ (MultiEdit folded into Edit) | ⚠️ apply_patch | ✅ edit, write | ✅ |
 | Diff on every approval | ✅ trimmed hunks | ✅ | ✅ | ⚠️ shown after | ✅ |
 | webfetch | ✅ host rules | ✅ | ⚠️ unverified | ❌ (extension) | ✅ |
-| websearch | ❌ | ✅ | ✅ `--search` | ❌ | ⚠️ unverified |
+| websearch | ✅ your Brave key; every query gated | ✅ | ✅ `--search` | ❌ | ⚠️ unverified |
 | Images | ✅ @path, read, Studio paste | ✅ | ✅ | ✅ | ✅ |
-| MCP | ⚠️ stdio only, per-server trust | ✅ stdio + HTTP | ✅ | ❌ by design | ✅ |
+| MCP | ✅ stdio + HTTP, per-server trust, no redirects | ✅ stdio + HTTP | ✅ | ❌ by design | ✅ |
 | Subagents | ⚠️ `explore` only, read-only | ✅ custom agents, Task | ⚠️ unverified | ⚠️ extension | ✅ agents, @explore |
 | Skills (SKILL.md) | ✅ hashed trust | ✅ | ✅ | ✅ | ✅ |
 
@@ -78,19 +78,19 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 | Headless -p | ✅ asks become No, exit 2 on deny | ✅ | ✅ `codex exec` | ✅ | ✅ `opencode run` |
 | JSON output | ✅ JSON lines | ✅ stream-json | ✅ | ✅ | ✅ |
 | Per-run rules | ✅ --allow/--deny, floor still wins | ✅ --allowedTools | ⚠️ flags | ❌ | ⚠️ unverified |
-| CI / GitHub Action | ⚠️ works, no action shipped | ✅ | ✅ | ❌ | ✅ |
+| CI / GitHub Action | ✅ `action.yml`, prompt passed as data | ✅ | ✅ | ❌ | ✅ |
 | Worktrees | ✅ --worktree, hardened checkout | ✅ | ⚠️ desktop app | ❌ | ⚠️ unverified |
 
 ## Gaps worth closing next
 
-1. **websearch** — every serious rival has it; agents without it guess at APIs. Gate it by rule like webfetch.
-2. **HTTP MCP transport** — most hosted servers are HTTP now; stdio-only leaves out GitHub, Notion, and the like.
-3. **Real subagents** — `explore` is read-only. Let custom agents run with their own rule set, still behind the lock.
-4. **OS sandbox on Windows** — AppContainer or a restricted job object for shell. The lock is not isolation; the README says so.
-5. **Redaction in the Claude Code engine** — the biggest hole in the secrets story; a PostToolUse hook on Claude's side could cut before Aegis sees it.
-6. **Auto memory** — Claude Code learns across sessions; Aegis needs manual `/memory`.
-7. **Image input to the Claude Code engine** — `stream-json` input parts so pasted screenshots work there too.
-8. **GitHub Action + VS Code panel** — `-p --json` already fits; ship the wrappers so teams can adopt it.
+Closed the same night: websearch, HTTP MCP, the GitHub Action.
+
+1. **Real subagents** — `explore` is read-only. Let custom agents run with their own rule set, still behind the lock.
+2. **OS sandbox on Windows** — AppContainer or a restricted job object for shell. The lock is not isolation; the README says so.
+3. **Redaction in the Claude Code engine** — the biggest hole in the secrets story: Claude Code's own reads reach it before Aegis can cut anything.
+4. **Auto memory** — Claude Code learns across sessions; Aegis needs manual `/memory`.
+5. **Image input to the Claude Code engine** — `stream-json` input parts so pasted screenshots work there too.
+6. **VS Code panel** — `-p --json` already fits; a thin extension would bring Aegis into the editor.
 
 ## Where Aegis is deliberately different
 
