@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -59,5 +59,19 @@ describe("glob and read", () => {
     await writeFile(path.join(cwd, "big.txt"), Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n"));
     expect(await readPath("big.txt", cwd, { offset: 10, limit: 2 })).toBe("10  line 10\n11  line 11\n[lines 10-11 of 30]");
     expect(await readPath("src", cwd)).toContain("deep/");
+  });
+});
+
+describe("paths shown from the real folder", () => {
+  it("a folder reached by another spelling (a link here, an 8.3 short name on Windows) still shows src/… paths", async () => {
+    const real = await project();
+    const alias = path.join(await mkdtemp(path.join(os.tmpdir(), "aegis-search-alias-")), "proj");
+    try {
+      await symlink(real, alias, "junction");
+    } catch {
+      return; // no link rights
+    }
+    expect(await grepPath("beta", ".", alias)).toBe("src/a.ts:2:const beta = 2;");
+    expect((await globPath("**/*.ts", ".", alias)).split("\n").sort()).toEqual(["src/a.ts", "src/deep/b.ts"]);
   });
 });

@@ -157,6 +157,8 @@ export async function grepPath(pattern, relativePath, cwd, options = {}) {
         ? (await walkFiles(root)).filter((entry) => !only || only.test(entry.relative)).map((entry) => entry.file)
         : [root];
     const context = Math.max(0, Math.min(5, Math.floor(options.context ?? 0)));
+    // Show paths from the real folder: files are real paths, and on Windows cwd may be an 8.3 short spelling.
+    const base = await realpath(cwd).catch(() => cwd);
     const hits = [];
     let total = 0;
     for (const file of files) {
@@ -170,7 +172,7 @@ export async function grepPath(pattern, relativePath, cwd, options = {}) {
             continue;
         }
         const lines = body.split(/\r?\n/);
-        const shown = path.relative(cwd, file).split(path.sep).join("/");
+        const shown = path.relative(base, file).split(path.sep).join("/");
         lines.forEach((line, index) => {
             if (!regex.test(line))
                 return;
@@ -201,7 +203,8 @@ export async function globPath(pattern, relativePath, cwd) {
     const matched = (await walkFiles(root)).filter((entry) => regex.test(entry.relative));
     const dated = await Promise.all(matched.map(async (entry) => ({ entry, time: (await stat(entry.file).catch(() => undefined))?.mtimeMs ?? 0 })));
     dated.sort((a, b) => b.time - a.time);
-    const shown = dated.slice(0, MAX_FILES).map(({ entry }) => path.relative(cwd, entry.file).split(path.sep).join("/"));
+    const base = await realpath(cwd).catch(() => cwd);
+    const shown = dated.slice(0, MAX_FILES).map(({ entry }) => path.relative(base, entry.file).split(path.sep).join("/"));
     if (!shown.length)
         return "no files match";
     return shown.join("\n") + (dated.length > MAX_FILES ? `\n[… ${dated.length - MAX_FILES} more files not shown]` : "");

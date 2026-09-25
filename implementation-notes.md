@@ -178,3 +178,4 @@
   - A crash, timeout or unreadable JSON is appended as "check is unknown", never silence.
   - The output passes redaction after the hooks, so a hook cannot put a key back into the conversation.
   - Only your ~/.aegis hooks, as for PreToolUse.
+- Windows CI: grep and glob showed `../../../../runneradmin/…` paths when the working folder was spelled short (`C:\Users\RUNNER~1\…`), because walked files are real paths and were made relative to the short spelling. Paths are now made relative to the real folder. A Linux test reaches the project through a link, fails on the old code, and passes now. (A run on `aef4155` where nine unrelated tests each hit 5 s at once on one Node leg was a stalled runner; the next commit passed with the same code.)
