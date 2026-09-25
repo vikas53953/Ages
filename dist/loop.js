@@ -1,5 +1,5 @@
 import { lexicalInsideCwd } from "./env.js";
-import { stepCountIs, streamText, tool } from "ai";
+import { jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.js";
 import { pickModel, unscoredTurn } from "./router.js";
@@ -59,7 +59,19 @@ export function createTools(input) {
             return result.output;
         });
     };
+    const mcp = Object.fromEntries((input.mcpTools ?? []).map((binding) => [
+        binding.tool.name,
+        tool({
+            description: binding.tool.description,
+            inputSchema: jsonSchema(binding.tool.inputSchema),
+            execute: async (args) => {
+                const callArgs = (args && typeof args === "object" ? args : {});
+                return gate(binding.tool.name, callArgs, () => binding.call(callArgs, input.abortSignal));
+            },
+        }),
+    ]));
     return {
+        ...mcp,
         read: tool({
             description: "Read a file or list a directory. Path is relative to the working folder.",
             inputSchema: z.object({
@@ -273,6 +285,7 @@ export async function runLoop(input) {
         settingsError: loadedSettings.error,
         checkpoint: input.checkpoint,
         readOnly: input.readOnly,
+        mcpTools: input.mcpTools,
         onTool: (record) => {
             toolsUsed.push(record);
             input.onEvent?.({ type: "tool", record });

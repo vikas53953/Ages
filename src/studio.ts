@@ -15,6 +15,7 @@ import { packageRoot } from "./env.ts";
 import type { TurnEvent } from "./loop.ts";
 import { loadSettingsSafe, thinkingOf } from "./rules.ts";
 import {
+  closeState,
   handleLine,
   modelChoices,
   startState,
@@ -291,6 +292,7 @@ export async function startStudio(input: {
     close: () =>
       new Promise<void>((resolve) => {
         turnAbort?.abort();
+        closeState(state);
         for (const client of clients) client.end();
         clients.clear();
         server.close(() => resolve());

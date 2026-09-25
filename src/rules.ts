@@ -205,7 +205,8 @@ function shellPieces(command: string) {
 
 function matches(rule: string, action: RuleAction, name: string, target: string) {
   const { tool, pattern } = splitRule(rule);
-  if (tool !== name.toLowerCase()) return false;
+  // "mcp__github__*" names every tool of one MCP server; other tool names match exactly.
+  if (tool.includes("*") ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase()) return false;
   const regex = globToRegex(pattern);
   if (name !== "shell") return regex.test(target);
   // allow must cover the whole command, and never a chained one: "git status; Remove-Item x" is not "git status".

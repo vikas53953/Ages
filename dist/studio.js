@@ -13,7 +13,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { packageRoot } from "./env.js";
 import { loadSettingsSafe, thinkingOf } from "./rules.js";
-import { handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
+import { closeState, handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
 import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
 class BadRequest extends Error {
@@ -266,6 +266,7 @@ export async function startStudio(input) {
         state,
         close: () => new Promise((resolve) => {
             turnAbort?.abort();
+            closeState(state);
             for (const client of clients)
                 client.end();
             clients.clear();

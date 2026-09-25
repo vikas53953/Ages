@@ -8,7 +8,7 @@ import { APP_CMD, APP_VERSION } from "./brand.ts";
 import { HELP } from "./commands.ts";
 import { loadEnv } from "./env.ts";
 import { queuedLines } from "./repl.ts";
-import { handleLine, startState, welcomeInfo, type RunOpts } from "./runtime.ts";
+import { closeState, handleLine, startState, welcomeInfo, type RunOpts } from "./runtime.ts";
 import { welcomeLines } from "./welcome.ts";
 import { loadUserTheme } from "./theme.ts";
 import { runTui } from "./tui.ts";
@@ -139,6 +139,7 @@ async function repl(opts: RunOpts) {
     if (result.exit) break;
     showPrompt();
   }
+  closeState(state);
   if (!closed) rl.close();
 }
 
@@ -208,9 +209,13 @@ export async function main() {
     const abort = new AbortController();
     process.once("SIGINT", () => abort.abort());
     const state = await startState(process.cwd(), opts);
-    const result = await handleLine(args.prompt, state, { ...opts, abortSignal: abort.signal }, createConfirm(opts));
-    if (result.notice) console.error(result.notice);
-    if (result.output) console.log(result.output);
+    try {
+      const result = await handleLine(args.prompt, state, { ...opts, abortSignal: abort.signal }, createConfirm(opts));
+      if (result.notice) console.error(result.notice);
+      if (result.output) console.log(result.output);
+    } finally {
+      closeState(state);
+    }
     return;
   }
   if (wantTui(args)) {

@@ -32,6 +32,8 @@ export function parseLine(line) {
             return { type: "skills" };
         case "compact":
             return { type: "compact" };
+        case "mcp":
+            return { type: "mcp", action: rest[0]?.toLowerCase(), name: rest[1] };
         case "plan":
             return { type: "plan", arg: rest.join(" ").trim() || undefined };
         case "rewind":
@@ -83,6 +85,7 @@ export const HELP = [
     "  /theme aegis|light|contrast  colours (saved for you, every folder)",
     "  /login             show sign-ins and keys; /login opencode <key> saves one for every folder",
     "  /login chatgpt     sign in with your ChatGPT plan (add 'browser' to use this PC's browser)",
+    "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",
     "  /plan              plan mode: read-only until you approve; /plan go carries it out, /plan off leaves",
     "  /rewind            list restore points; /rewind 1 puts files and chat back to before that turn (add files or chat for just one)",
     "  /logout <name>     remove a saved key",

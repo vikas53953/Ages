@@ -174,7 +174,8 @@ function shellPieces(command) {
 }
 function matches(rule, action, name, target) {
     const { tool, pattern } = splitRule(rule);
-    if (tool !== name.toLowerCase())
+    // "mcp__github__*" names every tool of one MCP server; other tool names match exactly.
+    if (tool.includes("*") ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase())
         return false;
     const regex = globToRegex(pattern);
     if (name !== "shell")

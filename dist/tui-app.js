@@ -1,7 +1,7 @@
 import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, truncateToWidth, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
-import { handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
+import { closeState, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.js";
 import { formatTokenLine } from "./receipt.js";
 import { ModelPicker } from "./tui-model-picker.js";
@@ -469,6 +469,7 @@ export async function createTuiApp(opts, input = {}) {
         if (!alive)
             return;
         alive = false;
+        closeState(state);
         turnAbort.abort();
         denyWaiters();
         if (elapsedTimer) {

@@ -6,7 +6,7 @@
  *
  * Exit codes: 0 done · 1 error · 2 done but at least one tool call was denied.
  */
-import { handleLine, startState } from "./runtime.js";
+import { closeState, handleLine, startState } from "./runtime.js";
 export async function runHeadless(input) {
     const emit = (line) => input.json && input.write(JSON.stringify(line));
     const confirm = async (question) => {
@@ -54,6 +54,9 @@ export async function runHeadless(input) {
         else
             process.stderr.write(`${message}\n`);
         return 1;
+    }
+    finally {
+        closeState(state);
     }
 }
 /** The prompt from the arguments, or from stdin when none is given (`git diff | aegis -p "review this"` joins both). */

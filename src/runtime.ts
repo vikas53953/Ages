@@ -1,11 +1,12 @@
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.ts";
-import { formatReceipt, localGenerate, runLoop, type GenerateFn, type TurnEvent } from "./loop.ts";
+import { formatReceipt, localGenerate, runLoop, type GenerateFn, type McpBinding, type TurnEvent } from "./loop.ts";
 import { formatChat, formatTokenLine } from "./receipt.ts";
 import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.ts";
 import { loadCredential, saveCredential } from "./auth/store.ts";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.ts";
 import { rewindPoints, rewindTo, snapshotFile } from "./checkpoints.ts";
+import { closeMcp, mcpServers, startMcp, trustProjectServer, type McpState } from "./mcp.ts";
 import { openUrl } from "./open-url.ts";
 import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, parseLine } from "./commands.ts";
@@ -72,7 +73,32 @@ export type AppState = {
   sessionTokens: { input: number; output: number };
   /** Plan mode: the agent may only read and search until you approve its plan (/plan go). */
   planMode?: boolean;
+  /** MCP servers, started on the first turn (or /mcp) and stopped with closeState. */
+  mcp?: McpState;
 };
+
+/** Start MCP servers once per window; later calls reuse them. */
+async function ensureMcp(state: AppState) {
+  if (!state.mcp) state.mcp = await startMcp(state.cwd);
+  return state.mcp;
+}
+
+function mcpBindings(mcp: McpState): McpBinding[] {
+  return mcp.tools.map((tool) => ({
+    tool,
+    call: (args, signal) => {
+      const connection = mcp.connections.find((item) => item.name === tool.server);
+      if (!connection || connection.closed) return Promise.resolve(`MCP server ${tool.server} is not running. /mcp restart`);
+      return connection.callTool(tool.tool, args, signal);
+    },
+  }));
+}
+
+/** Stop what this window started (MCP servers). Safe to call twice. */
+export function closeState(state: AppState) {
+  closeMcp(state.mcp);
+  state.mcp = undefined;
+}
 
 export type HandleResult = {
   exit?: boolean;
@@ -258,6 +284,8 @@ export async function runPrompt(
   const checkpoint = (file: string) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
   const readOnly = state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined;
   const planPrompt = state.planMode ? PLAN_PROMPT : "";
+  // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
+  const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));
   onEvent?.({ type: "accepted" });
   const receipt = claudeEngine
     ? await runClaudeCodeTurn({
@@ -297,6 +325,7 @@ export async function runPrompt(
         thinking: thinkingOf(loadedSettings.settings).level,
         checkpoint,
         readOnly,
+        mcpTools,
       });
   if (receipt.tokens) {
     state.sessionTokens.input += receipt.tokens.input;
@@ -437,6 +466,7 @@ export async function handleLine(
     }
   }
   if (cmd.type === "rewind") return rewindCommand(cmd.arg, cmd.what, state);
+  if (cmd.type === "mcp") return mcpCommand(cmd.action, cmd.name, state);
   if (cmd.type === "plan") {
     const arg = (cmd.arg ?? "").toLowerCase();
     if (arg === "off") {
@@ -574,6 +604,42 @@ const PLAN_PROMPT = [
   "how you will test it, and open questions. Do not claim to have changed anything.",
 ].join("\n");
 const PLAN_GO = "The plan is approved. Carry it out now, step by step, then say how you tested it.";
+
+/** /mcp: servers and tools; /mcp trust <name>; /mcp restart. */
+async function mcpCommand(action: string | undefined, name: string | undefined, state: AppState): Promise<HandleResult> {
+  const reply = (output: string) => ({ output, session: state.session });
+  if (action === "trust") {
+    if (!name) return reply("usage: /mcp trust <name>   (a server from this project's .aegis/settings.json)");
+    const server = mcpServers(state.cwd).find((item) => item.name === name && item.scope === "project");
+    if (!server) return reply(`No project MCP server named ${name}. /mcp lists them.`);
+    trustProjectServer(state.cwd, name);
+    closeState(state);
+    const mcp = await ensureMcp(state);
+    return reply(
+      `Trusted ${name} for this folder: ${[server.command, ...(server.args ?? [])].join(" ")}\n${mcp.status.map((row) => `  ${row.name}  ${row.state}`).join("\n")}`,
+    );
+  }
+  if (action === "restart") closeState(state);
+  if (action && action !== "restart") return reply("usage: /mcp · /mcp trust <name> · /mcp restart");
+  const servers = mcpServers(state.cwd);
+  if (!servers.length) {
+    return reply(
+      [
+        "No MCP servers. Add one under \"mcp\" in ~/.aegis/settings.json (yours) or .aegis/settings.json (this project):",
+        '  { "mcp": { "servers": { "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] } } } }',
+        "Each tool is named mcp__<server>__<tool> and passes your rules: e.g. allow \"mcp__files__read_file\", ask \"mcp__files__*\".",
+      ].join("\n"),
+    );
+  }
+  const mcp = await ensureMcp(state);
+  return reply(
+    [
+      "MCP servers (tools pass your rules like any other tool):",
+      ...mcp.status.map((row) => `  ${row.name.padEnd(14)} ${row.scope.padEnd(8)} ${row.state}`),
+      ...(mcp.tools.length ? ["", "Tools:", ...mcp.tools.map((tool) => `  ${tool.name}`)] : []),
+    ].join("\n"),
+  );
+}
 
 /** /rewind: list restore points, or put files and/or the conversation back to before a turn. */
 async function rewindCommand(arg: string | undefined, what: string | undefined, state: AppState): Promise<HandleResult> {

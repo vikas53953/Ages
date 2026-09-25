@@ -6,7 +6,7 @@
  *
  * Exit codes: 0 done · 1 error · 2 done but at least one tool call was denied.
  */
-import { handleLine, startState, type RunOpts } from "./runtime.ts";
+import { closeState, handleLine, startState, type RunOpts } from "./runtime.ts";
 import type { ConfirmFn, TurnEvent } from "./types.ts";
 
 export type HeadlessLine =
@@ -75,6 +75,8 @@ export async function runHeadless(input: {
     if (input.json) emit({ type: "result", ok: false, error: message, session: state.session.id, tools: [], denied: 0 });
     else process.stderr.write(`${message}\n`);
     return 1;
+  } finally {
+    closeState(state);
   }
 }
 

@@ -1,5 +1,9 @@
 import { lexicalInsideCwd } from "./env.ts";
-import { stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
+import type { McpTool } from "./mcp.ts";
+
+/** An MCP tool and how to call it. */
+export type McpBinding = { tool: McpTool; call: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string> };
+import { jsonSchema, stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.ts";
 import { pickModel, unscoredTurn } from "./router.ts";
@@ -74,6 +78,8 @@ export function createTools(input: {
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Plan mode: the reason every non-read tool is refused. */
   readOnly?: string;
+  /** MCP server tools (mcp__server__tool), gated like every other tool. */
+  mcpTools?: McpBinding[];
 }) {
   const keep = async (filePath: string) => {
     if (!input.checkpoint) return;
@@ -116,7 +122,22 @@ export function createTools(input: {
     });
   };
 
+  const mcp = Object.fromEntries(
+    (input.mcpTools ?? []).map((binding) => [
+      binding.tool.name,
+      tool({
+        description: binding.tool.description,
+        inputSchema: jsonSchema(binding.tool.inputSchema as never),
+        execute: async (args: unknown) => {
+          const callArgs = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+          return gate(binding.tool.name, callArgs as JsonObject, () => binding.call(callArgs, input.abortSignal));
+        },
+      }),
+    ]),
+  );
+
   return {
+    ...mcp,
     read: tool({
       description: "Read a file or list a directory. Path is relative to the working folder.",
       inputSchema: z.object({
@@ -324,6 +345,7 @@ export async function runLoop(input: {
   thinking?: ThinkingLevel;
   checkpoint?: (absolutePath: string) => Promise<void>;
   readOnly?: string;
+  mcpTools?: McpBinding[];
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -383,6 +405,7 @@ export async function runLoop(input: {
     settingsError: loadedSettings.error,
     checkpoint: input.checkpoint,
     readOnly: input.readOnly,
+    mcpTools: input.mcpTools,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });

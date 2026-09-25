@@ -1,0 +1,273 @@
+/**
+ * MCP (Model Context Protocol) tools behind the lock. Servers listed under "mcp" in ~/.aegis/settings.json
+ * (yours, trusted) or .aegis/settings.json (the project's: started only after /mcp trust <name>, because a
+ * cloned repo must not run programs on your PC just by being opened). Each server tool becomes
+ * `mcp__<server>__<tool>` and passes the same gate as every other tool: deny/ask/allow rules, Jev, you.
+ *
+ * A small stdio client (JSON-RPC, one message per line): initialize → tools/list → tools/call.
+ */
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { userAegisDir } from "./env.ts";
+import { settingsPath } from "./rules.ts";
+
+export type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string>; cwd?: string };
+export type McpServerEntry = McpServerConfig & { name: string; scope: "user" | "project"; trusted: boolean };
+export type McpTool = {
+  /** mcp__server__tool, the name rules match. */
+  name: string;
+  server: string;
+  tool: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+};
+
+const PROTOCOL = "2025-06-18";
+const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_RESULT = 20_000;
+
+function readJson(file: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function serversIn(file: string): Record<string, McpServerConfig> {
+  const mcp = readJson(file).mcp as { servers?: Record<string, McpServerConfig> } | undefined;
+  const out: Record<string, McpServerConfig> = {};
+  for (const [name, server] of Object.entries(mcp?.servers ?? {})) {
+    if (!NAME.test(name) || !server || typeof server.command !== "string" || !server.command) continue;
+    const args = Array.isArray(server.args) ? server.args.filter((arg): arg is string => typeof arg === "string") : [];
+    const env = server.env && typeof server.env === "object" ? Object.fromEntries(Object.entries(server.env).filter(([, v]) => typeof v === "string")) : undefined;
+    out[name] = { command: server.command, args, env, cwd: typeof server.cwd === "string" ? server.cwd : undefined };
+  }
+  return out;
+}
+
+function trustFile() {
+  return path.join(userAegisDir(), "mcp-trust.json");
+}
+
+/** A project server is trusted for this exact folder and exact command line only; change either and it asks again. */
+function trustKey(cwd: string, name: string, server: McpServerConfig) {
+  const hash = createHash("sha256").update(JSON.stringify([path.resolve(cwd), name, server.command, server.args ?? [], server.env ?? {}])).digest("hex");
+  return hash.slice(0, 32);
+}
+
+export function trustProjectServer(cwd: string, name: string) {
+  const server = serversIn(settingsPath(cwd))[name];
+  if (!server) return false;
+  const trusted = readJson(trustFile()) as Record<string, string>;
+  trusted[trustKey(cwd, name, server)] = `${path.resolve(cwd)} ${name}`;
+  mkdirSync(path.dirname(trustFile()), { recursive: true });
+  writeFileSync(trustFile(), `${JSON.stringify(trusted, null, 2)}\n`);
+  return true;
+}
+
+/** Your servers, then the project's (a project server with the same name as yours is ignored). */
+export function mcpServers(cwd: string): McpServerEntry[] {
+  const user = serversIn(path.join(userAegisDir(), "settings.json"));
+  const project = serversIn(settingsPath(cwd));
+  const trusted = readJson(trustFile());
+  const entries: McpServerEntry[] = Object.entries(user).map(([name, server]) => ({ ...server, name, scope: "user", trusted: true }));
+  for (const [name, server] of Object.entries(project)) {
+    if (user[name]) continue;
+    entries.push({ ...server, name, scope: "project", trusted: Boolean(trusted[trustKey(cwd, name, server)]) });
+  }
+  return entries;
+}
+
+type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+
+/** One running stdio MCP server. */
+export class McpConnection {
+  private child: ChildProcessWithoutNullStreams;
+  private nextId = 1;
+  private pending = new Map<number, Pending>();
+  private buffer = "";
+  private stderr = "";
+  closed = false;
+
+  constructor(
+    readonly name: string,
+    server: McpServerConfig,
+    cwd: string,
+  ) {
+    // npx and many servers are .cmd files on Windows, which only start through cmd.exe; arguments come from your settings.
+    const windowsShim = process.platform === "win32" && !/\.(exe|com)$/i.test(server.command);
+    const quote = (value: string) => (windowsShim ? `"${value.replace(/"/g, '""')}"` : value);
+    this.child = spawn(windowsShim ? quote(server.command) : server.command, (server.args ?? []).map(quote), {
+      cwd: server.cwd ? path.resolve(cwd, server.cwd) : cwd,
+      env: { ...process.env, ...server.env },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      shell: windowsShim,
+    });
+    this.child.stdout.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk: string) => this.onData(chunk));
+    this.child.stderr.setEncoding("utf8");
+    this.child.stderr.on("data", (chunk: string) => (this.stderr = (this.stderr + chunk).slice(-2000)));
+    const fail = (why: string) => {
+      this.closed = true;
+      for (const entry of this.pending.values()) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error(`MCP server ${name} ${why}${this.stderr ? `: ${this.stderr.trim().split("\n").at(-1)}` : ""}`));
+      }
+      this.pending.clear();
+    };
+    this.child.on("error", (error) => fail(`could not start (${error.message})`));
+    this.child.on("exit", (code) => fail(`exited (${code ?? "signal"})`));
+  }
+
+  private onData(chunk: string) {
+    this.buffer += chunk;
+    if (this.buffer.length > 10_000_000) this.buffer = this.buffer.slice(-1_000_000);
+    let at: number;
+    while ((at = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, at).trim();
+      this.buffer = this.buffer.slice(at + 1);
+      if (!line) continue;
+      let message: { id?: number; result?: unknown; error?: { message?: string }; method?: string };
+      try {
+        message = JSON.parse(line) as typeof message;
+      } catch {
+        continue; // servers sometimes log to stdout
+      }
+      if (message.method && message.id !== undefined) {
+        // A request from the server (sampling, roots…): not supported; say so instead of leaving it waiting.
+        this.send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "not supported by Aegis" } });
+        continue;
+      }
+      const entry = typeof message.id === "number" ? this.pending.get(message.id) : undefined;
+      if (!entry) continue;
+      this.pending.delete(message.id!);
+      clearTimeout(entry.timer);
+      if (message.error) entry.reject(new Error(message.error.message ?? "MCP error"));
+      else entry.resolve(message.result);
+    }
+  }
+
+  private send(message: object) {
+    if (!this.closed) this.child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  request(method: string, params: object, timeoutMs = 60_000, signal?: AbortSignal): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error(`MCP server ${this.name} is not running`));
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`MCP server ${this.name}: ${method} timed out`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      signal?.addEventListener(
+        "abort",
+        () => {
+          if (!this.pending.delete(id)) return;
+          clearTimeout(timer);
+          this.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "stopped" } });
+          reject(new Error("cancelled"));
+        },
+        { once: true },
+      );
+      this.send({ jsonrpc: "2.0", id, method, params });
+    });
+  }
+
+  async start() {
+    await this.request("initialize", {
+      protocolVersion: PROTOCOL,
+      capabilities: {},
+      clientInfo: { name: "aegis", version: "0.2" },
+    }, 30_000);
+    this.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  }
+
+  async listTools(): Promise<McpTool[]> {
+    const tools: McpTool[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = (await this.request("tools/list", cursor ? { cursor } : {})) as {
+        tools?: Array<{ name?: string; description?: string; inputSchema?: Record<string, unknown> }>;
+        nextCursor?: string;
+      };
+      for (const tool of page.tools ?? []) {
+        if (!tool.name || !NAME.test(tool.name)) continue;
+        tools.push({
+          name: `mcp__${this.name}__${tool.name}`,
+          server: this.name,
+          tool: tool.name,
+          description: `[${this.name} MCP] ${tool.description ?? tool.name}`.slice(0, 1000),
+          inputSchema: tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema : { type: "object" },
+        });
+      }
+      cursor = page.nextCursor;
+    } while (cursor && tools.length < 500);
+    return tools;
+  }
+
+  async callTool(tool: string, args: Record<string, unknown>, signal?: AbortSignal) {
+    const result = (await this.request("tools/call", { name: tool, arguments: args }, 300_000, signal)) as {
+      content?: Array<{ type?: string; text?: string; mimeType?: string }>;
+      structuredContent?: unknown;
+      isError?: boolean;
+    };
+    const parts = (result.content ?? []).map((part) =>
+      part.type === "text" ? String(part.text ?? "") : `[${part.type ?? "content"}${part.mimeType ? ` ${part.mimeType}` : ""} not shown]`,
+    );
+    if (!parts.length && result.structuredContent !== undefined) parts.push(JSON.stringify(result.structuredContent));
+    let text = parts.join("\n") || "(no output)";
+    if (text.length > MAX_RESULT) text = `${text.slice(0, MAX_RESULT)}\n[… ${text.length - MAX_RESULT} more characters]`;
+    return result.isError ? `MCP tool error: ${text}` : text;
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.child.stdin.end();
+      this.child.kill();
+    } catch {
+      // gone
+    }
+  }
+}
+
+export type McpState = {
+  connections: McpConnection[];
+  tools: McpTool[];
+  /** One line per server: running (n tools), not trusted, or why it failed. */
+  status: Array<{ name: string; scope: string; state: string }>;
+};
+
+/** Start every trusted server and list its tools. A server that fails is reported, not fatal. */
+export async function startMcp(cwd: string): Promise<McpState> {
+  const state: McpState = { connections: [], tools: [], status: [] };
+  for (const server of mcpServers(cwd)) {
+    if (!server.trusted) {
+      state.status.push({ name: server.name, scope: server.scope, state: `not started: project server, run /mcp trust ${server.name} to allow it` });
+      continue;
+    }
+    const connection = new McpConnection(server.name, server, cwd);
+    try {
+      await connection.start();
+      const tools = await connection.listTools();
+      state.connections.push(connection);
+      state.tools.push(...tools);
+      state.status.push({ name: server.name, scope: server.scope, state: `running, ${tools.length} tool(s)` });
+    } catch (error) {
+      connection.close();
+      state.status.push({ name: server.name, scope: server.scope, state: `failed: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
+  return state;
+}
+
+export function closeMcp(state: McpState | undefined) {
+  for (const connection of state?.connections ?? []) connection.close();
+}

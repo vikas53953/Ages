@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
-import { handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { closeState, handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.ts";
 import { formatTokenLine } from "./receipt.ts";
 import { ModelPicker } from "./tui-model-picker.ts";
@@ -540,6 +540,7 @@ export async function createTuiApp(
   function shutdown() {
     if (!alive) return;
     alive = false;
+    closeState(state);
     turnAbort.abort();
     denyWaiters();
     if (elapsedTimer) {
