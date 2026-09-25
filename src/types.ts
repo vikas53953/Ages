@@ -116,6 +116,8 @@ export type ToolRecord = {
   savedRule?: string;
   /** A PreToolUse hook that denied this call or made Aegis ask. */
   hook?: string;
+  /** How many secret-looking values were cut from the output before the model saw it. */
+  redacted?: number;
   /** Set when you chose "always" but the rule could not be saved (the call still ran once). */
   saveFailed?: string;
 };

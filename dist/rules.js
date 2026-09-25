@@ -35,7 +35,23 @@ export function settingsPath(cwd) {
     return path.join(cwd, ".aegis", "settings.json");
 }
 /** Always on, whatever any file says: the lock's own files are asked about even when a rule allows writes. */
-export const FLOOR_ASK = ["write .aegis/*", "edit .aegis/*"];
+export const FLOOR_ASK = [
+    "write .aegis/*",
+    "edit .aegis/*",
+    // Secrets: reading them is asked about every time (no "always"), and output is redacted anyway (redact.ts).
+    "read *.env",
+    "read *.env.*",
+    "read *.pem",
+    "read *.key",
+    "read *.pfx",
+    "read *.p12",
+    "read *.kdbx",
+    "read *id_rsa*",
+    "read *id_ed25519*",
+    "read *id_ecdsa*",
+    "read *.aws/credentials",
+    "read *.ssh/*",
+];
 /** One spelling per folder: the real path, lower-cased on Windows (C:\\Proj and c:\\proj are the same folder). */
 export function projectKey(cwd) {
     let real = path.resolve(cwd);

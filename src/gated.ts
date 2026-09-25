@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { redactSecrets } from "./redact.ts";
 import { loadHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
@@ -374,6 +375,13 @@ export async function runGatedTool(input: {
   }
 
   record.approved = true;
-  const output = await input.execute();
-  return { output, record, decision };
+  return { output: redacted(await input.execute(), record), record, decision };
+}
+
+/** Tool output on its way to the model: secret-looking values are cut and the record says how many. */
+function redacted(output: string, record: ToolRecord) {
+  const cut = redactSecrets(output);
+  if (!cut.count) return output;
+  record.redacted = cut.count;
+  return `${cut.text}\n[Aegis redacted ${cut.count} secret-looking value(s) before this reached you.]`;
 }
