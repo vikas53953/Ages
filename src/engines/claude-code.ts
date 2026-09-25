@@ -29,7 +29,8 @@ export const CLAUDE_CODE_MODEL = "claude-code";
 
 /** Where `claude` is: AEGIS_CLAUDE_BIN, else the first `claude` on PATH. */
 export function findClaude(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (env.AEGIS_CLAUDE_BIN) return existsSync(env.AEGIS_CLAUDE_BIN) ? env.AEGIS_CLAUDE_BIN : undefined;
+  const override = env.AEGIS_CLAUDE_BIN;
+  if (override) return path.isAbsolute(override) ? (existsSync(override) ? override : undefined) : findOnPath(override, env);
   // PATH folders only, never the project folder. On Windows prefer the real program (claude.exe) over npm's claude.cmd shim.
   if (process.platform === "win32") return findOnPath("claude.exe", env) ?? findOnPath("claude", env);
   return findOnPath("claude", env);

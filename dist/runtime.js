@@ -1,4 +1,5 @@
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { attachMentions } from "./mentions.js";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.js";
 import { formatReceipt, localGenerate, runLoop } from "./loop.js";
@@ -308,6 +309,20 @@ turnOptions = {}) {
     const skills = await loadSkills(state.cwd);
     const context = await loadContext(state.cwd);
     const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
+    // @path mentions: each file is read through the lock and attached to the prompt (not in --local mode).
+    const mentioned = useLocal && !opts.generate
+        ? { prompt, records: [] }
+        : await attachMentions({
+            prompt,
+            cwd: state.cwd,
+            config,
+            confirm,
+            settings: loadedSettings.settings,
+            settingsError: loadedSettings.error,
+            abortSignal: opts.abortSignal,
+            onEvent,
+        });
+    prompt = mentioned.prompt;
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
     const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
@@ -370,6 +385,8 @@ turnOptions = {}) {
             mcpTools,
             skills: extensions?.skills,
         });
+    if (mentioned.records.length)
+        receipt.tools.unshift(...mentioned.records);
     if (receipt.tokens) {
         state.sessionTokens.input += receipt.tokens.input;
         state.sessionTokens.output += receipt.tokens.output;

@@ -135,6 +135,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `/skills` · `/skill:<name>` · `/<your-command>` | skills (SKILL.md, loaded when needed) and your own commands from `~/.aegis/commands/*.md`; a project's need `/skills trust` |
 | `/review` · `/review main` · `/review commit <sha>` | a read-only review of your changes with P0–P3 findings and a verdict |
 | explore | the agent hands an open-ended search ("where is login handled?") to a read-only helper on the cheaper model with a fresh context; you get its short report, not every file it read. Each read still passes your rules; allowed by default (`explore *`), also in plan mode |
+| `@path` in a prompt | attaches that file (or lists that folder) to your message, like Claude Code and Pi; each one is a read through your rules, so `deny read .env` keeps it out. `@` autocompletes paths |
 | webfetch | the agent reads a web page when a rule allows its host: `allow webfetch learn.microsoft.com`, `allow webfetch *.github.com`; https only, public addresses only, other-site redirects checked separately; the page is marked as untrusted data |
 | `/todos` | the agent's todo list (shown above the prompt and in Studio while work is open) |
 | `/fork` · `/fork 1` | copy this conversation into a new session and continue there (the original stays; `/resume` it). `/fork 1` leaves out your last turn to try it another way |
@@ -151,6 +152,7 @@ Rules decide first (deny, then ask, then allow). Paths are matched relative to t
 
 - **Yours, for this folder** — `~/.aegis/projects/<id>/settings.json`. "Always allow", `/jev` and `/think` save here, where the agent's tools cannot write. `/status` shows the path.
 - **The project's** — `.aegis/settings.json`, which may come with a cloned repo. Its deny and ask rules, Jev mode and thinking settings always apply. Its **allow rules and plugin list only apply after you `/trust` it**: `/trust` shows what it would add, and `/trust yes` trusts those exact bytes. If the file changes (a `git pull`), it asks again. `/trust off` stops trusting it. In CI you control, use `aegis -p --trust-project` (or `AEGIS_TRUST_PROJECT=1` in the real environment; a project `.env` cannot set it).
+- **Lists add up.** Deny, ask and allow lists in any file add to the defaults; they no longer replace them. To make reads ask, add an ask rule (`"ask": ["read *"]`). An untrusted project file also cannot raise your spend: its thinking level and a busier Jev mode wait for `/trust` (it can still turn Jev off, which only means more questions).
 - **Always on** — the default deny rules (`.git`, `.harness`) and ask rules (deletes, `git push`, firewall, …), plus asking before any write to `.aegis/*`. No file can remove them. A linked (symlinked) `.aegis` folder or settings file is refused.
 
 ### Hooks (Claude Code format, tighten-only)

@@ -13,8 +13,10 @@ let resolvedShell;
  * AEGIS_POWERSHELL overrides it.
  */
 export function powershellExe() {
-    if (process.env.AEGIS_POWERSHELL)
-        return process.env.AEGIS_POWERSHELL;
+    const override = process.env.AEGIS_POWERSHELL;
+    // A bare name is looked up on PATH like everything else (never in the project folder).
+    if (override)
+        return path.isAbsolute(override) ? override : (findOnPath(override) ?? windowsPowerShell());
     if (resolvedShell)
         return resolvedShell;
     // Full paths only: a bare name would let a pwsh.exe in the project folder run instead (see which.ts).

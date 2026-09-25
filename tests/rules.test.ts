@@ -154,13 +154,13 @@ describe("settings file", () => {
     expect(settings.plugins).toEqual(DEFAULT_SETTINGS.plugins);
   });
 
-  it("a trusted file's allow list replaces the default one; deny and ask only add to the floor", async () => {
+  it("lists add up: a trusted file's allow rules join the defaults; deny and ask only add to the floor", async () => {
     const cwd = await tmp();
     await mkdir(path.join(cwd, ".aegis"));
-    await writeFile(settingsPath(cwd), JSON.stringify({ jev: { mode: "off" }, rules: { allow: ["read *"] } }));
+    await writeFile(settingsPath(cwd), JSON.stringify({ jev: { mode: "off" }, rules: { allow: ["read *", "shell npm test"] } }));
     const settings = loadSettings(cwd);
     expect(settings.jev.mode).toBe("off");
-    expect(settings.rules.allow).toEqual(["read *"]);
+    expect(settings.rules.allow).toEqual([...DEFAULT_SETTINGS.rules.allow, "shell npm test"]);
     expect(settings.rules.ask).toEqual([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK]);
   });
 
@@ -198,7 +198,7 @@ describe("settings file", () => {
     expect(JSON.parse(await readFile(settingsPath(cwd), "utf8"))).toEqual({ rules: { allow: ["read *", "shell git status"] } });
     expect(JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")).jev.mode).toBe("every-call");
     expect(loadSettings(cwd).jev.mode).toBe("every-call");
-    expect(loadSettings(cwd).rules.allow).toEqual(["read *", "shell git status"]);
+    expect(loadSettings(cwd).rules.allow).toEqual([...DEFAULT_SETTINGS.rules.allow, "shell git status"]);
     expect(parseJevMode("second")).toBe("second-opinion");
     expect(parseJevMode("every")).toBe("every-call");
     expect(parseJevMode("maybe")).toBeUndefined();

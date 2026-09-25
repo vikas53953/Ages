@@ -80,7 +80,15 @@ export function runOwnedArgv(argv, cwd, opts) {
         let spawnFailed = false;
         let settled = false;
         let output = "";
-        const child = spawn(programPath(command), args, {
+        let program;
+        try {
+            program = programPath(command);
+        }
+        catch (error) {
+            resolve({ exitCode: 127, output: error instanceof Error ? error.message : String(error), executed: false });
+            return;
+        }
+        const child = spawn(program, args, {
             cwd,
             env: checkProcessEnv(opts.env),
             windowsHide: true,

@@ -210,18 +210,25 @@ export function loadSettingsWithTrust(cwd: string): { settings: Settings; trust:
   const m = mine ? parseSettings(mine) : ({ thinking: {} } as Parsed);
   const trusted = !project || trustedByEnv() || readTrust()[projectKey(cwd)] === project.hash;
   const ignored: string[] = [];
+  // An untrusted file may only make things stricter: its deny/ask rules and "jev off" (with Jev off, unscored
+  // calls ask you). Allow rules, plugins, a busier Jev mode and a higher thinking level (your tokens) wait for /trust.
+  const projectJev = trusted || p.jevMode === "off" ? p.jevMode : undefined;
+  const projectThinking = trusted ? p.thinking : {};
   if (project && !trusted) {
     for (const rule of p.allow ?? []) if (!DEFAULT_SETTINGS.rules.allow.includes(rule)) ignored.push(`allow ${rule}`);
     if (p.plugins && p.plugins.join(",") !== DEFAULT_SETTINGS.plugins.join(",")) ignored.push(`plugins [${p.plugins.join(", ")}]`);
+    if (p.jevMode && p.jevMode !== "off") ignored.push(`jev ${p.jevMode}`);
+    if (p.thinking.level) ignored.push(`thinking ${p.thinking.level}`);
   }
   const settings: Settings = {
-    thinking: { level: m.thinking.level ?? p.thinking.level, display: m.thinking.display ?? p.thinking.display },
+    thinking: { level: m.thinking.level ?? projectThinking.level, display: m.thinking.display ?? p.thinking.display },
     plugins: [...(m.plugins ?? (trusted ? p.plugins : undefined) ?? DEFAULT_SETTINGS.plugins)],
-    jev: { mode: m.jevMode ?? p.jevMode ?? DEFAULT_SETTINGS.jev.mode },
+    jev: { mode: m.jevMode ?? projectJev ?? DEFAULT_SETTINGS.jev.mode },
     rules: {
       deny: unique([...DEFAULT_SETTINGS.rules.deny, ...(p.deny ?? []), ...(m.deny ?? [])]),
       ask: unique([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK, ...(p.ask ?? []), ...(m.ask ?? [])]),
-      allow: unique([...((trusted ? p.allow : undefined) ?? DEFAULT_SETTINGS.rules.allow), ...(m.allow ?? [])]),
+      // Lists add up: the default reads stay allowed (to make reads ask, add an ask rule such as "ask read *").
+      allow: unique([...DEFAULT_SETTINGS.rules.allow, ...((trusted ? p.allow : undefined) ?? []), ...(m.allow ?? [])]),
     },
   };
   return { settings, trust: { exists: Boolean(project), trusted, ignored, hash: project?.hash } };
@@ -299,6 +306,23 @@ export function parseJevMode(text: string): JevMode | undefined {
   return undefined;
 }
 
+/** The real path (links, junctions and 8.3 names expanded); for a path that does not exist yet, its nearest
+ * existing folder's real path plus the rest. */
+function realPathOf(absolute: string) {
+  const rest: string[] = [];
+  let current = absolute;
+  for (;;) {
+    try {
+      return path.join(realpathSync.native(current), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return absolute;
+      rest.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 /**
  * What rules match against: the shell command, or the path relative to the working folder with "/" separators.
  * With `cwd`, absolute paths inside the folder become relative ("C:\\proj\\.git\\x" → ".git/x"),
@@ -310,9 +334,11 @@ export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: st
   if (name === "websearch" || name === "explore") return String(args.query ?? args.task ?? "").trim();
   let raw = String(args.path ?? ".");
   if (cwd) {
-    // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too.
-    const resolved = path.resolve(cwd, raw);
-    const relative = path.relative(cwd, resolved);
+    // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too. Real paths on
+    // both sides: a link to .aegis ("cfg/settings.json") or a Windows short name (AEGIS~1) is still ".aegis/…".
+    const root = realPathOf(path.resolve(cwd));
+    const resolved = realPathOf(path.resolve(cwd, raw));
+    const relative = path.relative(root, resolved);
     raw = !relative.startsWith("..") && !path.isAbsolute(relative) ? relative || "." : resolved;
   }
   const clean = path.posix.normalize(raw.replaceAll("\\", "/")).replace(/^\.\//, "");

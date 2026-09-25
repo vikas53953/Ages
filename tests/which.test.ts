@@ -39,3 +39,13 @@ describe("session ids", () => {
     await expect(switchSession(cwd, "a/b")).rejects.toThrow("not a session id");
   });
 });
+
+describe("which: review fixes", () => {
+  it("never falls back to a bare name, and reads quoted PATH entries", async () => {
+    const { programPath } = await import("../src/which.ts");
+    expect(() => programPath("aegis-no-such-program")).toThrow("not found on PATH");
+    const real = await mkdtemp(path.join(os.tmpdir(), "aegis-which-quoted-"));
+    const expected = await fakeProgram(real, "tool");
+    expect(findOnPath("tool", { PATH: `"${real}"`, PATHEXT: ".EXE" })).toBe(expected);
+  });
+});

@@ -169,3 +169,58 @@ describe("PreToolUse hooks can only tighten", () => {
     expect(loadHooks().error).toContain("not valid JSON");
   });
 });
+
+describe("hooks: review fixes (never fail open)", () => {
+  it("JSON Aegis cannot read, or more output than it reads, makes the call a question", async () => {
+    const trailing = await script("trailing", 'process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"deny"}}) + "\\n[debug] done");');
+    expect((await gate(hooks("Write", trailing), [false])).asked[0]!.why).toContain("could not read");
+    const huge = await script("huge", 'process.stdout.write(JSON.stringify({reason:"x".repeat(70000), hookSpecificOutput:{permissionDecision:"deny"}}));');
+    const big = await gate(hooks("Write", huge), [false]);
+    expect(big.ran).toBe(false);
+    expect(big.asked[0]!.why).toContain("more than Aegis reads");
+  });
+
+  it("a decision at the top level counts too", async () => {
+    const top = await script("top", 'process.stdout.write(JSON.stringify({permissionDecision:"deny", permissionDecisionReason:"top-level no"}));');
+    const { run, ran } = await gate(hooks("Write", top));
+    expect(ran).toBe(false);
+    expect(run.output).toContain("top-level no");
+  });
+
+  it("a settings file that exists but cannot be read keeps your guards on (asks)", async () => {
+    await mkdir(path.join(process.env.AEGIS_HOME!, "settings.json"), { recursive: true }); // a folder: EISDIR
+    const config = loadHooks();
+    expect(config.error).toContain("could not be read");
+    expect((await gate(config, [false])).asked).toHaveLength(1);
+  });
+
+  it("a hook's ask on the todo list asks you and never goes to Jev", async () => {
+    const ask = await script("ask2", 'process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"ask"}}));');
+    let scored = 0;
+    let asked = 0;
+    await runGatedTool({
+      name: "todo",
+      args: { path: "." },
+      cwd: dir,
+      config: loadConfig(),
+      settings: allowAll(),
+      hooks: hooks("TodoWrite", ask),
+      jev: {
+        evaluateTurn: async () => {
+          throw new Error("unused");
+        },
+        evaluateTool: async () => {
+          scored += 1;
+          throw new Error("must not score");
+        },
+      },
+      confirm: async () => {
+        asked += 1;
+        return true;
+      },
+      execute: async () => "ok",
+    });
+    expect(scored).toBe(0);
+    expect(asked).toBe(1);
+  });
+});

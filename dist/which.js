@@ -23,7 +23,11 @@ export function findOnPath(name, env = process.env) {
     if (name.includes("/") || name.includes("\\"))
         return isFile(name) ? path.resolve(name) : undefined;
     const pathVar = env.PATH ?? env.Path ?? "";
-    const dirs = pathVar.split(path.delimiter).filter((dir) => dir && path.isAbsolute(dir));
+    // Windows PATH entries may be quoted ("C:\\Program Files\\Git\\cmd"); relative entries (".", "bin") are skipped.
+    const dirs = pathVar
+        .split(path.delimiter)
+        .map((dir) => dir.trim().replace(/^"(.*)"$/, "$1"))
+        .filter((dir) => dir && path.isAbsolute(dir));
     const win = process.platform === "win32";
     const exts = win ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [""];
     const hasExt = win && exts.some((ext) => name.toLowerCase().endsWith(ext.toLowerCase()));
@@ -43,9 +47,15 @@ export function findOnPath(name, env = process.env) {
     }
     return undefined;
 }
-/** A program to spawn: the full path when found, else the name (the spawn then fails with "not found"). */
+/**
+ * A program to spawn, by full path. Not found → an error, never the bare name: on Windows a bare name would be
+ * looked up in the project folder first, which is exactly what this file exists to prevent.
+ */
 export function programPath(name) {
-    return findOnPath(name) ?? name;
+    const found = findOnPath(name);
+    if (!found)
+        throw new Error(`${name} was not found on PATH`);
+    return found;
 }
 /** A Windows tool from System32 by full path (taskkill, icacls, rundll32, where). */
 export function system32(name) {

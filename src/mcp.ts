@@ -273,15 +273,16 @@ export async function startMcp(cwd: string): Promise<McpState> {
       });
       continue;
     }
-    const connection = new McpConnection(server.name, server, cwd);
+    let connection: McpConnection | undefined;
     try {
+      connection = new McpConnection(server.name, server, cwd);
       await connection.start();
       const tools = (await connection.listTools()).filter((tool) => !state.tools.some((known) => known.name === tool.name));
       state.connections.push(connection);
       state.tools.push(...tools);
       state.status.push({ name: server.name, scope: server.scope, state: `running, ${tools.length} tool(s)` });
     } catch (error) {
-      connection.close();
+      connection?.close();
       state.status.push({ name: server.name, scope: server.scope, state: `failed: ${error instanceof Error ? error.message : String(error)}` });
     }
   }

@@ -171,7 +171,8 @@ export async function runGatedTool(input) {
         };
     }
     let decision;
-    if (input.jev && wantsJev(settings, input.name, rule)) {
+    // The todo list is never scored, even when a hook made it a question: it changes nothing outside the chat.
+    if (input.jev && !INTERNAL_TOOLS.has(input.name) && wantsJev(settings, input.name, rule)) {
         const scorer = input.jev;
         const evaluation = await raceAbort(scorer
             .evaluateTool({

@@ -1,6 +1,6 @@
 import { hasJevCredentials } from "../../env.ts";
 import type { AegisPlugin } from "../../plugin-api.ts";
-import { loadSettingsSafe, parseJevMode, saveJevMode, settingsPath } from "../../rules.ts";
+import { loadSettingsSafe, parseJevMode, saveJevMode, settingsPath, yourSettingsPath } from "../../rules.ts";
 import { initialJevHealth } from "../../health.ts";
 import { liveJev } from "./evaluate.ts";
 import { mockJev } from "./mock.ts";
@@ -15,7 +15,7 @@ export function jevPlugin(opts: { mockJev?: boolean } = {}): AegisPlugin {
     scorer: opts.mockJev ? mockJev() : liveJev(),
     help: [
       "  /jev               show Jev mode and key",
-      "  /jev off|second|every  set Jev mode in .aegis/settings.json",
+      "  /jev off|second|every  set Jev mode for this folder (saved in your ~/.aegis)",
     ],
     commands: {
       jev: async (arg, { state, opts: runOpts }) => {
@@ -28,13 +28,13 @@ export function jevPlugin(opts: { mockJev?: boolean } = {}): AegisPlugin {
           }
           saveJevMode(state.cwd, mode);
           state.jevHealth = initialJevHealth(runOpts.mockJev === true, mode);
-          return { output: `jev mode ${mode}  (saved to ${settingsPath(state.cwd)})`, session: state.session };
+          return { output: `jev mode ${mode}  (saved to ${yourSettingsPath(state.cwd)})`, session: state.session };
         }
         return {
           output: [
             `jev mode  ${loaded.settings.jev.mode}${loaded.error ? `  (settings unreadable: ${loaded.error})` : ""}`,
             `jev key   ${hasJevCredentials() ? "present" : "missing"}`,
-            `settings  ${settingsPath(state.cwd)}`,
+            `settings  ${yourSettingsPath(state.cwd)}`,
             "modes     off · second (only calls no rule matches) · every (also every write/edit/shell)",
           ].join("\n"),
           session: state.session,

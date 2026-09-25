@@ -140,3 +140,26 @@ describe("a cloned repo's .aegis/settings.json cannot loosen the lock", () => {
     expect(loadSettings(cwd).rules.allow).toContain("write *");
   });
 });
+
+describe("trust: review fixes", () => {
+  it("a link to .aegis (or a Windows short name) is still .aegis to the rules", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-trust-alias-"));
+    await mkdir(path.join(cwd, ".aegis"));
+    try {
+      await symlink(path.join(cwd, ".aegis"), path.join(cwd, "cfg"), "junction");
+    } catch {
+      return; // no link rights on this Windows account
+    }
+    const settings = loadSettings(cwd);
+    expect(matchRule(settings, "write", { path: "cfg/settings.json" }, cwd)?.action).toBe("ask");
+    expect(matchRule(settings, "edit", { path: path.join(cwd, "cfg", "new.json") }, cwd)?.action).toBe("ask");
+  });
+
+  it("an untrusted file cannot raise your spend: its thinking level and a busier Jev mode wait for /trust", async () => {
+    const cwd = await project({ jev: { mode: "every-call" }, thinking: { level: "high" } });
+    const { settings, trust } = loadSettingsWithTrust(cwd);
+    expect(settings.jev.mode).toBe(DEFAULT_SETTINGS.jev.mode);
+    expect(settings.thinking?.level).toBeUndefined();
+    expect(trust.ignored).toEqual(["jev every-call", "thinking high"]);
+  });
+});

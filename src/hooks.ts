@@ -90,8 +90,10 @@ export function loadHooks(): HookConfig {
   let text: string;
   try {
     text = readFileSync(hooksFile(), "utf8");
-  } catch {
-    return { PreToolUse: [] };
+  } catch (error) {
+    // No file: no hooks. Any other failure (locked by an editor, a folder, no access) must not drop your guards.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { PreToolUse: [] };
+    return { PreToolUse: [], error: `${hooksFile()} could not be read (${(error as Error).message})` };
   }
   try {
     const parsed = JSON.parse(text) as { hooks?: unknown };
@@ -119,7 +121,7 @@ export function matcherMatches(matcher: string, names: string[]) {
 }
 
 function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: AbortSignal) {
-  return new Promise<{ code: number | null; stdout: string; stderr: string; failed?: string }>((resolve) => {
+  return new Promise<{ code: number | null; stdout: string; stderr: string; failed?: string; truncated?: boolean }>((resolve) => {
     const env = { ...process.env, CLAUDE_PROJECT_DIR: cwd, AEGIS_PROJECT_DIR: cwd };
     let child;
     try {
@@ -139,13 +141,14 @@ function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: Abort
     }
     let stdout = "";
     let stderr = "";
+    let truncated = false;
     let done = false;
     const finish = (result: { code: number | null; failed?: string }) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      resolve({ ...result, stdout, stderr });
+      resolve({ ...result, stdout, stderr, truncated });
     };
     const kill = () => {
       try {
@@ -164,7 +167,8 @@ function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: Abort
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk.toString("utf8");
+      if (stdout.length + chunk.length > MAX_OUTPUT) truncated = true;
+      if (stdout.length < MAX_OUTPUT) stdout = (stdout + chunk.toString("utf8")).slice(0, MAX_OUTPUT);
     });
     child.stderr.on("data", (chunk: Buffer) => {
       if (stderr.length < MAX_OUTPUT) stderr += chunk.toString("utf8");
@@ -182,22 +186,28 @@ function label(hook: HookCommand) {
 }
 
 /** Read one hook's answer. Only deny and ask count; allow and anything else mean "no objection". */
-function verdictOf(result: { code: number | null; stdout: string; stderr: string; failed?: string }, hook: HookCommand): HookVerdict {
+function verdictOf(
+  result: { code: number | null; stdout: string; stderr: string; failed?: string; truncated?: boolean },
+  hook: HookCommand,
+): HookVerdict {
   const name = label(hook);
   if (result.failed) return { action: "ask", reason: `hook ${name} failed (${result.failed}), so Aegis asks`, hook: name };
   if (result.code === 2) return { action: "deny", reason: result.stderr.trim().slice(0, 500) || `blocked by hook ${name}`, hook: name };
   if (result.code !== 0) return { action: "ask", reason: `hook ${name} exited with ${result.code}, so Aegis asks`, hook: name };
   const text = result.stdout.trim();
+  // Plain text is "no objection". Text that starts like JSON but cannot be read was meant as an answer: ask.
   if (!text.startsWith("{")) return undefined;
+  if (result.truncated) return { action: "ask", reason: `hook ${name} printed more than Aegis reads, so Aegis asks`, hook: name };
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(text) as Record<string, unknown>;
   } catch {
-    return undefined;
+    return { action: "ask", reason: `hook ${name} printed JSON Aegis could not read, so Aegis asks`, hook: name };
   }
-  const specific = (parsed.hookSpecificOutput ?? {}) as Record<string, unknown>;
-  const decision = String(specific.permissionDecision ?? parsed.decision ?? "").toLowerCase();
-  const why = String(specific.permissionDecisionReason ?? parsed.reason ?? "").slice(0, 500);
+  const specific = (parsed.hookSpecificOutput && typeof parsed.hookSpecificOutput === "object" ? parsed.hookSpecificOutput : {}) as Record<string, unknown>;
+  // Claude Code reads hookSpecificOutput; a decision given at the top level counts too (tighten-only, so no harm).
+  const decision = String(specific.permissionDecision ?? parsed.permissionDecision ?? parsed.decision ?? "").toLowerCase();
+  const why = String(specific.permissionDecisionReason ?? parsed.permissionDecisionReason ?? parsed.reason ?? "").slice(0, 500);
   if (decision === "deny" || decision === "block") return { action: "deny", reason: why || `blocked by hook ${name}`, hook: name };
   if (decision === "ask") return { action: "ask", reason: why || `hook ${name} wants you to decide`, hook: name };
   if (parsed.continue === false) return { action: "deny", reason: String(parsed.stopReason ?? "") || `blocked by hook ${name}`, hook: name };

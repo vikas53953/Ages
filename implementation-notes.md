@@ -127,3 +127,15 @@
   - It is not offered in `--local` mode or inside the helper itself. It is allowed by default (`explore *`) and in plan mode, and `deny explore *` turns it off.
   - Why: reading many files in the main conversation costs frontier tokens on every later turn; the helper's reads stay out of the history.
 - `/fork [n]` (Pi's /fork, Claude Code's `--fork-session`): a new session with the conversation, minus your last n turns. The summary goes along, because it covers older turns; the todo list goes along only for a full copy. The original is untouched and can be resumed. `/branch` is an alias.
+- Fixes from the review of hooks, trust and which.ts:
+  - P1: hooks no longer fail open on JSON Aegis cannot parse (trailing debug text), on output over the 64 KB cap, or on a decision given at the top level. The first two ask; a top-level `permissionDecision` is honoured.
+  - P2: a hooks settings file that exists but cannot be read (locked by an editor, a folder, no access) now asks instead of silently dropping every hook. Only a missing file means "no hooks".
+  - P2: rules resolve paths through real paths on both sides, so a link or junction to `.aegis`, or a Windows 8.3 short name (`AEGIS~1`), still meets the floor `ask write .aegis/*`. This also hardens the `.git` deny rules. The test fails with real paths switched off.
+  - P2: `programPath` throws when a program is not on PATH instead of returning the bare name, which Windows would look up in the project folder first. Quoted PATH entries are read. A bare `AEGIS_POWERSHELL`/`AEGIS_CLAUDE_BIN` is looked up on PATH.
+  - P3:
+    - A hook's "ask" on the todo list goes to you, never to Jev.
+    - `/jev` names the file it really saves to.
+    - An untrusted project file's thinking level and a busier Jev mode wait for /trust (both cost your tokens). "jev off" still applies because it is stricter.
+    - Allow lists add up with the defaults, like deny and ask. A trusted `allow: ["write src/*"]` no longer makes every read ask.
+  - Documented: Claude Code engine's bookkeeping tools (TodoWrite, Task*, ExitPlanMode) do not reach Aegis's gate, so Aegis hooks do not see them there.
+- `@path` mentions (Claude Code, Pi): every `@path` that exists inside the folder (10 at most) is read through the lock and attached as `<attached path="…">`. A refused one is noted in the prompt, and emails or outside paths stay plain text. The reads appear first in the turn's receipt. Mentions are skipped in `--local` mode, where the planner reads the prompt itself.
