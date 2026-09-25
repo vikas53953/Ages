@@ -444,7 +444,7 @@ export async function runPrompt(
     ? await runClaudeCodeTurn({
         // Claude Code is sent text: it opens an attached image with its own Read tool (which passes the lock).
         prompt: mentioned.images.length
-          ? `${mentioned.prompt}\n\nOpen the attached image(s) with your Read tool to see them: ${mentioned.images.map((image) => image.path).join(", ")}`
+          ? `${mentioned.prompt}\n\nOpen the attached image(s) with your Read tool to see them: ${mentioned.images.map((image) => JSON.stringify(image.path)).join(", ")}`
           : mentioned.prompt,
         cwd: state.cwd,
         sessionId: session.id,

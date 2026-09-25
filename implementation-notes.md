@@ -272,3 +272,10 @@
   - A model that cannot see images (DeepSeek chat, Jev, the local planner) gets only the note, and a notice tells you to switch with `/model`.
   - The Claude Code engine is sent text, and Claude opens the image with its own Read (which passes the hook lock). Sending image blocks through `--input-format stream-json` needs a live `claude` to test, so it is left for later.
   - Not done yet: the agent's `read` tool returning an image, and paste or drop in Studio.
+  - Fixes from the review of images (`cf729bb`); it found no way around the rules:
+    - The file is opened once, and at most 5 MB + 1 byte is read from that handle, so a file that grows after the size check cannot slip through.
+    - A named file that turns out not to be an image is still an allowed read, so it keeps its receipt record.
+    - A pasted `x.png` that is a link to `.env` is not treated as an image. The same image named twice is sent once (compared by real path).
+    - The path in the note is quoted, so a file name cannot pass itself off as the note's own words. The note also gives a token estimate.
+    - Images are sent as AI SDK `file` parts; the `image` part is deprecated.
+    - Vision check: a `vendor/` prefix is ignored, and Qwen 3.5+ and Kimi K2.5+ count as seeing images.

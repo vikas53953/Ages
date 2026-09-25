@@ -4,7 +4,7 @@
  * they are attached. Saved history keeps a one-line note instead of the bytes, so sessions stay small and a
  * later rule change is respected the next time the image is attached.
  */
-import { readFile, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import { inferEntry, normalizeModelId } from "./catalog.ts";
 import { assertInsideCwd } from "./env.ts";
@@ -35,10 +35,25 @@ export function sniffImage(buf: Uint8Array): ImageMediaType | undefined {
 /** Read one image inside the folder: size checked before reading, type from its bytes. Throws with a plain reason. */
 export async function loadImage(file: string, cwd: string): Promise<ImageAttachment> {
   const full = await assertInsideCwd(file, cwd);
-  const info = await stat(full);
-  if (!info.isFile()) throw new Error(`${file} is not a file`);
-  if (info.size > MAX_IMAGE_BYTES) throw new Error(`${file} is ${formatKb(info.size)}; images are limited to ${formatKb(MAX_IMAGE_BYTES)}`);
-  const buf = await readFile(full);
+  // One open file: the size checked is the size read, even if the file changes meanwhile.
+  const handle = await open(full, "r");
+  let buf: Buffer;
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error(`${file} is not a file`);
+    if (info.size > MAX_IMAGE_BYTES) throw new Error(`${file} is ${formatKb(info.size)}; images are limited to ${formatKb(MAX_IMAGE_BYTES)}`);
+    const room = Buffer.alloc(MAX_IMAGE_BYTES + 1);
+    let length = 0;
+    for (;;) {
+      const { bytesRead } = await handle.read(room, length, room.length - length, length);
+      if (!bytesRead) break;
+      length += bytesRead;
+      if (length > MAX_IMAGE_BYTES) throw new Error(`${file} grew past ${formatKb(MAX_IMAGE_BYTES)} while it was read`);
+    }
+    buf = room.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
   const mediaType = sniffImage(buf);
   if (!mediaType) throw new Error(`${file} is not a PNG, JPEG, GIF or WebP image`);
   return { path: file, mediaType, bytes: buf.length, data: buf.toString("base64") };
@@ -49,8 +64,9 @@ function formatKb(bytes: number) {
 }
 
 /** What history keeps (and what the model reads next to the image). */
-export function imageNote(image: Pick<ImageAttachment, "path" | "mediaType" | "bytes">) {
-  return `[image: ${image.path}, ${image.mediaType}, ${formatKb(image.bytes)}. Sent with this message only; mention it again to re-send]`;
+export function imageNote(image: ImageAttachment) {
+  // The path quoted: a file name cannot pass itself off as the note's own words.
+  return `[image: ${JSON.stringify(image.path)}, ${image.mediaType}, ${formatKb(image.bytes)}, about ${estimateImageTokens(image)} tokens. Sent with this message only; mention it again to re-send]`;
 }
 
 /** Width × height from the header (PNG IHDR, JPEG SOF, GIF, WebP VP8/VP8L/VP8X), or undefined. */
@@ -105,9 +121,15 @@ export function estimateImageTokens(image: Pick<ImageAttachment, "data">) {
  * rest, only ids that say so (vision, -vl). Jev and the local planner cannot.
  */
 export function modelSeesImages(modelId: string) {
-  const id = normalizeModelId(modelId);
+  // "openai/gpt-5.5", "anthropic/claude-sonnet-5": the vendor prefix does not change the model.
+  const id = normalizeModelId(modelId).replace(/^[a-z0-9-]+\//, "");
+  // Families that see images from these versions on (Qwen 3.5+, Kimi K2.5+ are natively multimodal).
+  const qwen = /^qwen(\d+)\.?(\d*)/.exec(id);
+  if (qwen) return Number(`${qwen[1]}.${qwen[2] || 0}`) >= 3.5 || /vl|vision|omni/.test(id);
+  const kimi = /^kimi-k(\d+)\.?(\d*)/.exec(id);
+  if (kimi) return Number(`${kimi[1]}.${kimi[2] || 0}`) >= 2.5;
   const api = inferEntry(id).api;
-  if (api === "responses" || api === "messages" || api === "gemini") return !/^qwen/.test(id) || /vl|vision|omni/.test(id);
+  if (api === "responses" || api === "messages" || api === "gemini") return true;
   if (api === "chat") return /vision|(?:^|[-.])vl(?:$|[-.])|omni/.test(id);
   return false;
 }

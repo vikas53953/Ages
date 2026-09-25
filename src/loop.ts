@@ -579,7 +579,7 @@ export async function runLoop(input: {
     {
       role: "user" as const,
       content: images.length
-        ? [{ type: "text", text: userText }, ...images.map((image) => ({ type: "image", image: image.data, mediaType: image.mediaType }))]
+        ? [{ type: "text", text: userText }, ...images.map((image) => ({ type: "file", data: image.data, mediaType: image.mediaType }))]
         : userText,
       at: new Date().toISOString(),
     },

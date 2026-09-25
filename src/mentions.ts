@@ -57,6 +57,8 @@ export function findPastedImages(prompt: string, cwd: string, skip: string[] = [
     const info = existingInside(raw, cwd);
     if (!info?.isFile()) continue;
     const relative = shownPath(path.relative(realpathSync.native(cwd), realpathSync.native(path.resolve(cwd, raw))), cwd);
+    // A link named x.png that leads to .env stays out of the image path (and out of this list).
+    if (!isImagePath(relative)) continue;
     if (!found.includes(relative) && !skip.includes(relative) && !skip.includes(raw)) found.push(relative);
   }
   return found;
@@ -79,6 +81,8 @@ export async function attachMentions(input: {
   const blocks: string[] = [];
   const notes: string[] = [];
   const images: ImageAttachment[] = [];
+  // The same file named twice (@link.png and its target) is attached once.
+  const seenImages = new Set<string>();
   const records: ToolRecord[] = [];
   // A random tag per turn: a file cannot end its block early by containing the closing tag.
   const tag = `attached_file_${randomBytes(4).toString("hex")}`;
@@ -86,6 +90,9 @@ export async function attachMentions(input: {
   for (const mention of mentions) {
     // An image goes to the model as an image (after the same lock as any read); the text gets a note.
     if (isImagePath(mention) && existingInside(mention, input.cwd)?.isFile()) {
+      const real = realpathSync.native(path.resolve(input.cwd, mention));
+      if (seenImages.has(real)) continue;
+      seenImages.add(real);
       if (images.length >= MAX_IMAGES_PER_TURN) {
         notes.push(`(${mention} was not attached: at most ${MAX_IMAGES_PER_TURN} images per message)`);
         continue;
@@ -102,14 +109,20 @@ export async function attachMentions(input: {
           settingsError: input.settingsError,
           abortSignal: input.abortSignal,
           onEvent: input.onEvent,
+          // A file that is not a usable image is an allowed read that failed: it still gets its record.
           execute: async () => {
-            image = await loadImage(mention, input.cwd);
-            return imageNote(image);
+            try {
+              image = await loadImage(mention, input.cwd);
+              return imageNote(image);
+            } catch (error) {
+              return error instanceof Error ? error.message : String(error);
+            }
           },
         });
         records.push(run.record);
         input.onEvent?.({ type: "tool", record: run.record });
-        if (!run.record.approved || !image) notes.push(`(${mention} was not attached: ${run.record.deniedReason ?? "not allowed"})`);
+        if (!run.record.approved) notes.push(`(${mention} was not attached: ${run.record.deniedReason ?? "not allowed"})`);
+        else if (!image) notes.push(`(${mention} was not attached: ${run.output})`);
         else {
           images.push(image);
           notes.push(run.output);
