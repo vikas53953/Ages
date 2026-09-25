@@ -29,6 +29,25 @@ export type SkillEntry = {
   argumentHint?: string;
 };
 export type CommandEntry = { name: string; description: string; file: string; scope: Scope; source: string; argumentHint?: string };
+/** A custom agent (Claude Code's agents/<name>.md format): its own instructions and tool list, behind the same lock. */
+export type AgentEntry = {
+  name: string;
+  description: string;
+  file: string;
+  scope: Scope;
+  source: string;
+  /** Aegis tool names it may use; read, grep and glob when the file names none. */
+  tools: string[];
+  /** "cheap" for the cheaper model; anything else uses the turn's model. */
+  model: "cheap" | "inherit";
+};
+
+/** Tool names an agent file may list (Aegis's, or Claude Code's), and what they become. Others are ignored. */
+const AGENT_TOOLS: Record<string, string> = {
+  read: "read", grep: "grep", glob: "glob", skill: "skill", webfetch: "webfetch", websearch: "websearch",
+  write: "write", edit: "edit", multi_edit: "multi_edit", multiedit: "multi_edit", shell: "shell", bash: "shell", powershell: "shell",
+};
+export const DEFAULT_AGENT_TOOLS = ["read", "grep", "glob"];
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_FILE = 200_000;
@@ -71,6 +90,12 @@ function roots(cwd: string) {
     commands: [
       { dir: path.join(cwd, ".aegis", "commands"), scope: "project" as const, source: ".aegis/commands" },
       { dir: path.join(userAegisDir(), "commands"), scope: "user" as const, source: "~/.aegis/commands" },
+    ],
+    agents: [
+      { dir: path.join(cwd, ".aegis", "agents"), scope: "project" as const, source: ".aegis/agents" },
+      { dir: path.join(cwd, ".claude", "agents"), scope: "project" as const, source: ".claude/agents" },
+      { dir: path.join(userAegisDir(), "agents"), scope: "user" as const, source: "~/.aegis/agents" },
+      { dir: path.join(home, ".claude", "agents"), scope: "user" as const, source: "~/.claude/agents" },
     ],
   };
 }
@@ -145,18 +170,70 @@ async function scanCommands(cwd: string) {
   return found;
 }
 
+async function scanAgents(cwd: string) {
+  const found: AgentEntry[] = [];
+  for (const root of roots(cwd).agents) {
+    let names: string[] = [];
+    try {
+      names = (await readdir(root.dir)).filter((name) => name.endsWith(".md")).sort();
+    } catch {
+      continue;
+    }
+    for (const fileName of names) {
+      const file = path.join(root.dir, fileName);
+      const text = await readSmall(file).catch(() => undefined);
+      if (!text) continue;
+      const { data, body } = parseFrontmatter(text);
+      const declared = typeof data.name === "string" ? data.name.trim().toLowerCase() : "";
+      const name = NAME.test(declared) ? declared : fileName.slice(0, -3).toLowerCase();
+      if (!NAME.test(name) || !body.trim()) continue;
+      const listed = typeof data.tools === "string"
+        ? data.tools.split(/[,\s]+/).map((tool) => AGENT_TOOLS[tool.trim().toLowerCase()]).filter((tool): tool is string => Boolean(tool))
+        : [];
+      found.push({
+        name,
+        description: String(data.description ?? "").replace(/\s+/g, " ").slice(0, 500),
+        file,
+        scope: root.scope,
+        source: root.source,
+        tools: listed.length ? [...new Set(listed)] : [...DEFAULT_AGENT_TOOLS],
+        model: /^(cheap|haiku|fast)$/i.test(String(data.model ?? "")) ? "cheap" : "inherit",
+      });
+    }
+  }
+  return found;
+}
+
+/** An agent's instructions (the body of its file), read when it runs so an edit applies at once. */
+export async function agentInstructions(agent: AgentEntry) {
+  const text = await readSmall(agent.file);
+  return text ? parseFrontmatter(text).body.trim() : "";
+}
+
+/** The system prompt block for custom agents: names and descriptions only. */
+export function agentsPromptBlock(agents: AgentEntry[]) {
+  if (!agents.length) return "";
+  const lines = ["## Agents", "Hand a task to one of these with the agent tool when it matches; it works in a fresh conversation and reports back:"];
+  for (const agent of agents.slice(0, 30)) lines.push(`- ${agent.name}: ${agent.description || "(no description)"} [tools: ${agent.tools.join(", ")}]`);
+  return lines.join("\n");
+}
+
 function trustFile() {
   return path.join(userAegisDir(), "extensions-trust.json");
 }
 
 /** One hash over every project skill and command file (path + content): change anything and trust is gone. */
-async function projectFingerprint(skills: SkillEntry[], commands: CommandEntry[], cwd: string) {
+async function projectFingerprint(skills: SkillEntry[], commands: CommandEntry[], cwd: string, agents: AgentEntry[] = []) {
   const hash = createHash("sha256").update(path.resolve(cwd));
   const skillFiles: string[] = [];
   for (const skill of skills.filter((row) => row.scope === "project")) {
     skillFiles.push(skill.file, ...(await listFiles(skill.dir, 200)).map((file) => path.join(skill.dir, file)));
   }
-  const files = [...skillFiles, ...commands.filter((command) => command.scope === "project").map((command) => command.file)].sort();
+  const files = [
+    ...skillFiles,
+    ...commands.filter((command) => command.scope === "project").map((command) => command.file),
+    ...agents.filter((agent) => agent.scope === "project").map((agent) => agent.file),
+  ].sort();
   for (const file of files) {
     hash.update(`\0${path.relative(cwd, file)}\0`);
     hash.update(await readFile(file).catch(() => Buffer.alloc(0)));
@@ -175,6 +252,7 @@ function readTrust(): Record<string, string> {
 export type Extensions = {
   skills: SkillEntry[];
   commands: CommandEntry[];
+  agents: AgentEntry[];
   /** Project skills/commands exist but are not trusted (as they are now). */
   untrustedProject: number;
 };
@@ -183,19 +261,20 @@ export type Extensions = {
 export async function loadExtensions(cwd: string): Promise<Extensions> {
   const skills = await scanSkills(cwd);
   const commands = await scanCommands(cwd);
-  const print = await projectFingerprint(skills, commands, cwd);
+  const agents = await scanAgents(cwd);
+  const print = await projectFingerprint(skills, commands, cwd, agents);
   const trusted = print.count > 0 && readTrust()[path.resolve(cwd)] === print.hash;
   const usable = (scope: Scope) => scope === "user" || trusted;
   const pick = <T extends { name: string; scope: Scope }>(rows: T[]) => {
     const seen = new Set<string>();
     return rows.filter((row) => usable(row.scope) && !seen.has(row.name) && (seen.add(row.name), true));
   };
-  return { skills: pick(skills), commands: pick(commands), untrustedProject: trusted ? 0 : print.count };
+  return { skills: pick(skills), commands: pick(commands), agents: pick(agents), untrustedProject: trusted ? 0 : print.count };
 }
 
 /** /skills trust: trust this project's skills and commands exactly as they are now. */
 export async function trustProjectExtensions(cwd: string) {
-  const print = await projectFingerprint(await scanSkills(cwd), await scanCommands(cwd), cwd);
+  const print = await projectFingerprint(await scanSkills(cwd), await scanCommands(cwd), cwd, await scanAgents(cwd));
   if (!print.count) return 0;
   const trust = readTrust();
   trust[path.resolve(cwd)] = print.hash;

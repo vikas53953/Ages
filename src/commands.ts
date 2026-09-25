@@ -64,6 +64,7 @@ export function parseLine(line: string): Slash {
     case "mem":
       return { type: "memory", note: arg || undefined };
     case "skills":
+    case "agents":
       return { type: "skills", action: rest[0]?.toLowerCase() };
     case "compact":
       return { type: "compact" };
@@ -136,7 +137,7 @@ export const HELP = [
   "  /resume <n>        continue conversation n from /sessions (or /resume <id>); /resume alone lists them",
   "  /memory            show memory notes",
   "  /memory <note>     remember a note; /memory remove <n> forgets one",
-  "  /skills            skills and custom commands (yours, and this project's once you /skills trust them)",
+  "  /skills            skills, custom commands and agents (yours, and this project's once you /skills trust them); /agents too",
   "  /skill:<name>      use a skill now (add what to do after it)",
   "  /compact           fold old turns into a summary (also automatic when history is big)",
   "  /clear             start a new session",

@@ -392,6 +392,8 @@ export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: st
   if (name === "shell") return String(args.command ?? "").trim();
   if (name === "webfetch") return urlHost(args.url);
   if (name === "websearch" || name === "explore") return String(args.query ?? args.task ?? "").trim();
+  // "allow agent reviewer" names the agent; what it then does passes the lock call by call.
+  if (name === "agent") return String(args.name ?? "").trim();
   let raw = String(args.path ?? ".");
   if (cwd) {
     // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too. Real paths on
@@ -560,6 +562,11 @@ function suggestAllowRuleUncapped(
 ) {
   if (matched) return undefined;
   if (name === "explore") return "explore *"; // it only reads, and each of its reads passes the lock too
+  // That one agent; what it does still passes the lock call by call.
+  if (name === "agent") {
+    const agent = ruleTarget(name, args);
+    return /^[a-z0-9][a-z0-9-]{0,63}$/.test(agent) ? `agent ${agent}` : undefined;
+  }
   if (name === "webfetch") {
     // "Always allow" for that exact host only.
     const host = urlHost(args.url);
@@ -635,7 +642,7 @@ export function describeRules(cwd: string): RuleRow[] {
 
 /** Add a deny or ask rule to YOUR settings for this folder (only stricter: allow comes from answering "a"). */
 /** Tool names a rule can name (mcp__server__tool, with * for a whole server, too). */
-export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "websearch", "skill", "explore", "todo"];
+export const RULE_TOOLS = ["read", "grep", "glob", "write", "edit", "shell", "webfetch", "websearch", "skill", "explore", "agent", "todo"];
 
 export function saveYourRule(cwd: string, action: "deny" | "ask", rule: string) {
   if (!rule.trim()) throw new Error("no rule given");

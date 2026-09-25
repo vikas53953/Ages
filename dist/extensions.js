@@ -16,6 +16,12 @@ import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { userAegisDir } from "./env.js";
+/** Tool names an agent file may list (Aegis's, or Claude Code's), and what they become. Others are ignored. */
+const AGENT_TOOLS = {
+    read: "read", grep: "grep", glob: "glob", skill: "skill", webfetch: "webfetch", websearch: "websearch",
+    write: "write", edit: "edit", multi_edit: "multi_edit", multiedit: "multi_edit", shell: "shell", bash: "shell", powershell: "shell",
+};
+export const DEFAULT_AGENT_TOOLS = ["read", "grep", "glob"];
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_FILE = 200_000;
 const MAX_PROMPT_BLOCK = 8_000;
@@ -59,6 +65,12 @@ function roots(cwd) {
         commands: [
             { dir: path.join(cwd, ".aegis", "commands"), scope: "project", source: ".aegis/commands" },
             { dir: path.join(userAegisDir(), "commands"), scope: "user", source: "~/.aegis/commands" },
+        ],
+        agents: [
+            { dir: path.join(cwd, ".aegis", "agents"), scope: "project", source: ".aegis/agents" },
+            { dir: path.join(cwd, ".claude", "agents"), scope: "project", source: ".claude/agents" },
+            { dir: path.join(userAegisDir(), "agents"), scope: "user", source: "~/.aegis/agents" },
+            { dir: path.join(home, ".claude", "agents"), scope: "user", source: "~/.claude/agents" },
         ],
     };
 }
@@ -137,17 +149,71 @@ async function scanCommands(cwd) {
     }
     return found;
 }
+async function scanAgents(cwd) {
+    const found = [];
+    for (const root of roots(cwd).agents) {
+        let names = [];
+        try {
+            names = (await readdir(root.dir)).filter((name) => name.endsWith(".md")).sort();
+        }
+        catch {
+            continue;
+        }
+        for (const fileName of names) {
+            const file = path.join(root.dir, fileName);
+            const text = await readSmall(file).catch(() => undefined);
+            if (!text)
+                continue;
+            const { data, body } = parseFrontmatter(text);
+            const declared = typeof data.name === "string" ? data.name.trim().toLowerCase() : "";
+            const name = NAME.test(declared) ? declared : fileName.slice(0, -3).toLowerCase();
+            if (!NAME.test(name) || !body.trim())
+                continue;
+            const listed = typeof data.tools === "string"
+                ? data.tools.split(/[,\s]+/).map((tool) => AGENT_TOOLS[tool.trim().toLowerCase()]).filter((tool) => Boolean(tool))
+                : [];
+            found.push({
+                name,
+                description: String(data.description ?? "").replace(/\s+/g, " ").slice(0, 500),
+                file,
+                scope: root.scope,
+                source: root.source,
+                tools: listed.length ? [...new Set(listed)] : [...DEFAULT_AGENT_TOOLS],
+                model: /^(cheap|haiku|fast)$/i.test(String(data.model ?? "")) ? "cheap" : "inherit",
+            });
+        }
+    }
+    return found;
+}
+/** An agent's instructions (the body of its file), read when it runs so an edit applies at once. */
+export async function agentInstructions(agent) {
+    const text = await readSmall(agent.file);
+    return text ? parseFrontmatter(text).body.trim() : "";
+}
+/** The system prompt block for custom agents: names and descriptions only. */
+export function agentsPromptBlock(agents) {
+    if (!agents.length)
+        return "";
+    const lines = ["## Agents", "Hand a task to one of these with the agent tool when it matches; it works in a fresh conversation and reports back:"];
+    for (const agent of agents.slice(0, 30))
+        lines.push(`- ${agent.name}: ${agent.description || "(no description)"} [tools: ${agent.tools.join(", ")}]`);
+    return lines.join("\n");
+}
 function trustFile() {
     return path.join(userAegisDir(), "extensions-trust.json");
 }
 /** One hash over every project skill and command file (path + content): change anything and trust is gone. */
-async function projectFingerprint(skills, commands, cwd) {
+async function projectFingerprint(skills, commands, cwd, agents = []) {
     const hash = createHash("sha256").update(path.resolve(cwd));
     const skillFiles = [];
     for (const skill of skills.filter((row) => row.scope === "project")) {
         skillFiles.push(skill.file, ...(await listFiles(skill.dir, 200)).map((file) => path.join(skill.dir, file)));
     }
-    const files = [...skillFiles, ...commands.filter((command) => command.scope === "project").map((command) => command.file)].sort();
+    const files = [
+        ...skillFiles,
+        ...commands.filter((command) => command.scope === "project").map((command) => command.file),
+        ...agents.filter((agent) => agent.scope === "project").map((agent) => agent.file),
+    ].sort();
     for (const file of files) {
         hash.update(`\0${path.relative(cwd, file)}\0`);
         hash.update(await readFile(file).catch(() => Buffer.alloc(0)));
@@ -166,18 +232,19 @@ function readTrust() {
 export async function loadExtensions(cwd) {
     const skills = await scanSkills(cwd);
     const commands = await scanCommands(cwd);
-    const print = await projectFingerprint(skills, commands, cwd);
+    const agents = await scanAgents(cwd);
+    const print = await projectFingerprint(skills, commands, cwd, agents);
     const trusted = print.count > 0 && readTrust()[path.resolve(cwd)] === print.hash;
     const usable = (scope) => scope === "user" || trusted;
     const pick = (rows) => {
         const seen = new Set();
         return rows.filter((row) => usable(row.scope) && !seen.has(row.name) && (seen.add(row.name), true));
     };
-    return { skills: pick(skills), commands: pick(commands), untrustedProject: trusted ? 0 : print.count };
+    return { skills: pick(skills), commands: pick(commands), agents: pick(agents), untrustedProject: trusted ? 0 : print.count };
 }
 /** /skills trust: trust this project's skills and commands exactly as they are now. */
 export async function trustProjectExtensions(cwd) {
-    const print = await projectFingerprint(await scanSkills(cwd), await scanCommands(cwd), cwd);
+    const print = await projectFingerprint(await scanSkills(cwd), await scanCommands(cwd), cwd, await scanAgents(cwd));
     if (!print.count)
         return 0;
     const trust = readTrust();

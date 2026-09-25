@@ -368,3 +368,10 @@
     - A project's `.env` can no longer set `BRAVE_API_KEY`. It could have turned the tool on, or swapped in a key, without trust. Brave keys (`BSA…`) are now redacted like other key formats.
     - A `null` answer or `null` rows no longer crash. Entities are decoded before tags are stripped, and stray `<` `>` are removed, so nothing tag-like reaches the model.
     - The test counts only calls to the search service: once, a background model-list refresh landed inside the test window.
+- Custom agents (Claude Code's `agents/<name>.md` format), the top gap left in the comparison:
+  - Yours come from `~/.aegis/agents` and `~/.claude/agents`, used at once. A project's come from `.aegis/agents` and `.claude/agents`, only after `/skills trust`, and that trust hash now covers agent files too.
+  - Frontmatter: `name`, `description`, `tools` (Aegis or Claude Code names; unknown ones are ignored; read/grep/glob when none are listed), `model` (haiku/cheap/fast = the cheaper model, anything else = the turn's model). The body is the agent's instructions, read when it runs.
+  - The `agent` tool (name from the list, task) passes the lock as `agent <name>`. With no rule it asks, and "always" saves that one agent.
+  - Inside, the agent has a fresh conversation with only its own tools. Every call passes the same lock, confirm queue, restore points and plan mode. It gets no `agent` tool, so it cannot nest.
+  - Its tokens count toward the turn. Its report is capped and comes back in a random tag marked as data.
+  - `/agents` (and `/skills`) lists them.

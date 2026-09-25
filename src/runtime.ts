@@ -18,7 +18,7 @@ import { formatDoctor, runDoctor } from "./doctor.ts";
 import { copyToClipboard } from "./clipboard.ts";
 import { collectReview, reviewPrompt } from "./review.ts";
 import { loadSavedTodos, saveTodos, todosFromMessages } from "./todos.ts";
-import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.ts";
+import { commandPrompt, loadExtensions, readSkill, agentsPromptBlock, skillsPromptBlock, trustProjectExtensions } from "./extensions.ts";
 import { openUrl } from "./open-url.ts";
 import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, parseLine } from "./commands.ts";
@@ -565,7 +565,7 @@ export async function runPrompt(
   const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));
   // Claude Code finds its own skills; Aegis's loop gets yours and (once trusted) the project's.
   const extensions = claudeEngine ? undefined : await loadExtensions(state.cwd);
-  const skillsBlock = extensions ? skillsPromptBlock(extensions.skills) : "";
+  const skillsBlock = extensions ? [skillsPromptBlock(extensions.skills), agentsPromptBlock(extensions.agents)].filter(Boolean).join("\n\n") : "";
   if (claudeEngine && opts.images?.length) {
     onEvent?.({
       type: "notice",
@@ -619,6 +619,7 @@ export async function runPrompt(
         readOnly,
         mcpTools,
         skills: extensions?.skills,
+        agents: extensions?.agents,
       });
   if (mentioned.records.length) receipt.tools.unshift(...mentioned.records);
   if (receipt.tokens) {
@@ -1045,7 +1046,7 @@ async function skillsCommand(action: string | undefined, state: AppState): Promi
   const reply = (output: string) => ({ output, session: state.session });
   if (action === "trust") {
     const count = await trustProjectExtensions(state.cwd);
-    return reply(count ? `Trusted this project's ${count} skill/command file(s) as they are now. Any change asks again.` : "This project has no skills or commands of its own.");
+    return reply(count ? `Trusted this project's ${count} skill/command/agent file(s) as they are now. Any change asks again.` : "This project has no skills, commands or agents of its own.");
   }
   if (action) return reply("usage: /skills · /skills trust");
   const extensions = await loadExtensions(state.cwd);
@@ -1063,15 +1064,22 @@ async function skillsCommand(action: string | undefined, state: AppState): Promi
       lines.push(`  /${command.name.padEnd(19)} ${command.source.padEnd(18)} ${command.description.slice(0, 70)}`);
     }
   }
+  if (extensions.agents.length) {
+    lines.push("Agents (the agent hands them tasks with the agent tool; each call they make passes the lock):");
+    for (const agent of extensions.agents) {
+      lines.push(`  ${agent.name.padEnd(20)} ${agent.source.padEnd(18)} ${agent.description.slice(0, 60)}  [${agent.tools.join(", ")}]`);
+    }
+  }
   if (legacy.length) lines.push(`Always loaded from skills/*.md: ${legacy.map((skill) => skill.name).join(", ")}`);
   if (extensions.untrustedProject) {
-    lines.push("", `This project has ${extensions.untrustedProject} skill/command file(s) that are not used yet (text written by whoever wrote the repo).`, "Read them, then /skills trust to use them.");
+    lines.push("", `This project has ${extensions.untrustedProject} skill/command/agent file(s) that are not used yet (text written by whoever wrote the repo).`, "Read them, then /skills trust to use them.");
   }
   if (!lines.length) {
     lines.push(
       "No skills or commands yet.",
       "  Skill:   ~/.aegis/skills/<name>/SKILL.md with name and description at the top (the agentskills.io format).",
       "  Command: ~/.aegis/commands/<name>.md, then /<name> args ($1, $ARGUMENTS work inside).",
+      "  Agent:   ~/.aegis/agents/<name>.md with name, description and tools (read, grep, glob, edit, …) at the top; the text is its instructions.",
     );
   }
   return reply(lines.join("\n"));
