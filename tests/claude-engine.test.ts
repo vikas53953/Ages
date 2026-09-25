@@ -221,3 +221,19 @@ describe("Claude Code tools → Aegis rule names", () => {
     expect(toAegisCall("Agent", { prompt: "go" }).name).toBe("agent");
   });
 });
+
+describe("claude-code engine: images", () => {
+  it("@shot.png and pasted images go to Claude Code as image blocks (stream-json input), after the lock", async () => {
+    const { cwd, state, opts } = await project();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+    await writeFile(path.join(cwd, "shot.png"), png);
+    await handleLine("/model claude-code", state, opts);
+    const pasted = [{ path: "pasted 1", mediaType: "image/png" as const, bytes: png.length, data: png.toString("base64") }];
+    const result = await handleLine("what is in @shot.png", state, { ...opts, images: pasted });
+    expect(result.receipt?.answer).toContain("images=2");
+    expect(result.receipt?.answer).toContain("note=true");
+    // Without images the prompt is still plain text on stdin.
+    const plain = await handleLine("hello there", state, opts);
+    expect(plain.receipt?.answer).toContain("Echo: hello there");
+  });
+});

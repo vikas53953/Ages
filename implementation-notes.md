@@ -395,3 +395,7 @@
     - P1: `-p --yes` answered the question for you, so a note was kept that nobody saw. `remember` now refuses whenever nobody reads the questions (`-p`, `--yes`).
     - P2: with shell on, an allowed command could write `.harness/memory.md` directly. Shell commands that name `.harness` or `.aegis` are now on the always-on ask floor.
     - P3: memory goes into the prompt marked as approved notes that never override the lock, AGENTS.md or the current request. A note is not recorded as an irreversible change.
+- Images in the Claude Code engine: attached and pasted images go to your `claude` as image blocks, with `--input-format stream-json` and one user-message line of text plus base64 images. Without images the prompt stays plain text on stdin.
+  - Checked offline against the installed Claude Code 2.1.282: a capture server on 127.0.0.1 (answering 500, so no model ran) received the image data in the `/v1/messages` request.
+  - The images passed Aegis's lock first, exactly as in its own loop.
+  - Pasted Studio images now reach Claude Code too; before, they were refused with a notice.

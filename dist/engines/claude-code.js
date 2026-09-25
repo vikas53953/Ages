@@ -234,7 +234,9 @@ export async function runClaudeCodeTurn(input) {
         },
     }, null, 2));
     const resume = await readFile(claudeSessionFile(input.cwd, input.sessionId), "utf8").then((text) => text.trim(), () => "");
-    const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
+    const images = input.images ?? [];
+    // With images the message goes in as one stream-json line (text + image blocks); otherwise as plain text.
+    const args = ["-p", ...(images.length ? ["--input-format", "stream-json"] : []), "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
     if (resume && /^[\w-]+$/.test(resume))
         args.push("--resume", resume);
     // A /fork copied the Claude conversation id: the first turn in the fork branches it (a new id), so the two
@@ -264,7 +266,18 @@ export async function runClaudeCodeTurn(input) {
             killProcessTree(child.pid);
     };
     turnAbort.signal.addEventListener("abort", onAbort, { once: true });
-    child.stdin.end(input.prompt);
+    child.stdin.end(images.length
+        ? `${JSON.stringify({
+            type: "user",
+            message: {
+                role: "user",
+                content: [
+                    { type: "text", text: input.prompt },
+                    ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+                ],
+            },
+        })}\n`
+        : input.prompt);
     let answer = "";
     let result;
     let claudeSession = "";

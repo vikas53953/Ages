@@ -83,12 +83,11 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 
 ## Gaps worth closing next
 
-Closed the same night: websearch, HTTP MCP, the GitHub Action, custom agents (`agents/<name>.md`), auto memory (`remember`, asked every time).
+Closed the same night: websearch, HTTP MCP, the GitHub Action, custom agents (`agents/<name>.md`), auto memory (`remember`, asked every time), images in the Claude Code engine.
 
 1. **OS sandbox on Windows** — AppContainer or a restricted job object for shell. The lock is not isolation; the README says so.
 2. **Redaction in the Claude Code engine** — the biggest hole in the secrets story: Claude Code's own reads reach it before Aegis can cut anything.
-3. **Image input to the Claude Code engine** — `stream-json` input parts so pasted screenshots work there too.
-4. **VS Code panel** — `-p --json` already fits; a thin extension would bring Aegis into the editor.
+3. **VS Code panel** — `-p --json` already fits; a thin extension would bring Aegis into the editor.
 
 ## Where Aegis is deliberately different
 

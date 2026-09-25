@@ -519,8 +519,8 @@ export async function runPrompt(
   const context = await loadContext(state.cwd);
   const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
   // @path mentions: each file is read through the lock and attached to the prompt (not in --local mode).
-  // Images you pasted in Studio. The Claude Code engine cannot take them (there is no file for its Read tool).
-  const pasted = claudeEngine ? [] : (opts.images ?? []).slice(0, MAX_IMAGES_PER_TURN);
+  // Images you pasted in Studio (sent to Claude Code as image blocks too).
+  const pasted = (opts.images ?? []).slice(0, MAX_IMAGES_PER_TURN);
   const found = useLocal && !opts.generate
     ? { prompt, attachments: "", records: [], images: [] as ImageAttachment[] }
     : await attachMentions({
@@ -568,19 +568,12 @@ export async function runPrompt(
   // Claude Code finds its own skills; Aegis's loop gets yours and (once trusted) the project's.
   const extensions = claudeEngine ? undefined : await loadExtensions(state.cwd);
   const skillsBlock = extensions ? [skillsPromptBlock(extensions.skills), agentsPromptBlock(extensions.agents)].filter(Boolean).join("\n\n") : "";
-  if (claudeEngine && opts.images?.length) {
-    onEvent?.({
-      type: "notice",
-      text: "The Claude Code engine cannot take pasted images. Save the image in this folder and mention it (@shot.png): Claude opens it with its own Read.",
-    });
-  }
   onEvent?.({ type: "accepted" });
   const receipt = claudeEngine
     ? await runClaudeCodeTurn({
-        // Claude Code is sent text: it opens an attached image with its own Read tool (which passes the lock).
-        prompt: found.images.length
-          ? `${found.prompt}\n\nOpen the attached image(s) with your Read tool to see them: ${found.images.map((image) => JSON.stringify(image.path)).join(", ")}`
-          : found.prompt,
+        // Images (attached or pasted) go to Claude Code as image blocks, read through the lock like here.
+        prompt: mentioned.prompt,
+        images: mentioned.images.length ? mentioned.images : undefined,
         cwd: state.cwd,
         sessionId: session.id,
         config,

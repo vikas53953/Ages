@@ -25,6 +25,7 @@ import { sessionDir } from "../session.ts";
 import { realPathOf } from "../rules.ts";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.ts";
 import type { ConfirmFn, GateConfig, JevClient, Receipt, ToolRecord, TurnEvent } from "../types.ts";
+import type { ImageAttachment } from "../images.ts";
 
 export const CLAUDE_CODE_MODEL = "claude-code";
 
@@ -107,6 +108,8 @@ const HARMLESS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "
 
 type ClaudeTurnInput = {
   prompt: string;
+  /** Images for this message: sent to Claude Code as image blocks (stream-json input). */
+  images?: ImageAttachment[];
   cwd: string;
   sessionId: string;
   config: GateConfig;
@@ -276,7 +279,9 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
     ),
   );
   const resume = await readFile(claudeSessionFile(input.cwd, input.sessionId), "utf8").then((text) => text.trim(), () => "");
-  const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
+  const images = input.images ?? [];
+  // With images the message goes in as one stream-json line (text + image blocks); otherwise as plain text.
+  const args = ["-p", ...(images.length ? ["--input-format", "stream-json"] : []), "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
   if (resume && /^[\w-]+$/.test(resume)) args.push("--resume", resume);
   // A /fork copied the Claude conversation id: the first turn in the fork branches it (a new id), so the two
   // Aegis sessions never write into one Claude conversation.
@@ -303,7 +308,20 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
     if (child.pid) killProcessTree(child.pid);
   };
   turnAbort.signal.addEventListener("abort", onAbort, { once: true });
-  child.stdin.end(input.prompt);
+  child.stdin.end(
+    images.length
+      ? `${JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: input.prompt },
+              ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+            ],
+          },
+        })}\n`
+      : input.prompt,
+  );
 
   let answer = "";
   let result: StreamLine | undefined;

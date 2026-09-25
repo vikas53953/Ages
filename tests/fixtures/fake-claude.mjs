@@ -36,7 +36,15 @@ let prompt = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (d) => (prompt += d));
 process.stdin.on("end", async () => {
-  out({ type: "system", subtype: "init", session_id: session, model: "claude-fake", resumed: Boolean(flag("--resume")) });
+  // --input-format stream-json: one user message line with text and image blocks, like Claude Code reads it.
+  let images = 0;
+  if (flag("--input-format") === "stream-json") {
+    const message = JSON.parse(prompt.trim().split("\n")[0]);
+    const content = message.message.content;
+    prompt = content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    images = content.filter((part) => part.type === "image" && part.source?.type === "base64" && part.source.data).length;
+  }
+  out({ type: "system", subtype: "init", session_id: session, model: "claude-fake", resumed: Boolean(flag("--resume")), images });
   if (prompt.includes("hang")) return setInterval(() => {}, 1000);
   const texts = [];
   if (prompt.includes("ping")) {
@@ -63,6 +71,7 @@ process.stdin.on("end", async () => {
     texts.push(`todo ${answer.decision}`);
   }
   if (flag("--permission-mode")) texts.push(`mode=${flag("--permission-mode")}`);
+  if (images) texts.push(`images=${images} note=${prompt.includes("[image: ")}`);
   const text = texts.join(" ") || `Echo: ${prompt.trim()} (resumed=${Boolean(flag("--resume"))} forked=${forked})`;
   out({ type: "assistant", message: { content: [{ type: "text", text }] } });
   out({
