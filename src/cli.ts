@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
+import { headlessPrompt, runHeadless } from "./headless.ts";
 import { openUrl } from "./open-url.ts";
 import { startStudio } from "./studio.ts";
 import { stdin, stdout } from "node:process";
@@ -48,6 +49,8 @@ export function parseArgs(argv: string[]) {
     noOpen: flags.has("--no-open"),
     port,
     repl: flags.has("--repl"),
+    print: flags.has("-p") || flags.has("--print"),
+    json: flags.has("--json"),
     tui: flags.has("--tui"),
     model,
     prompt: rest.join(" ").trim(),
@@ -62,11 +65,15 @@ function help() {
     "  aegis -c                   continue the last session here",
     "  aegis \"a question\"         answer once and exit",
     "  aegis ui                   open Aegis Studio in your browser (same sessions, rules and plugins)",
+    "  aegis -p \"task\"            headless: rules decide, nothing asks you; prints the answer (stdin is added)",
+    "  aegis -p --json \"task\"     one JSON object per line: every event, then the result",
     "",
     "Flags: -c, --continue   continue the last session instead of starting a new one",
     "       -m, --model <id> pin this model for the session",
     "       --repl           plain prompt (pipes, scripts). A terminal opens the TUI",
     "       --local          no chat model: list, read and search only",
+    "       -p, --print      headless (exit 0 done, 1 error, 2 a tool call was denied); --json for JSON lines",
+    "       --yes            with -p: approve every question (dangerous: only rules you trust should decide)",
     "       -v, --version    print the version",
     "       --port <n>       aegis ui: port to listen on (default: a free one)",
     "       --no-open        aegis ui: print the link without opening the browser",
@@ -176,6 +183,25 @@ export async function main() {
   };
   if (args.prompt === "ui" || args.prompt === "studio") {
     await runStudio({ ...opts, newSession: false }, { port: args.port, open: !args.noOpen, fresh: false });
+    return;
+  }
+  if (args.print) {
+    const abort = new AbortController();
+    process.once("SIGINT", () => abort.abort());
+    const prompt = await headlessPrompt(args.prompt, stdin);
+    if (!prompt) {
+      console.error('usage: aegis -p "task"   (or pipe the task in)');
+      process.exitCode = 1;
+      return;
+    }
+    process.exitCode = await runHeadless({
+      prompt,
+      cwd: process.cwd(),
+      opts,
+      json: args.json,
+      write: (text) => stdout.write(`${text}\n`),
+      abortSignal: abort.signal,
+    });
     return;
   }
   if (args.prompt) {
