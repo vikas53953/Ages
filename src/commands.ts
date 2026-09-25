@@ -16,6 +16,7 @@ export type Slash =
   | { type: "rules"; arg: string }
   | { type: "diff"; arg: string }
   | { type: "bell"; arg?: string }
+  | { type: "search"; query: string }
   | { type: "fork"; arg?: string }
   | { type: "init" }
   | { type: "todos" }
@@ -77,6 +78,9 @@ export function parseLine(line: string): Slash {
       return { type: "trust", action: rest[0]?.toLowerCase() };
     case "diff":
       return { type: "diff", arg };
+    case "search":
+    case "find":
+      return { type: "search", query: arg };
     case "bell":
       return { type: "bell", arg: arg || undefined };
     case "rules":
@@ -128,6 +132,7 @@ export const HELP = [
   "  /help              this list",
   "  /new               start a new session",
   "  /sessions          your recent conversations, numbered, with their first prompt",
+  "  /search <text>     find past conversations that mention it; /resume <n> opens one",
   "  /resume <n>        continue conversation n from /sessions (or /resume <id>); /resume alone lists them",
   "  /memory            show memory notes",
   "  /memory <note>     remember a note; /memory remove <n> forgets one",

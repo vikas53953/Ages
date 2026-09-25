@@ -223,3 +223,33 @@ export async function recentSessions(cwd, limit = 3, skipId) {
     }
     return out;
 }
+/** Newest-first conversations whose text (your messages and the answers) contains `query`, with one line around the first hit. */
+export async function searchSessions(cwd, query, limit = 15, scan = 200) {
+    const needle = query.toLowerCase();
+    const out = [];
+    let scanned = 0;
+    for (const id of await listSessions(cwd)) {
+        if (out.length >= limit || scanned >= scan)
+            break;
+        scanned += 1;
+        const rows = await loadMessages(cwd, id);
+        const first = rows.find((row) => row.role === "user" && messageText(row).trim());
+        if (!first)
+            continue;
+        for (const row of rows) {
+            if (row.role === "tool")
+                continue;
+            const text = messageText(row).replace(/\s+/g, " ");
+            const at = text.toLowerCase().indexOf(needle);
+            if (at < 0)
+                continue;
+            const start = Math.max(0, at - 40);
+            const hit = `${start > 0 ? "…" : ""}${text.slice(start, at + needle.length + 60)}${at + needle.length + 60 < text.length ? "…" : ""}`;
+            const date = new Date(first.at);
+            const when = Number.isNaN(date.getTime()) ? id.slice(0, 10) : `${date.toISOString().slice(5, 10)} ${date.toTimeString().slice(0, 5)}`;
+            out.push({ id, when, text: messageText(first).replace(/\s+/g, " ").trim(), hit });
+            break;
+        }
+    }
+    return out;
+}

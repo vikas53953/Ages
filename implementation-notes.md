@@ -333,3 +333,4 @@
   - P3:
     - Each change in the multi-edit question is capped at 4 KB and says when it was cut; the whole list is capped too. Unreadable edits say "answer No".
     - `websearch` rules are accepted by `/rules`.
+- `/search <text>` (also `/find`) searches your messages and the answers across this folder's sessions, newest first (up to 200 scanned, 15 shown), and shows the line around the first hit. `/resume <n>` picks from that list. Tool output is not searched, and the output passes secret redaction.

@@ -29,7 +29,7 @@ import { compactSession, historySize, loadSummary, modelSummarizer, needsCompact
 import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
-import { createSession, replaceMessages, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
+import { createSession, replaceMessages, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, searchSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { describeRules, loadSettingsSafe, removeYourRule, saveYourRule, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
@@ -626,6 +626,21 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
             return `${String(index + 1).padStart(2)}. ${row.when}  ${text}${here}`;
         });
         return { output: [...lines, "", "/resume <number> opens one (or /resume <id>)."].join("\n"), session: state.session };
+    }
+    if (cmd.type === "search") {
+        if (!cmd.query)
+            return { output: "usage: /search <text>", session: state.session };
+        const rows = await searchSessions(state.cwd, cmd.query);
+        // /resume <n> then picks from this list.
+        state.sessionList = rows.map((row) => row.id);
+        if (!rows.length)
+            return { output: `No conversation here mentions "${cmd.query}".`, session: state.session };
+        const lines = rows.flatMap((row, index) => {
+            const here = row.id === state.session.id ? "  (this one)" : "";
+            const text = row.text.length > 60 ? `${row.text.slice(0, 59)}…` : row.text;
+            return [`${String(index + 1).padStart(2)}. ${row.when}  ${text}${here}`, `      ${row.hit}`];
+        });
+        return { output: redactSecrets([...lines, "", "/resume <number> opens one."].join("\n")).text, session: state.session };
     }
     if (cmd.type === "resume") {
         let id = cmd.id;
