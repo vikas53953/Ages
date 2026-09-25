@@ -103,6 +103,8 @@ export async function createTuiApp(
     cwd?: string;
     terminal?: Terminal;
     handleLine?: LineHandler;
+    /** A command to run once the screen is up (aegis -r: /sessions). */
+    firstLine?: string;
   } = {},
 ): Promise<TuiApp> {
   const cwd = input.cwd ?? process.cwd();
@@ -671,6 +673,7 @@ export async function createTuiApp(
   paintFooter();
   tui.setFocus(editor);
   tui.start();
+  if (input.firstLine) void submit(input.firstLine);
 
   return {
     tui,
@@ -687,10 +690,10 @@ export async function createTuiApp(
   };
 }
 
-export async function runTui(opts: RunOpts) {
+export async function runTui(opts: RunOpts, extra: { firstLine?: string } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("TUI needs a real terminal. Use --repl for pipes.");
   }
-  const app = await createTuiApp(opts);
+  const app = await createTuiApp(opts, { firstLine: extra.firstLine });
   await app.finished;
 }

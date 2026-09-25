@@ -151,7 +151,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `aegis -p "task"` · `-p --json` | headless for scripts/CI: rules decide, nothing asks; JSON lines with `--json`; exit 2 if a call was denied; `git diff \| aegis -p --stdin "review"` adds stdin |
 | `aegis -p --allow "shell npm test" --deny "webfetch *" "task"` | rules for this one run (repeatable), like Claude Code's `--allowedTools`; never saved; the always-on asks still win (and in -p an ask is a no) |
 | `aegis --worktree=fix-login` | work in a separate git worktree (`<repo>.worktrees/fix-login`, branch `aegis/fix-login`): the agent's changes never touch your checkout until you merge the branch. The same name reuses it; `--worktree` alone picks a name |
-| `aegis -c` | continue the last session (every launch is otherwise new, like Pi) |
+| `aegis -c` · `aegis -r` | continue the last session (every launch is otherwise new, like Pi) · start with your recent sessions listed, then `/resume 2` |
 
 ## The lock
 

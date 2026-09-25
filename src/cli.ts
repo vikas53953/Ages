@@ -62,6 +62,7 @@ export function parseArgs(argv: string[]) {
     help: flags.has("--help") || flags.has("-h"),
     version: flags.has("--version") || flags.has("-v"),
     continue: flags.has("--continue") || flags.has("-c"),
+    resume: flags.has("--resume") || flags.has("-r"),
     noOpen: flags.has("--no-open"),
     port,
     repl: flags.has("--repl"),
@@ -84,6 +85,7 @@ function help() {
     "",
     "  aegis                      start in this folder (new session)",
     "  aegis -c                   continue the last session here",
+    "  aegis -r                   list your recent sessions here, then /resume <n> opens one",
     "  aegis \"a question\"         answer once and exit",
     "  aegis doctor               is this PC ready? one line per check, with the fix",
     "  aegis ui                   open Aegis Studio in your browser (same sessions, rules and plugins)",
@@ -275,7 +277,8 @@ export async function main() {
     return;
   }
   if (wantTui(args)) {
-    await runTui(opts);
+    // aegis -r: start with your recent conversations listed; /resume <n> opens one (like claude --resume).
+    await runTui(opts, { firstLine: args.resume ? "/sessions" : undefined });
     return;
   }
   await repl(opts);

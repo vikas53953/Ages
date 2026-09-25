@@ -312,3 +312,30 @@ describe("runtime chat flags", () => {
     }
   });
 });
+
+describe("aegis -r", () => {
+  it("starts with /sessions listed", async () => {
+    const { parseArgs } = await import("../src/cli.ts");
+    expect(parseArgs(["-r"]).resume).toBe(true);
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-resume-"));
+    const seen: string[] = [];
+    const app = await createTuiApp(
+      { mockJev: true, yes: false, local: true },
+      {
+        cwd,
+        terminal: new MemoryTerminal(),
+        firstLine: "/sessions",
+        handleLine: async (line, state) => {
+          seen.push(line);
+          return { output: "1  first prompt", session: state.session };
+        },
+      },
+    );
+    try {
+      await waitFor(app, "1  first prompt");
+      expect(seen).toEqual(["/sessions"]);
+    } finally {
+      app.shutdown();
+    }
+  });
+});

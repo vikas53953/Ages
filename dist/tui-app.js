@@ -604,6 +604,8 @@ export async function createTuiApp(opts, input = {}) {
     paintFooter();
     tui.setFocus(editor);
     tui.start();
+    if (input.firstLine)
+        void submit(input.firstLine);
     return {
         tui,
         terminal,
@@ -619,10 +621,10 @@ export async function createTuiApp(opts, input = {}) {
         finished,
     };
 }
-export async function runTui(opts) {
+export async function runTui(opts, extra = {}) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error("TUI needs a real terminal. Use --repl for pipes.");
     }
-    const app = await createTuiApp(opts);
+    const app = await createTuiApp(opts, { firstLine: extra.firstLine });
     await app.finished;
 }

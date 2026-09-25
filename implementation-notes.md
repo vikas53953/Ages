@@ -326,3 +326,4 @@
   - It passes the lock as `edit`, so your edit rules, plan mode, hooks and restore points treat it the same way. Tool args are flat, so the edits travel as JSON text; the question and hooks parse them back.
   - Fix: Claude Code's own MultiEdit showed an empty diff in the question (only one old_string/new_string pair was read). It now shows every change.
 - `/memory` numbers the notes, and `/memory remove <n>` forgets one. Before, notes could only be added.
+- `aegis -r` (`--resume`): the TUI starts with `/sessions` already run, and `/resume <n>` opens one, much like `claude --resume`. It reuses the same numbered list, so there is no second picker to keep in step.
