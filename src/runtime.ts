@@ -22,7 +22,7 @@ import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProje
 import { openUrl } from "./open-url.ts";
 import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, parseLine } from "./commands.ts";
-import { addMemory, loadMemory } from "./memory.ts";
+import { addMemory, loadMemory, memoryNotes, removeMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
 import { INIT_PROMPT, loadContext } from "./context.ts";
 import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction, type Summarizer } from "./compact.ts";
@@ -732,10 +732,21 @@ async function handleLineInner(
     }
   }
   if (cmd.type === "memory") {
+    const remove = /^(?:remove|rm|forget)\s+(\S+)$/i.exec(cmd.note ?? "");
+    if (remove) {
+      const removed = await removeMemory(state.cwd, Number(remove[1]));
+      return { output: removed ? `Forgot: ${removed}` : "usage: /memory remove <n>, with n from /memory", session: state.session };
+    }
     if (cmd.note) {
       return { output: await addMemory(state.cwd, cmd.note), session: state.session };
     }
-    return { output: (await loadMemory(state.cwd)) || "(empty)", session: state.session };
+    const notes = await memoryNotes(state.cwd);
+    return {
+      output: notes.length
+        ? [...notes.map((note, index) => `  ${index + 1}  ${note}`), "", "/memory <note> adds one; /memory remove <n> forgets one."].join("\n")
+        : "(empty) /memory <note> adds one.",
+      session: state.session,
+    };
   }
   if (cmd.type === "skills") return skillsCommand(cmd.action, state);
   if (cmd.type === "compact") {

@@ -325,3 +325,4 @@
 - `multi_edit` tool, like Claude Code's MultiEdit: several replacements in one file, in order, written once, all or nothing. An error names which edit failed.
   - It passes the lock as `edit`, so your edit rules, plan mode, hooks and restore points treat it the same way. Tool args are flat, so the edits travel as JSON text; the question and hooks parse them back.
   - Fix: Claude Code's own MultiEdit showed an empty diff in the question (only one old_string/new_string pair was read). It now shows every change.
+- `/memory` numbers the notes, and `/memory remove <n>` forgets one. Before, notes could only be added.

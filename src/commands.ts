@@ -130,7 +130,7 @@ export const HELP = [
   "  /sessions          your recent conversations, numbered, with their first prompt",
   "  /resume <n>        continue conversation n from /sessions (or /resume <id>); /resume alone lists them",
   "  /memory            show memory notes",
-  "  /memory <note>     remember a note",
+  "  /memory <note>     remember a note; /memory remove <n> forgets one",
   "  /skills            skills and custom commands (yours, and this project's once you /skills trust them)",
   "  /skill:<name>      use a skill now (add what to do after it)",
   "  /compact           fold old turns into a summary (also automatic when history is big)",
