@@ -90,7 +90,16 @@ The sign-in is saved to `~\.aegis\auth.json`, readable only by your Windows acco
 /login jev <your-typesafe-key>      (optional: turns on Jev scoring)
 ```
 
-Claude and Gemini are key-only: Anthropic and Google do not allow third-party apps to sign in with Claude.ai or Google plans.
+**With your Claude plan** (Pro / Max), through the real Claude Code:
+
+```text
+/model claude-code          turns run in the Claude Code you installed and signed in to
+/model auto                 back to Aegis's own loop
+```
+
+Aegis starts your unmodified Claude Code (`claude -p`), which Anthropic permits with your own plan. Claude Code does the work. Before every tool call its hook asks Aegis, and the same rules, Jev and y/a/N approvals decide. If Aegis can't answer, the call is blocked. Install Claude Code from https://claude.com/claude-code and run `claude` once to sign in.
+
+Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't allow third-party apps to use those plan logins. Gemini is API-key only.
 
 ## Everyday commands
 

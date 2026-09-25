@@ -14,7 +14,8 @@ export async function loadPinnedModel(cwd) {
     }
 }
 export async function setPinnedModel(cwd, id) {
-    const resolved = resolveModel(id, currentCatalog());
+    // Engines are not catalogue models: "claude-code" runs the Claude Code you installed and signed in to.
+    const resolved = id.trim().toLowerCase() === "claude-code" ? { ok: true, id: "claude-code" } : resolveModel(id, currentCatalog());
     if (!resolved.ok)
         throw new Error(resolved.message);
     await mkdir(harnessRoot(cwd), { recursive: true });

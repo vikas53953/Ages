@@ -17,6 +17,7 @@
     "src",
     "scripts/check-device-inventory.mjs",
     "scripts/app-cwd-guard.cjs",
+    "scripts/claude-hook.mjs",
     "skills",
     "gate.config.json",
     "README.md",

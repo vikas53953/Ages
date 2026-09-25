@@ -3,6 +3,7 @@ import { formatReceipt, localGenerate, runLoop } from "./loop.js";
 import { formatChat, formatTokenLine } from "./receipt.js";
 import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.js";
 import { loadCredential, saveCredential } from "./auth/store.js";
+import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.js";
 import { openUrl } from "./open-url.js";
 import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
@@ -118,6 +119,7 @@ export function modelChoices(state) {
     return [
         { id: "auto", group: "Aegis", note: `Jev picks ${models.cheap} or ${models.frontier} each turn` },
         ...defaults.map((row) => ({ ...row, group: "Defaults" })),
+        { id: CLAUDE_CODE_MODEL, group: "Engines", note: "your Claude plan, via the Claude Code you installed" },
         ...rows.filter((row) => !defaults.includes(row)),
     ];
 }
@@ -142,7 +144,8 @@ function summarizerFor(opts, provider, config) {
 export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const config = loadEnv(state.cwd);
     const provider = opts.local ? "local" : resolveProvider();
-    const useLocal = opts.local === true || provider === "local";
+    const claudeEngine = state.modelMode === "pinned" && state.model === CLAUDE_CODE_MODEL;
+    const useLocal = !claudeEngine && (opts.local === true || provider === "local");
     const loadedSettings = loadSettingsSafe(state.cwd);
     const hasScorer = state.plugins.some((plugin) => plugin.scorer);
     const notice = [
@@ -162,7 +165,8 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const session = await loadOrCreateSession(state.cwd);
     let history = await loadMessages(state.cwd, session.id);
     let compacted = "";
-    if (needsCompaction(history, config.compactAtChars)) {
+    // Claude Code keeps and compacts its own conversation; Aegis only records prompts and answers for it.
+    if (!claudeEngine && needsCompaction(history, config.compactAtChars)) {
         const result = await compactSession(state.cwd, session.id, {
             keepTurns: config.compactKeepTurns,
             summarize: summarizerFor(opts, provider, config),
@@ -181,25 +185,37 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
     onEvent?.({ type: "accepted" });
-    const receipt = await runLoop({
-        prompt,
-        cwd: state.cwd,
-        plugins: state.plugins,
-        config,
-        confirm,
-        sessionId: session.id,
-        generate: opts.generate ?? (useLocal ? localGenerate : undefined),
-        system: [
-            buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
-            ...extraPrompts,
-        ].join("\n\n"),
-        history,
-        provider,
-        model: state.modelMode === "pinned" ? state.model : undefined,
-        abortSignal: opts.abortSignal,
-        onEvent,
-        thinking: thinkingOf(loadedSettings.settings).level,
-    });
+    const receipt = claudeEngine
+        ? await runClaudeCodeTurn({
+            prompt,
+            cwd: state.cwd,
+            sessionId: session.id,
+            config,
+            confirm,
+            plugins: state.plugins,
+            onEvent,
+            abortSignal: opts.abortSignal,
+            appendSystem: [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts].filter(Boolean).join("\n\n") || undefined,
+        })
+        : await runLoop({
+            prompt,
+            cwd: state.cwd,
+            plugins: state.plugins,
+            config,
+            confirm,
+            sessionId: session.id,
+            generate: opts.generate ?? (useLocal ? localGenerate : undefined),
+            system: [
+                buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
+                ...extraPrompts,
+            ].join("\n\n"),
+            history,
+            provider,
+            model: state.modelMode === "pinned" ? state.model : undefined,
+            abortSignal: opts.abortSignal,
+            onEvent,
+            thinking: thinkingOf(loadedSettings.settings).level,
+        });
     if (receipt.tokens) {
         state.sessionTokens.input += receipt.tokens.input;
         state.sessionTokens.output += receipt.tokens.output;
@@ -315,9 +331,18 @@ export async function handleLine(line, state, opts, confirm = async () => false,
             state.modelMode = "auto";
             return { output: "model  auto (Jev routes spend)", session: state.session };
         }
+        if (cmd.id.toLowerCase() === CLAUDE_CODE_MODEL && !findClaude()) {
+            return { output: CLAUDE_MISSING, session: state.session };
+        }
         try {
             state.model = await setPinnedModel(state.cwd, cmd.id);
             state.modelMode = "pinned";
+            if (state.model === CLAUDE_CODE_MODEL) {
+                return {
+                    output: `model  claude-code (pinned): turns run in your own Claude Code, on your Claude plan. Every tool call still passes Aegis's lock.\n/model auto goes back.`,
+                    session: state.session,
+                };
+            }
             return { output: `model  ${state.model} (pinned)`, session: state.session };
         }
         catch (error) {
