@@ -18,7 +18,10 @@ describe("programs are found on PATH, never in the project folder", () => {
     const real = await mkdtemp(path.join(os.tmpdir(), "aegis-which-bin-"));
     await fakeProgram(project, "git");
     const expected = await fakeProgram(real, "git");
-    const env = { PATH: [path.relative(process.cwd(), project), ".", real].join(path.delimiter), PATHEXT: ".EXE;.CMD" };
+    // A relative entry that points at the project (only possible on the same drive), and ".".
+    const relative = path.relative(process.cwd(), project);
+    const entries = [...(path.isAbsolute(relative) ? [] : [relative]), ".", real];
+    const env = { PATH: entries.join(path.delimiter), PATHEXT: ".EXE;.CMD" };
     expect(findOnPath("git", env)).toBe(expected);
     expect(findOnPath("no-such-program-aegis", env)).toBeUndefined();
   });

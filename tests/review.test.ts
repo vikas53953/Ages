@@ -92,11 +92,13 @@ describe("/review collects the diff with git hardened", () => {
     const cwd = await repo();
     const marker = path.join(cwd, "PWNED");
     const evil = path.join(cwd, "evil.sh");
-    await writeFile(evil, `#!/bin/sh\necho pwned > "${marker}"\ncat\n`);
+    // Forward slashes: git for Windows runs filters through sh, which would eat backslashes.
+    const slash = (p: string) => p.replace(/\\/g, "/");
+    await writeFile(evil, `#!/bin/sh\necho pwned > "${slash(marker)}"\ncat\n`);
     await chmod(evil, 0o755);
     await writeFile(path.join(cwd, ".gitattributes"), "*.js filter=evil.one\n");
-    git(cwd, "config", "filter.evil.one.clean", evil);
-    git(cwd, "config", "filter.evil.one.process", evil);
+    git(cwd, "config", "filter.evil.one.clean", slash(evil));
+    git(cwd, "config", "filter.evil.one.process", slash(evil));
     await writeFile(path.join(cwd, "app.js"), "changed\n");
     const result = await collectReview(cwd, "");
     expect("diff" in result && result.diff).toContain("+changed");
