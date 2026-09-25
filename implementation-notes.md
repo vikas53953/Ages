@@ -334,3 +334,11 @@
     - Each change in the multi-edit question is capped at 4 KB and says when it was cut; the whole list is capped too. Unreadable edits say "answer No".
     - `websearch` rules are accepted by `/rules`.
 - `/search <text>` (also `/find`) searches your messages and the answers across this folder's sessions, newest first (up to 200 scanned, 15 shown), and shows the line around the first hit. `/resume <n>` picks from that list. Tool output is not searched, and the output passes secret redaction.
+- MCP over HTTP (MCP's "streamable HTTP"), next to stdio: `{ "url": …, "headers": { … } }` under `mcp.servers`.
+  - The protocol part (initialize, tools/list with pages, tools/call, result capping) moved into one base class used by both transports; the stdio tests pass unchanged.
+  - Every request is a POST. The answer is read as JSON or as an event stream (up to 10 MB), and the `mcp-session-id` and protocol version are sent back. Close sends a DELETE for the session. Stop cancels the request and tells the server.
+  - Security:
+    - https only, or plain http to localhost. No user or password in the URL, and redirects are refused, so an auth header never follows one to another host.
+    - `${NAME}` in a header reads your environment only for servers in your own settings. A project's headers are sent exactly as written, so a cloned repo cannot pull your secrets into a request to its URL.
+    - A project's URL server still waits for `/mcp trust`. The trust covers the URL and headers, so changing either asks again.
+  - Its tools are `mcp__server__tool` and pass the lock like every other MCP tool.

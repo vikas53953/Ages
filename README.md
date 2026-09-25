@@ -133,7 +133,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `a` at a prompt | always allow: saves a narrow rule (`edit scripts/*`, or that exact command) so it stops asking |
 | `ctrl+c` | stop a turn / clear the prompt; twice on an empty prompt exits |
 | `/plan` · `/plan go` · `/plan off` | plan mode: read and search only, ends with a numbered plan; `go` carries it out (`/plan <task>` plans it at once) |
-| `/mcp` · `/mcp trust <name>` | MCP servers and tools (`mcp__server__tool`, gated by your rules, e.g. `ask mcp__github__*`); a project's servers start only after you trust them |
+| `/mcp` · `/mcp trust <name>` | MCP servers and tools (`mcp__server__tool`, gated by your rules, e.g. `ask mcp__github__*`); a project's servers start only after you trust them. A server is a program (`"command"`, `"args"`) or a URL: `"github": { "url": "https://api.githubcopilot.com/mcp/", "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } }` in `~/.aegis/settings.json` under `mcp.servers` (https only, or http on localhost; `${NAME}` reads your environment, in your own settings only) |
 | `/skills` · `/skill:<name>` · `/<your-command>` | skills (SKILL.md, loaded when needed) and your own commands from `~/.aegis/commands/*.md`; a project's need `/skills trust` |
 | `/review` · `/review main` · `/review commit <sha>` | a read-only review of your changes with P0–P3 findings and a verdict |
 | read · grep · glob | read takes `offset`/`limit` for big files; grep takes `glob`, `caseSensitive` and `context` lines, skips `.gitignore`d, binary and huge files, and says how many hits it did not show; glob lists files by pattern, newest first. All three are allowed by default (`read *`, `grep *`, `glob *`) |

@@ -10,7 +10,7 @@ import { CODEX_CREDENTIAL, codexApiBase } from "./auth/codex.js";
 import { APP_VERSION } from "./brand.js";
 import { findClaude } from "./engines/claude-code.js";
 import { ignoredProjectEnv, packageRoot, userAegisDir } from "./env.js";
-import { mcpServers } from "./mcp.js";
+import { describeServer, mcpServers } from "./mcp.js";
 import { resolveProvider } from "./providers.js";
 import { loadSettingsSafe, settingsPath } from "./rules.js";
 import { powershellExe } from "./tools/fs.js";
@@ -182,7 +182,7 @@ export async function runDoctor(cwd, options = {}) {
         add({
             status: server.trusted ? "ok" : "warn",
             item: `MCP ${server.name}`,
-            detail: `${server.scope} · ${[server.command, ...(server.args ?? [])].join(" ")}`,
+            detail: `${server.scope} · ${describeServer(server)}`,
             fix: server.trusted ? undefined : `A project server: /mcp trust ${server.name} if you trust this repo`,
         });
     }
