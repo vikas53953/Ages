@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS = {
             "shell Stop-Computer*",
             "shell Restart-Computer*",
         ],
-        allow: ["read *", "grep *"],
+        allow: ["read *", "grep *", "skill *"],
     },
     plugins: ["jev", "delivery", "receipts"],
 };
@@ -236,7 +236,7 @@ export function matchRule(settings, name, args, cwd) {
 }
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name) {
-    return name !== "read" && name !== "grep" && name !== "todo";
+    return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill";
 }
 /**
  * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.

@@ -6,7 +6,7 @@ export type Slash =
   | { type: "sessions" }
   | { type: "resume"; id: string }
   | { type: "memory"; note?: string }
-  | { type: "skills" }
+  | { type: "skills"; action?: string }
   | { type: "compact" }
   | { type: "rewind"; arg?: string; what?: string }
   | { type: "plan"; arg?: string }
@@ -54,7 +54,7 @@ export function parseLine(line: string): Slash {
     case "mem":
       return { type: "memory", note: arg || undefined };
     case "skills":
-      return { type: "skills" };
+      return { type: "skills", action: rest[0]?.toLowerCase() };
     case "compact":
       return { type: "compact" };
     case "doctor":
@@ -102,7 +102,8 @@ export const HELP = [
   "  /resume <id>       continue a session",
   "  /memory            show memory notes",
   "  /memory <note>     remember a note",
-  "  /skills            list loaded skills",
+  "  /skills            skills and custom commands (yours, and this project's once you /skills trust them)",
+  "  /skill:<name>      use a skill now (add what to do after it)",
   "  /compact           fold old turns into a summary (also automatic when history is big)",
   "  /clear             start a new session",
   "  /models            list every available model",
@@ -134,7 +135,7 @@ export const HELP = [
 export function slashCommandsFromHelp(lines: string[]) {
   const seen = new Map<string, { name: string; description: string; hints: string[]; bare: boolean }>();
   for (const line of lines) {
-    const match = /^\s*\/([\w-]+)((?:\s\S+)*?)\s{2,}(\S.*)$/.exec(line);
+    const match = /^\s*\/([\w:-]+)((?:\s\S+)*?)\s{2,}(\S.*)$/.exec(line);
     if (!match) continue;
     const [, name, args, description] = match;
     const hint = args?.trim() ?? "";

@@ -67,3 +67,9 @@
   - The list lives in the conversation (the last todo call), so /rewind and /resume show the right one.
   - The Claude Code engine's own TodoWrite feeds the same view.
 - Windows CI found two more path-spelling cases. A new file in a folder that did not exist yet was not kept, because the realpath of a missing short-spelled folder fell back to the short form. Rewind now resolves the nearest existing folder and adds the rest back, and shows paths relative to the real project root.
+- Skills and custom commands (agentskills.io SKILL.md, as in Claude Code, Codex, OpenCode and Pi; commands like Pi's prompts):
+  - Only the name and description go in the prompt. The `skill` tool loads the body and passes the lock like a read (default `allow skill *`); plan mode allows it.
+  - Yours are in ~/.aegis, ~/.agents and ~/.claude. A project's (.aegis/.agents/.claude in the folder) are used only after `/skills trust`, and that trust is tied to a hash of every file, so a change asks again (as with MCP trust).
+  - `allowed-tools` and similar keys are ignored, so rules decide. Skill files stay inside the skill folder (no `..`, absolute or UNC paths; realpath checked).
+  - Commands use Pi's `$1`/`${1:-x}`/`$ARGUMENTS`, and the text is appended when there is no placeholder. A `!cmd` line is kept as text and never run. A built-in or plugin command name cannot be taken over.
+  - The old `skills/*.md` files are still loaded every turn.

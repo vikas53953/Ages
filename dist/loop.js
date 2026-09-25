@@ -1,5 +1,6 @@
 import { lexicalInsideCwd } from "./env.js";
 import { MAX_TODOS, TODO_TOOL_DESCRIPTION, cleanTodos, todoSummary } from "./todos.js";
+import { readSkill } from "./extensions.js";
 import { jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.js";
@@ -71,6 +72,13 @@ export function createTools(input) {
             },
         }),
     ]));
+    if (input.skills?.length) {
+        mcp.skill = tool({
+            description: "Load a skill listed under Skills in your instructions (its full text), or one of its files.",
+            inputSchema: z.object({ name: z.string(), file: z.string().optional() }),
+            execute: async ({ name, file }) => gate("skill", { path: name, ...(file ? { file } : {}) }, () => readSkill(input.skills, name, file)),
+        });
+    }
     return {
         ...mcp,
         todo: tool({
@@ -300,6 +308,7 @@ export async function runLoop(input) {
         checkpoint: input.checkpoint,
         readOnly: input.readOnly,
         mcpTools: input.mcpTools,
+        skills: input.skills,
         onTool: (record) => {
             toolsUsed.push(record);
             input.onEvent?.({ type: "tool", record });

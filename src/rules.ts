@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
       "shell Stop-Computer*",
       "shell Restart-Computer*",
     ],
-    allow: ["read *", "grep *"],
+    allow: ["read *", "grep *", "skill *"],
   },
   plugins: ["jev", "delivery", "receipts"],
 };
@@ -264,7 +264,7 @@ export function matchRule(
 
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name: string) {
-  return name !== "read" && name !== "grep" && name !== "todo";
+  return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill";
 }
 
 /**

@@ -9,6 +9,7 @@ import { realOrSelf, rewindPoints, rewindTo, snapshotFile } from "./checkpoints.
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer, type McpState } from "./mcp.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { todosFromMessages } from "./todos.ts";
+import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.ts";
 import { openUrl } from "./open-url.ts";
 import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, parseLine } from "./commands.ts";
@@ -299,6 +300,9 @@ export async function runPrompt(
   const planPrompt = state.planMode ? PLAN_PROMPT : "";
   // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
   const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));
+  // Claude Code finds its own skills; Aegis's loop gets yours and (once trusted) the project's.
+  const extensions = claudeEngine ? undefined : await loadExtensions(state.cwd);
+  const skillsBlock = extensions ? skillsPromptBlock(extensions.skills) : "";
   onEvent?.({ type: "accepted" });
   const receipt = claudeEngine
     ? await runClaudeCodeTurn({
@@ -326,6 +330,7 @@ export async function runPrompt(
         system: [
           buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
           ...extraPrompts,
+          skillsBlock,
           planPrompt,
         ]
           .filter(Boolean)
@@ -339,6 +344,7 @@ export async function runPrompt(
         checkpoint,
         readOnly,
         mcpTools,
+        skills: extensions?.skills,
       });
   if (receipt.tokens) {
     state.sessionTokens.input += receipt.tokens.input;
@@ -369,6 +375,8 @@ export async function handleLine(
   if (pluginCommand) return pluginCommand.run(pluginCommand.arg, ctx);
   const cmd = parseLine(line);
   if (cmd.type === "unknown") {
+    const custom = await customCommand(line.trim(), state);
+    if (custom) return runPrompt(custom, state, opts, confirm, onEvent);
     return { output: `unknown command /${cmd.name}. /help lists commands.`, session: state.session };
   }
   if (cmd.type === "empty") {
@@ -413,13 +421,7 @@ export async function handleLine(
     }
     return { output: (await loadMemory(state.cwd)) || "(empty)", session: state.session };
   }
-  if (cmd.type === "skills") {
-    const skills = await loadSkills(state.cwd);
-    return {
-      output: skills.length ? skills.map((s) => s.name).join("\n") : "(none)",
-      session: state.session,
-    };
-  }
+  if (cmd.type === "skills") return skillsCommand(cmd.action, state);
   if (cmd.type === "compact") {
     const config = loadEnv(state.cwd);
     const provider = opts.local ? "local" : resolveProvider();
@@ -632,6 +634,69 @@ const PLAN_PROMPT = [
   "how you will test it, and open questions. Do not claim to have changed anything.",
 ].join("\n");
 const PLAN_GO = "The plan is approved. Carry it out now, step by step, then say how you tested it.";
+
+/** "/skill:pdf fill this form" or a custom "/name args": the prompt it sends, or undefined if it is neither. */
+async function customCommand(line: string, state: AppState) {
+  const match = /^\/(skill:)?([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/i.exec(line);
+  if (!match) return undefined;
+  const [, skillPrefix, rawName, rest = ""] = match;
+  const name = rawName!.toLowerCase();
+  const extensions = await loadExtensions(state.cwd);
+  const skill = extensions.skills.find((row) => row.name === name);
+  if (skill && (skillPrefix || !extensions.commands.some((row) => row.name === name))) {
+    const body = await readSkill(extensions.skills, name);
+    return [`Use the "${name}" skill below for this task${rest.trim() ? `: ${rest.trim()}` : "."}`, "", body].join("\n");
+  }
+  if (skillPrefix) return undefined;
+  const command = extensions.commands.find((row) => row.name === name);
+  return command ? commandPrompt(command, rest) : undefined;
+}
+
+/** /skills lists skills and custom commands; /skills trust accepts this project's as they are now. */
+async function skillsCommand(action: string | undefined, state: AppState): Promise<HandleResult> {
+  const reply = (output: string) => ({ output, session: state.session });
+  if (action === "trust") {
+    const count = await trustProjectExtensions(state.cwd);
+    return reply(count ? `Trusted this project's ${count} skill/command file(s) as they are now. Any change asks again.` : "This project has no skills or commands of its own.");
+  }
+  if (action) return reply("usage: /skills · /skills trust");
+  const extensions = await loadExtensions(state.cwd);
+  const legacy = await loadSkills(state.cwd);
+  const lines: string[] = [];
+  if (extensions.skills.length) {
+    lines.push("Skills (the agent loads one when a task matches; /skill:<name> uses it now):");
+    for (const skill of extensions.skills) {
+      lines.push(`  ${skill.name.padEnd(20)} ${skill.source.padEnd(18)} ${skill.description.slice(0, 70)}${skill.modelInvocable ? "" : "  (only when you ask)"}`);
+    }
+  }
+  if (extensions.commands.length) {
+    lines.push("Commands:");
+    for (const command of extensions.commands) {
+      lines.push(`  /${command.name.padEnd(19)} ${command.source.padEnd(18)} ${command.description.slice(0, 70)}`);
+    }
+  }
+  if (legacy.length) lines.push(`Always loaded from skills/*.md: ${legacy.map((skill) => skill.name).join(", ")}`);
+  if (extensions.untrustedProject) {
+    lines.push("", `This project has ${extensions.untrustedProject} skill/command file(s) that are not used yet (text written by whoever wrote the repo).`, "Read them, then /skills trust to use them.");
+  }
+  if (!lines.length) {
+    lines.push(
+      "No skills or commands yet.",
+      "  Skill:   ~/.aegis/skills/<name>/SKILL.md with name and description at the top (the agentskills.io format).",
+      "  Command: ~/.aegis/commands/<name>.md, then /<name> args ($1, $ARGUMENTS work inside).",
+    );
+  }
+  return reply(lines.join("\n"));
+}
+
+/** Help lines for custom commands and skills, so / autocompletes them. */
+export async function extensionHelp(cwd: string) {
+  const extensions = await loadExtensions(cwd);
+  return [
+    ...extensions.commands.map((command) => `  /${command.name}${command.argumentHint ? ` ${command.argumentHint.replace(/\s+/g, "_")}` : ""}   ${command.description || "custom command"}`),
+    ...extensions.skills.map((skill) => `  /skill:${skill.name}   ${skill.description.slice(0, 80) || "skill"}`),
+  ];
+}
 
 /** /mcp: servers and tools; /mcp trust <name>; /mcp restart. */
 async function mcpCommand(action: string | undefined, name: string | undefined, state: AppState): Promise<HandleResult> {

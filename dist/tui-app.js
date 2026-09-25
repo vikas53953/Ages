@@ -1,7 +1,7 @@
 import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, truncateToWidth, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
-import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
+import { closeState, currentTodos, extensionHelp, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
 import { todoLines } from "./todos.js";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.js";
 import { formatTokenLine } from "./receipt.js";
@@ -99,7 +99,7 @@ export async function createTuiApp(opts, input = {}) {
     const footer = new OneLine();
     const editor = new Editor(tui, editorTheme, { paddingX: 0 });
     // Type / for commands (core + plugins), @ for files — the same pi-tui provider Pi uses.
-    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? [])]), cwd));
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? []), ...(await extensionHelp(cwd))]), cwd));
     // Claude-Code-style working line above the editor: spinner, what is happening, time, how to stop.
     const status = new Text("", 0, 0);
     // The model's todo list, above the working line; empty (and gone) when nothing is open.

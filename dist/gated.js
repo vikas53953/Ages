@@ -61,6 +61,8 @@ function cancelled(decision, name) {
         decision,
     };
 }
+/** What plan mode lets through: reading, searching, loading a skill. */
+export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill"]);
 /** Tools that only touch the conversation (the todo list). */
 export const INTERNAL_TOOLS = new Set(["todo"]);
 export function toolTarget(name, args) {
@@ -124,7 +126,7 @@ export async function runGatedTool(input) {
     if (input.abortSignal?.aborted) {
         return cancelled(undefined, input.name);
     }
-    if (input.readOnly && input.name !== "read" && input.name !== "grep" && !INTERNAL_TOOLS.has(input.name)) {
+    if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
         return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
     }
     for (const guard of input.guards ?? []) {

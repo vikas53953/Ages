@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
-import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { closeState, currentTodos, extensionHelp, handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
 import { todoLines, type Todo } from "./todos.ts";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.ts";
 import { formatTokenLine } from "./receipt.ts";
@@ -161,7 +161,7 @@ export async function createTuiApp(
   // Type / for commands (core + plugins), @ for files — the same pi-tui provider Pi uses.
   editor.setAutocompleteProvider(
     new CombinedAutocompleteProvider(
-      slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? [])]),
+      slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? []), ...(await extensionHelp(cwd))]),
       cwd,
     ),
   );

@@ -27,6 +27,9 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/gated.ts` | The checkpoint every tool passes: plugin guards → rules → scorer (if on) → you → run |
 | `src/rules.ts` | Read `.aegis/settings.json`: rules, Jev mode, plugin list, thinking; which "always allow" rule to offer and saving it |
 | `src/policy.ts` | Turn a score into run or ask; `stricter()` lets a scorer only tighten |
+| `src/extensions.ts` | SKILL.md skills (on demand, `skill` tool) and custom commands; a project's need /skills trust (content-hashed) |
+| `src/todos.ts` | The agent's todo list (internal tool, kept in the conversation) |
+| `src/doctor.ts` | `aegis doctor`: is this PC ready, with fixes |
 | `src/mcp.ts` | MCP stdio client; servers from ~/.aegis (yours) or .aegis (project, only after /mcp trust); tools become mcp__server__tool behind the lock |
 | `src/headless.ts` | `aegis -p` / `--json`: scripts and CI; rules decide, questions are denied |
 | `src/checkpoints.ts` | Restore points before each approved write/edit (Aegis's tools and Claude Code's); `/rewind` |

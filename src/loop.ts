@@ -1,5 +1,6 @@
 import { lexicalInsideCwd } from "./env.ts";
 import { MAX_TODOS, TODO_TOOL_DESCRIPTION, cleanTodos, todoSummary } from "./todos.ts";
+import { readSkill, type SkillEntry } from "./extensions.ts";
 import type { McpTool } from "./mcp.ts";
 
 /** An MCP tool and how to call it. */
@@ -81,6 +82,8 @@ export function createTools(input: {
   readOnly?: string;
   /** MCP server tools (mcp__server__tool), gated like every other tool. */
   mcpTools?: McpBinding[];
+  /** Skills the model may load (names and descriptions are in the system prompt). */
+  skills?: SkillEntry[];
 }) {
   const keep = async (filePath: string) => {
     if (!input.checkpoint) return;
@@ -136,6 +139,15 @@ export function createTools(input: {
       }),
     ]),
   );
+
+  if (input.skills?.length) {
+    mcp.skill = tool({
+      description: "Load a skill listed under Skills in your instructions (its full text), or one of its files.",
+      inputSchema: z.object({ name: z.string(), file: z.string().optional() }),
+      execute: async ({ name, file }: { name: string; file?: string }) =>
+        gate("skill", { path: name, ...(file ? { file } : {}) }, () => readSkill(input.skills!, name, file)),
+    }) as (typeof mcp)[string];
+  }
 
   return {
     ...mcp,
@@ -361,6 +373,7 @@ export async function runLoop(input: {
   checkpoint?: (absolutePath: string) => Promise<void>;
   readOnly?: string;
   mcpTools?: McpBinding[];
+  skills?: SkillEntry[];
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -421,6 +434,7 @@ export async function runLoop(input: {
     checkpoint: input.checkpoint,
     readOnly: input.readOnly,
     mcpTools: input.mcpTools,
+    skills: input.skills,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });
