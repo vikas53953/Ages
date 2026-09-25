@@ -1,7 +1,10 @@
 import { loadEnv, hasJevCredentials } from "./env.ts";
 import { formatReceipt, localGenerate, runLoop, type GenerateFn, type TurnEvent } from "./loop.ts";
 import { formatChat, formatTokenLine } from "./receipt.ts";
-import { modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
+import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.ts";
+import { loadCredential, saveCredential } from "./auth/store.ts";
+import { openUrl } from "./open-url.ts";
+import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { HELP, parseLine } from "./commands.ts";
 import { addMemory, loadMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
@@ -128,7 +131,7 @@ export async function welcomeInfo(state: AppState): Promise<WelcomeInfo> {
     version: APP_VERSION,
     user: displayUser(),
     model: state.modelMode === "pinned" ? `${state.model} (pinned)` : `auto: ${models.cheap} / ${models.frontier}`,
-    provider: state.provider === "opencode" ? "OpenCode Zen" : state.provider === "openai" ? "OpenAI" : "local, no key",
+    provider: providerLabel(state.provider),
     cwd: state.cwd,
     jevMode: state.plugins.some((plugin) => plugin.scorer) ? settings.jev.mode : "not loaded",
     jevHealth: state.jevHealth,
@@ -147,11 +150,21 @@ export async function welcomeInfo(state: AppState): Promise<WelcomeInfo> {
   };
 }
 
+export function providerLabel(provider: ChatProvider) {
+  if (provider === "codex") {
+    const email = loadCredential(CODEX_CREDENTIAL)?.email;
+    return `ChatGPT plan${email ? ` (${email})` : ""}`;
+  }
+  return provider === "opencode" ? "OpenCode Zen" : provider === "openai" ? "OpenAI" : "local, no key";
+}
+
 /** Entries for the /model picker: "auto" first, then the live catalogue grouped by provider. */
 export function modelChoices(state: AppState) {
   const config = loadConfig(state.cwd);
   const models = modelsFor(state.provider, config);
-  const rows = currentCatalog().map((entry) => ({
+  const catalog =
+    state.provider === "codex" ? CODEX_MODELS.map((row) => ({ ...row, group: "ChatGPT plan" })) : currentCatalog();
+  const rows = catalog.map((entry) => ({
     id: entry.id,
     group: entry.group,
     note:
@@ -411,6 +424,9 @@ export async function handleLine(
       session: state.session,
     };
   }
+  if ((cmd.type === "login" || cmd.type === "logout") && (cmd.provider === "chatgpt" || cmd.provider === "codex")) {
+    return chatgptLogin(cmd.type, cmd.type === "login" ? cmd.key : undefined, state, opts, onEvent);
+  }
   if (cmd.type === "login" || cmd.type === "logout") {
     if (!cmd.provider) return { output: loginStatus(), session: state.session };
     const key = LOGIN_KEYS[cmd.provider];
@@ -437,7 +453,7 @@ export async function handleLine(
     return {
       output: [
         `session   ${state.session.id}`,
-        `provider  ${state.provider}`,
+        `provider  ${providerLabel(state.provider)}`,
         `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
         `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
         `task      ${state.taskPermission}`,
@@ -486,6 +502,42 @@ function findPluginCommand(plugins: AegisPlugin[], line: string) {
  * You typed it, so no rule or Jev check applies. The output goes into the conversation so the model sees it;
  * "!!dir" runs it without adding it. AEGIS_ALLOW_SHELL only limits the model's shell tool.
  */
+/** /login chatgpt [browser]: sign in with a ChatGPT plan (device code by default). /logout chatgpt forgets it. */
+async function chatgptLogin(
+  kind: "login" | "logout",
+  method: string | undefined,
+  state: AppState,
+  opts: RunOpts,
+  onEvent?: (event: TurnEvent) => void,
+): Promise<HandleResult> {
+  if (kind === "logout") {
+    const file = saveCredential(CODEX_CREDENTIAL, undefined);
+    if (!opts.local) state.provider = resolveProvider();
+    return { output: `ChatGPT: signed out (removed from ${file}). Provider now ${state.provider}.`, session: state.session };
+  }
+  if (method && method !== "browser" && method !== "device") {
+    return { output: "usage: /login chatgpt            (a code to type at auth.openai.com)\n       /login chatgpt browser    (sign in in this PC's browser)", session: state.session };
+  }
+  const ui = {
+    show: (text: string) => onEvent?.({ type: "notice", text }),
+    signal: opts.abortSignal,
+    openUrl: (url: string) => void openUrl(url),
+  };
+  const credential = method === "browser" ? await loginCodexBrowser(ui) : await loginCodexDevice(ui);
+  const file = saveCredential(CODEX_CREDENTIAL, credential);
+  if (!opts.local) state.provider = resolveProvider();
+  return {
+    output: [
+      `Signed in to ChatGPT${credential.email ? ` as ${credential.email}` : ""}. Saved to ${file} (only your account can read it).`,
+      `Provider now ${providerLabel(state.provider)}. Models: /model   ·   Sign out: /logout chatgpt`,
+      opts.local ? "(--local is on: chat stays local until you start aegis without it)" : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    session: state.session,
+  };
+}
+
 export async function runUserShell(line: string, state: AppState, opts: RunOpts): Promise<HandleResult> {
   const keep = !line.startsWith("!!");
   const command = line.replace(/^!!?/, "").trim();

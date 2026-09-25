@@ -284,6 +284,10 @@ export async function createTuiApp(opts, input = {}) {
         tui.requestRender();
     };
     const applyEvent = (event) => {
+        if (event.type === "notice") {
+            add("system", event.text);
+            return;
+        }
         if (event.type === "accepted") {
             phase = "evaluating";
             return;

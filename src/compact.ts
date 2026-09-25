@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { generateText, type LanguageModel } from "ai";
+import { streamText, type LanguageModel } from "ai";
 import { languageModel } from "./providers.ts";
 import {
   loadMessages,
@@ -109,7 +109,8 @@ export const SUMMARY_SYSTEM = [
 /** Summarize with a chat model. The caller falls back to the extractive summary if this throws. */
 export function modelSummarizer(model: string | LanguageModel): Summarizer {
   return async ({ transcript, previous, abortSignal }) => {
-    const result = await generateText({
+    // Streamed, because some endpoints (the ChatGPT plan's Codex endpoint) only answer streaming requests.
+    const result = streamText({
       model: typeof model === "string" ? languageModel(model) : model,
       system: SUMMARY_SYSTEM,
       prompt: [
@@ -120,7 +121,7 @@ export function modelSummarizer(model: string | LanguageModel): Summarizer {
       maxOutputTokens: 900,
       abortSignal,
     });
-    const text = result.text.trim();
+    const text = (await result.text).trim();
     if (!text) throw new Error("empty summary");
     return text;
   };

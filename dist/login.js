@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { CODEX_CREDENTIAL } from "./auth/codex.js";
+import { loadCredential } from "./auth/store.js";
 import { userAegisDir } from "./env.js";
 /** What /login can store, by the name you type. Saved to ~/.aegis/.env so every folder sees it. */
 export const LOGIN_KEYS = {
@@ -44,14 +46,19 @@ export function redactLogin(line) {
     return match ? `${match[1]}${maskKey(match[2])}${match[3]}` : line;
 }
 export function loginStatus() {
+    const chatgpt = loadCredential(CODEX_CREDENTIAL);
     const rows = Object.entries(LOGIN_KEYS).map(([name, key]) => {
         const value = process.env[key.env];
         return `  ${name.padEnd(9)} ${value ? `set ${maskKey(value)}` : "not set"}   ${key.label}`;
     });
     return [
+        "Sign-ins:",
+        `  chatgpt   ${chatgpt ? `signed in${chatgpt.email ? ` as ${chatgpt.email}` : ""}` : "not signed in"}   ChatGPT plan (Codex models)`,
+        "",
         "Keys (a project .env overrides these):",
         ...rows,
         "",
+        "  /login chatgpt          sign in with your ChatGPT plan (browser: /login chatgpt browser)",
         `  /login opencode <key>   save a key to ${userEnvFile()}`,
         "  /logout opencode        remove it",
     ].join("\n");

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { openUrl } from "./open-url.js";
 import { startStudio } from "./studio.js";
 import { stdin, stdout } from "node:process";
 import { APP_CMD, APP_VERSION } from "./brand.js";
@@ -122,7 +122,10 @@ async function repl(opts) {
             break;
         abort = new AbortController();
         rl.pause();
-        const result = await handleLine(line, state, { ...opts, abortSignal: abort.signal }, confirm);
+        const result = await handleLine(line, state, { ...opts, abortSignal: abort.signal }, confirm, (event) => {
+            if (event.type === "notice")
+                console.log(event.text);
+        });
         rl.resume();
         if (result.notice)
             console.error(result.notice);
@@ -141,27 +144,12 @@ async function runStudio(opts, input) {
     console.log(`Aegis Studio  ${studio.url}`);
     console.log("Runs on this PC only (127.0.0.1). The link carries a one-time key; keep it private. ctrl+c stops.");
     if (input.open)
-        openBrowser(studio.url);
+        openUrl(studio.url, () => console.log("Open the link above in your browser."));
     await new Promise((resolve) => {
         process.once("SIGINT", () => resolve());
         process.once("SIGTERM", () => resolve());
     });
     await studio.close();
-}
-function openBrowser(url) {
-    const [cmd, args] = process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", url]]
-        : process.platform === "darwin"
-            ? ["open", [url]]
-            : ["xdg-open", [url]];
-    try {
-        const child = spawn(cmd, args, { stdio: "ignore", detached: true, windowsHide: true });
-        child.on("error", () => console.log("Open the link above in your browser."));
-        child.unref();
-    }
-    catch {
-        console.log("Open the link above in your browser.");
-    }
 }
 function wantTui(args) {
     if (args.prompt)

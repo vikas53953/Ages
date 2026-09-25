@@ -73,12 +73,24 @@ A terminal opens the full-screen TUI with the welcome screen. `aegis --repl` is 
 
 ## 3. Connect a model
 
-Inside Aegis, once — saved to `~\.aegis\.env` for every folder:
+**With your ChatGPT plan** (Plus / Pro / Business). No API key needed:
+
+```text
+/login chatgpt              a short code to type at auth.openai.com (works behind firewalls)
+/login chatgpt browser      or sign in in this PC's browser
+```
+
+The sign-in is saved to `~\.aegis\auth.json`, readable only by your Windows account, and renews itself. `/logout chatgpt` forgets it.
+
+**Or with an API key.** Saved to `~\.aegis\.env` for every folder:
 
 ```text
 /login opencode <your-key>
+/login openai <your-key>
 /login jev <your-typesafe-key>      (optional: turns on Jev scoring)
 ```
+
+Claude and Gemini are key-only: Anthropic and Google do not allow third-party apps to sign in with Claude.ai or Google plans.
 
 ## Everyday commands
 

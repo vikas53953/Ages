@@ -360,6 +360,10 @@ export async function createTuiApp(
   };
 
   const applyEvent = (event: TurnEvent) => {
+    if (event.type === "notice") {
+      add("system", event.text);
+      return;
+    }
     if (event.type === "accepted") {
       phase = "evaluating";
       return;

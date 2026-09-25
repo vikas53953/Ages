@@ -1,3 +1,4 @@
+import { simulateReadableStream } from "ai";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -108,17 +109,23 @@ describe("compactSession", () => {
   it("modelSummarizer sends the transcript and previous summary to the model", async () => {
     let request = "";
     const model = new MockLanguageModelV4({
-      doGenerate: async (options) => {
+      doStream: async (options) => {
         request = JSON.stringify(options.prompt);
-        return {
-          content: [{ type: "text", text: "  folded notes  " }],
-          finishReason: { unified: "stop", raw: "stop" },
-          usage: {
-            inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
-            outputTokens: { total: 1, text: 1, reasoning: undefined },
+        const chunks = [
+          { type: "stream-start", warnings: [] },
+          { type: "text-start", id: "t" },
+          { type: "text-delta", id: "t", delta: "  folded notes  " },
+          { type: "text-end", id: "t" },
+          {
+            type: "finish",
+            finishReason: { unified: "stop", raw: "stop" },
+            usage: {
+              inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 1, text: 1, reasoning: undefined },
+            },
           },
-          warnings: [],
-        };
+        ];
+        return { stream: simulateReadableStream({ chunks: chunks as never[] }) };
       },
     });
     const text = await modelSummarizer(model)({ transcript: "user: hi", previous: "OLD-NOTES" });

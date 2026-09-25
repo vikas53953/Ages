@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { generateText } from "ai";
+import { streamText } from "ai";
 import { languageModel } from "./providers.js";
 import { loadMessages, messageText, replaceMessages, sessionDir, } from "./session.js";
 /** Recent user turns kept word for word. Everything before them is folded into the summary. */
@@ -82,7 +82,8 @@ export const SUMMARY_SYSTEM = [
 /** Summarize with a chat model. The caller falls back to the extractive summary if this throws. */
 export function modelSummarizer(model) {
     return async ({ transcript, previous, abortSignal }) => {
-        const result = await generateText({
+        // Streamed, because some endpoints (the ChatGPT plan's Codex endpoint) only answer streaming requests.
+        const result = streamText({
             model: typeof model === "string" ? languageModel(model) : model,
             system: SUMMARY_SYSTEM,
             prompt: [
@@ -93,7 +94,7 @@ export function modelSummarizer(model) {
             maxOutputTokens: 900,
             abortSignal,
         });
-        const text = result.text.trim();
+        const text = (await result.text).trim();
         if (!text)
             throw new Error("empty summary");
         return text;

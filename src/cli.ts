@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { openUrl } from "./open-url.ts";
 import { startStudio } from "./studio.ts";
 import { stdin, stdout } from "node:process";
 import { APP_CMD, APP_VERSION } from "./brand.ts";
@@ -123,7 +123,9 @@ async function repl(opts: RunOpts) {
     if (line === null) break;
     abort = new AbortController();
     rl.pause();
-    const result = await handleLine(line, state, { ...opts, abortSignal: abort.signal }, confirm);
+    const result = await handleLine(line, state, { ...opts, abortSignal: abort.signal }, confirm, (event) => {
+      if (event.type === "notice") console.log(event.text);
+    });
     rl.resume();
     if (result.notice) console.error(result.notice);
     if (result.output) console.log(result.output);
@@ -138,28 +140,12 @@ async function runStudio(opts: RunOpts, input: { port?: number; open: boolean; f
   const studio = await startStudio({ cwd: process.cwd(), opts, port: input.port, continueSession: !input.fresh });
   console.log(`Aegis Studio  ${studio.url}`);
   console.log("Runs on this PC only (127.0.0.1). The link carries a one-time key; keep it private. ctrl+c stops.");
-  if (input.open) openBrowser(studio.url);
+  if (input.open) openUrl(studio.url, () => console.log("Open the link above in your browser."));
   await new Promise<void>((resolve) => {
     process.once("SIGINT", () => resolve());
     process.once("SIGTERM", () => resolve());
   });
   await studio.close();
-}
-
-function openBrowser(url: string) {
-  const [cmd, args] =
-    process.platform === "win32"
-      ? ["cmd", ["/c", "start", "", url]]
-      : process.platform === "darwin"
-        ? ["open", [url]]
-        : ["xdg-open", [url]];
-  try {
-    const child = spawn(cmd, args as string[], { stdio: "ignore", detached: true, windowsHide: true });
-    child.on("error", () => console.log("Open the link above in your browser."));
-    child.unref();
-  } catch {
-    console.log("Open the link above in your browser.");
-  }
 }
 
 function wantTui(args: { tui: boolean; repl: boolean; prompt: string }) {

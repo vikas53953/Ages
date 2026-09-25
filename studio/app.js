@@ -248,6 +248,7 @@
     $("workingText").textContent = text || "";
   }
   function onEvent(event) {
+    if (event.type === "notice") addNote(event.text);
     if (phases[event.type]) setWorking(phases[event.type]);
     if (event.type === "route" && event.reason !== "selected") addNote(`model ${event.model} · ${event.reason}`, "route");
     if (event.type === "reasoning_delta") {

@@ -95,6 +95,8 @@ export type TurnEvent =
   | { type: "tool"; record: ToolRecord }
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
+  /** A line to show now, before the command finishes (the ChatGPT sign-in code). */
+  | { type: "notice"; text: string }
   | { type: "outcome"; outcome: TurnOutcome };
 
 export type ToolRecord = {
