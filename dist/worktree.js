@@ -6,8 +6,7 @@
  * git runs hardened (review.ts): a repo's hooks, filters and fsmonitor do not run while the files are checked
  * out. Git LFS files therefore stay pointer files; run `git lfs pull` in the worktree yourself if you need them.
  */
-import { existsSync } from "node:fs";
-import { readdir, realpath, rm } from "node:fs/promises";
+import { readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { filterOverrides, git } from "./review.js";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/;
@@ -50,7 +49,10 @@ export async function openWorktree(cwd, name) {
     }
     const folder = path.join(path.dirname(top), `${path.basename(top)}.worktrees`, name);
     const branch = `aegis/${name}`;
-    if (existsSync(folder) && (await readdir(folder)).length) {
+    const existing = await stat(folder).catch(() => undefined);
+    if (existing && !existing.isDirectory())
+        throw new Error(`${folder} already exists and is not a worktree of this repository`);
+    if (existing && (await readdir(folder)).length) {
         // Reuse only a worktree of this very repository; report the branch it is really on.
         let theirs = "";
         try {
@@ -61,8 +63,9 @@ export async function openWorktree(cwd, name) {
         }
         if (theirs !== common)
             throw new Error(`${folder} already exists and is not a worktree of this repository`);
+        // Empty when its HEAD is detached: say so rather than guess.
         const current = (await git(folder, ["branch", "--show-current"]).catch(() => "")).trim();
-        return { path: folder, branch: current || branch, created: false };
+        return { path: folder, branch: current || "(detached HEAD)", created: false };
     }
     // A worktree folder deleted by hand is still registered: forget it first, or git refuses.
     await git(top, ["worktree", "prune"]).catch(() => "");
@@ -83,8 +86,10 @@ export async function openWorktree(cwd, name) {
         await git(top, ["worktree", "prune"]).catch(() => "");
         if (!branchExists)
             await git(top, ["branch", "-D", "--", branch]).catch(() => "");
-        const stderr = String(error.stderr ?? "").trim();
-        throw new Error(`could not create the worktree: ${stderr || (error instanceof Error ? error.message.split("\n")[0] : String(error))}`);
+        // git prints progress first ("Preparing worktree …"): show its fatal/error line, else its last line.
+        const lines = String(error.stderr ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const reason = lines.find((line) => /^(?:fatal|error):/.test(line)) ?? lines.at(-1);
+        throw new Error(`could not create the worktree: ${reason || (error instanceof Error ? error.message.split("\n")[0] : String(error))}`);
     }
     return { path: folder, branch, created: true };
 }

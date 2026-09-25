@@ -258,3 +258,10 @@
     - Shell: a stop or timeout that lands after a clean exit, while only a helper holds the pipe, is a success.
     - Headless: each denied call shows the lock's own reason (rule, hook, plan mode, guard, stop).
     - Redaction in code: the same word (`password: password`), snake_case variables, keywords, `??`/`||` and `}` contexts, and fetch's `credentials: 'same-origin'` are left alone. `{password: hunter2hunter2, …}` is caught.
+- Fixes from the review of `6e05349`:
+  - P1 trust hijack: a hand-made `.git` file ("gitdir: <trusted>/.git/worktrees/x") made any folder count as that project, borrowing its trust, your saved rules and its `.env`. Now the main checkout's own record (`<gitdir>/gitdir`) must point back at this folder.
+  - P1 redaction time: each pair looked to the end of its line, so a one-line file with many pairs was quadratic (8.6 MB took 46 s). It now looks at most 64 characters ahead and 256 behind.
+  - P2 redaction misses: the last pair of a connection string (`Server=x;Password=Secret1;`) and a bare `NAME=value;` line are values. `name = value;` with spaces, alone on its line, is still code. `.npmrc` `_auth*` values are never read as variable names.
+  - P3:
+    - Shell: output over 2 MB that arrives after the exit is now an error, not a silently cut success.
+    - Worktree: a file in the way gets the clear message; a failed checkout shows git's `fatal:` line, not its progress line; a reused worktree on a detached HEAD says so.

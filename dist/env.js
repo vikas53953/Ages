@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, mkdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -75,6 +75,11 @@ export function mainCheckoutOf(cwd) {
         const absolute = path.resolve(cwd, gitdir);
         const worktrees = path.dirname(absolute);
         if (path.basename(worktrees) !== "worktrees" || path.basename(path.dirname(worktrees)) !== ".git")
+            return undefined;
+        // The main checkout's record must point back at this folder: a hand-made ".git" file naming some other
+        // project would otherwise borrow that project's trust, saved rules and .env.
+        const back = readFileSync(path.join(absolute, "gitdir"), "utf8").trim();
+        if (realpathSync.native(path.dirname(path.resolve(absolute, back))) !== realpathSync.native(cwd))
             return undefined;
         return path.dirname(path.dirname(worktrees));
     }

@@ -71,3 +71,29 @@ describe("secret files are asked about, whatever the rules allow", () => {
     }
   });
 });
+
+describe("redaction: review fixes (6e05349)", () => {
+  it("the last pair of a connection string, and a bare NAME=value; line, are redacted", () => {
+    for (const text of ["Data Source=x;Password=Secret123;", "DB_PASSWORD=Secret123;", "Password=MyS3cretPass;", "Server=x;Password=MySecretPass;"]) {
+      expect(redactSecrets(text).text, text).toContain("[redacted:secret-value]");
+    }
+  });
+
+  it("code statements are still left alone", () => {
+    for (const text of ["password = userPassword;", "const token = readToken;", "  secret: SecretField;"]) {
+      expect(redactSecrets(text).text, text).not.toContain("[redacted:");
+    }
+  });
+
+  it(".npmrc _authToken is always a value", () => {
+    expect(redactSecrets("//registry.npmjs.org/:_authToken=abcd_efgh_ijkl").text).toContain("[redacted:secret-value]");
+  });
+
+  it("stays linear on one long line with many pairs", () => {
+    const line = "password=hunter2hunter2 ".repeat(180_000);
+    const start = Date.now();
+    const out = redactSecrets(line);
+    expect(out.count).toBe(180_000);
+    expect(Date.now() - start).toBeLessThan(5_000);
+  });
+});

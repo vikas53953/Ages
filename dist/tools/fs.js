@@ -119,7 +119,7 @@ export function runPowerShell(command, cwd, timeoutMs, signal) {
         };
         child.on("error", (error) => finish(Object.assign(error, { code: error.code })));
         const settleExit = (code, closeSignal) => {
-            if (code === 0 && !killed)
+            if (code === 0 && !killed && !overflow)
                 return finish(undefined);
             const why = signal?.aborted
                 ? "stopped"

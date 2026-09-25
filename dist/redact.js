@@ -66,15 +66,19 @@ function secretName(raw) {
     return words.some((word, index) => index > 0 && SECRET_PAIRS.has(`${words[index - 1]} ${word}`)) || words.join("") === "connectionstring";
 }
 /**
- * Is the value followed by code (so a bare word is a variable)? `,` `)` `}` `??` `||` after it, or `;` after a
- * ":" pair or at the end of a statement. A `;` followed by more NAME=value pairs is a connection string, not code.
+ * Is the value followed by code (so a bare word is a variable)? `,` `)` `}` `??` `||` after it, or a `;` ending
+ * a statement: after a ":" pair, or `name = value;` with spaces, alone on its line. `Password=Secret1;` (no
+ * spaces) and a `;` after an earlier pair on the line (`Server=x;Password=Secret1;`) are connection strings.
+ * `after` is a short look-ahead and `before` the line up to the name, so each check is bounded.
  */
-function codeAfter(after, between) {
+function codeAfter(after, between, before) {
     if (/^\s*(?:[,)}]|\?\?|\|\||&&|!)/.test(after))
         return true;
-    if (after.startsWith(";"))
-        return between.includes(":") || /^;\s*$/.test(after);
-    return false;
+    if (!after.startsWith(";"))
+        return false;
+    if (between.includes(":"))
+        return true;
+    return /^;[ \t]*(?:\r?\n|$)/.test(after) && /\s/.test(between) && !/[;=]/.test(before);
 }
 /** Example values in .env.example and docs are not secrets (and the model needs to see them to copy the file). */
 const PLACEHOLDER = /^(?:changeme|change[-_]me|replace[-_ ]?me|your[-_ ]|xxx|<|example|placeholder|dummy|todo)/i;
@@ -84,7 +88,7 @@ const KEYWORDS = new Set(["undefined", "null", "true", "false", "none", "nil", "
  * Values that name something rather than being one: numbers, URLs, paths, variable references, code.
  * `code` = the value is followed by , ; ) — a struct/object literal or a call, where a bare word is a variable.
  */
-function notAValue(value, name, quoted, code) {
+function notAValue(value, name, quoted, code, connection = false) {
     if (PLACEHOLDER.test(value) || KEYWORDS.has(value.toLowerCase()))
         return true;
     const bareName = name.replace(/^\$(?:env:)?/, "").replace(/["']/g, "");
@@ -92,7 +96,8 @@ function notAValue(value, name, quoted, code) {
         // `password: password`, `password=db_password`: the same word, or a snake_case variable, is a reference.
         if (value.toLowerCase() === bareName.toLowerCase())
             return true;
-        if (/[a-z]/.test(bareName) && /^[a-z]+(?:_[a-z]+)+$/.test(value))
+        // (Not for .npmrc's _auth/_authToken, which are always values.)
+        if (/[a-z]/.test(bareName) && !/^_auth/i.test(bareName) && /^[a-z]+(?:_[a-z]+)+$/.test(value))
             return true;
     }
     if (!quoted) {
@@ -102,7 +107,8 @@ function notAValue(value, name, quoted, code) {
         if (code && !lowerWithDigit && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value))
             return true;
         // Outside code (YAML, .properties, .env): a PascalCase type, a CONST_NAME or a camelCase word without digits.
-        if (/[a-z]/.test(name.replace(/^\$(?:env:)?/, ""))) {
+        // (Inside a connection string, "Server=x;Password=MySecretPass", a word is the value itself.)
+        if (!connection && /[a-z]/.test(name.replace(/^\$(?:env:)?/, ""))) {
             if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)*$/.test(value) || /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(value))
                 return true;
             if (/^[a-z]+(?:[A-Z][a-z]+)+$/.test(value))
@@ -141,8 +147,12 @@ function redactAll(text) {
         const [match, name = "", between = "", dq, sq, bare] = found;
         const value = dq ?? sq ?? bare ?? "";
         const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : "";
-        const after = out.slice(found.index + match.length, out.indexOf("\n", found.index + match.length) >>> 0);
-        if (secretName(name) && !notAValue(value, name, Boolean(quote), codeAfter(after, between))) {
+        // A short window on each side, never the rest of the line: a one-line file with many pairs stays linear.
+        const end = found.index + match.length;
+        const after = out.slice(end, end + 64);
+        const near = out.slice(Math.max(0, found.index - 256), found.index);
+        const before = near.slice(near.lastIndexOf("\n") + 1);
+        if (secretName(name) && !notAValue(value, name, Boolean(quote), codeAfter(after, between, before), /;\s*$/.test(before) && !between.includes(":"))) {
             count += 1;
             result += `${out.slice(last, found.index)}${name}${between}${quote}[redacted:secret-value]${quote}`;
             last = found.index + match.length;

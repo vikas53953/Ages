@@ -121,3 +121,31 @@ describe("--worktree: review fixes", () => {
     expect(parseArgs(["--worktree="]).worktree).toMatch(/^session-/);
   });
 });
+
+describe("--worktree: review fixes (6e05349)", () => {
+  it("a hand-made .git file naming another project does not borrow its trust, rules or .env", async () => {
+    const { mainCheckoutOf } = await import("../src/env.ts");
+    const { projectKey } = await import("../src/rules.ts");
+    const trusted = await repo();
+    const real = await openWorktree(trusted, "real");
+    expect(mainCheckoutOf(real.path)).toBe(trusted);
+    const evil = await mkdtemp(path.join(os.tmpdir(), "aegis-wt-evil-"));
+    await writeFile(path.join(evil, ".git"), `gitdir: ${path.join(trusted, ".git", "worktrees", "nope")}\n`);
+    expect(mainCheckoutOf(evil)).toBeUndefined();
+    // Pointing at a real worktree's record is refused too: that record points back at the real worktree.
+    await writeFile(path.join(evil, ".git"), `gitdir: ${path.join(trusted, ".git", "worktrees", "real")}\n`);
+    expect(mainCheckoutOf(evil)).toBeUndefined();
+    expect(projectKey(evil)).not.toBe(projectKey(trusted));
+  });
+
+  it("clear errors: a file in the way, and git's real reason", async () => {
+    const cwd = await repo();
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(path.join(path.dirname(cwd), "app.worktrees"), { recursive: true });
+    await writeFile(path.join(path.dirname(cwd), "app.worktrees", "file"), "x");
+    await expect(openWorktree(cwd, "file")).rejects.toThrow("not a worktree of this repository");
+    // The branch is already checked out in another worktree.
+    git(cwd, "worktree", "add", "-q", "-b", "aegis/busy", path.join(path.dirname(cwd), "elsewhere"));
+    await expect(openWorktree(cwd, "busy")).rejects.toThrow(/could not create the worktree: (fatal|error):/);
+  });
+});
