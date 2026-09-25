@@ -1,6 +1,7 @@
 import { lexicalInsideCwd } from "./env.ts";
 import { MAX_TODOS, TODO_TOOL_DESCRIPTION, cleanTodos, todoSummary } from "./todos.ts";
 import { readSkill, type SkillEntry } from "./extensions.ts";
+import { fetchPage, formatFetch } from "./webfetch.ts";
 import type { McpTool } from "./mcp.ts";
 
 /** An MCP tool and how to call it. */
@@ -151,6 +152,12 @@ export function createTools(input: {
 
   return {
     ...mcp,
+    webfetch: tool({
+      description:
+        "Read one web page (https). Returns its text, marked as untrusted. Each site is allowed by the owner's rules or asked about. A redirect to another site comes back to you as a new URL to fetch.",
+      inputSchema: z.object({ url: z.string() }),
+      execute: async ({ url }) => gate("webfetch", { url }, async () => formatFetch(await fetchPage(url, { signal: input.abortSignal }))),
+    }),
     todo: tool({
       description: TODO_TOOL_DESCRIPTION,
       inputSchema: z.object({

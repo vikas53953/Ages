@@ -36,10 +36,10 @@ const MAX_PROMPT_BLOCK = 8_000;
 
 /** Frontmatter between --- lines: key: value, quoted values, booleans, and > / | block scalars. */
 export function parseFrontmatter(text: string): { data: Record<string, string | boolean>; body: string } {
-  const match = /^﻿?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  const match = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(text);
   if (!match) return { data: {}, body: text };
   const data: Record<string, string | boolean> = {};
-  const lines = match[1]!.split(/\r?\n/);
+  const lines = (match[1] ?? "").split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     const kv = /^([A-Za-z][\w-]*)\s*:\s*(.*)$/.exec(lines[i]!);
     if (!kv) continue;
@@ -91,11 +91,14 @@ async function scanSkills(cwd: string) {
       continue;
     }
     for (const folder of names) {
+      // A skill folder that is a link could point anywhere: only real folders count.
+      if ((await lstat(path.join(root.dir, folder)).catch(() => undefined))?.isSymbolicLink()) continue;
       const file = path.join(root.dir, folder, "SKILL.md");
       const text = await readSmall(file).catch(() => undefined);
       if (!text) continue;
       const { data } = parseFrontmatter(text);
-      const name = typeof data.name === "string" && NAME.test(data.name) ? data.name : folder.toLowerCase();
+      const declared = typeof data.name === "string" ? data.name.trim().toLowerCase() : "";
+      const name = NAME.test(declared) ? declared : folder.toLowerCase();
       if (!NAME.test(name)) continue;
       found.push({
         name,
@@ -149,7 +152,11 @@ function trustFile() {
 /** One hash over every project skill and command file (path + content): change anything and trust is gone. */
 async function projectFingerprint(skills: SkillEntry[], commands: CommandEntry[], cwd: string) {
   const hash = createHash("sha256").update(path.resolve(cwd));
-  const files = [...skills.filter((skill) => skill.scope === "project").map((skill) => skill.file), ...commands.filter((command) => command.scope === "project").map((command) => command.file)].sort();
+  const skillFiles: string[] = [];
+  for (const skill of skills.filter((row) => row.scope === "project")) {
+    skillFiles.push(skill.file, ...(await listFiles(skill.dir, 200)).map((file) => path.join(skill.dir, file)));
+  }
+  const files = [...skillFiles, ...commands.filter((command) => command.scope === "project").map((command) => command.file)].sort();
   for (const file of files) {
     hash.update(`\0${path.relative(cwd, file)}\0`);
     hash.update(await readFile(file).catch(() => Buffer.alloc(0)));

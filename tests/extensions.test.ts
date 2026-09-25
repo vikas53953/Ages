@@ -170,3 +170,19 @@ describe("custom commands", () => {
     expect(result.receipt?.prompt).toBe("Ship it\n\nnow");
   });
 });
+
+describe("review fixes", () => {
+  it("trust covers every file in a project skill folder; changing a supporting file asks again", async () => {
+    const { cwd, state } = await project();
+    await skill(path.join(cwd, ".claude", "skills"), "deploy", "Deploy.");
+    await handleLine("/skills trust", state, { mockJev: true, yes: false, local: true });
+    expect((await loadExtensions(cwd)).skills).toHaveLength(1);
+    await writeFile(path.join(cwd, ".claude", "skills", "deploy", "steps.md"), "new instructions");
+    expect((await loadExtensions(cwd)).skills).toHaveLength(0);
+  });
+
+  it("frontmatter: empty block, trailing spaces, upper-case names", () => {
+    expect(parseFrontmatter("---\n---\nBody").body).toBe("Body");
+    expect(parseFrontmatter("--- \nname: x\n--- \nBody").data.name).toBe("x");
+  });
+});

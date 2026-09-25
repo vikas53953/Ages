@@ -9,6 +9,7 @@ import { settingsPath } from "../src/rules.ts";
 import { currentTodos, handleLine, startState } from "../src/runtime.ts";
 import { cleanTodos, todoLines } from "../src/todos.ts";
 import type { TurnEvent } from "../src/types.ts";
+import { replaceMessages } from "../src/session.ts";
 
 const usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
@@ -108,5 +109,18 @@ describe("todo tool", () => {
     expect(todoLines([{ content: "a", status: "completed" }])).toEqual([]);
     const lines = todoLines(cleanTodos(list.todos));
     expect(lines).toEqual(["[x] Read the config", "[>] Add the ping script", "[ ] Test it"]);
+  });
+});
+
+describe("todo list survives compaction", () => {
+  it("is kept with the session, not only in the turns compaction drops", async () => {
+    const { state } = await project({ jev: { mode: "off" } });
+    await handleLine(
+      "plan it",
+      state,
+      { mockJev: true, yes: false, local: true, generate: generateWith(scripted([{ tool: "todo", input: list }, { text: "ok" }])) },
+    );
+    await replaceMessages(state.cwd, state.session.id, []); // what compaction does to old turns
+    expect(await currentTodos(state)).toHaveLength(3);
   });
 });

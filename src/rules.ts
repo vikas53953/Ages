@@ -194,8 +194,17 @@ export function urlHost(value: unknown) {
  * subdomain (not microsoft.com itself); "*" alone any host; a "*" anywhere else never crosses a dot.
  */
 function hostMatches(pattern: string, host: string) {
-  const want = pattern.toLowerCase().replace(/\.$/, "");
-  if (want === "*") return host.length > 0;
+  let want = pattern.toLowerCase().replace(/\.$/, "");
+  // "*" covers every fetch, even one with no web host (so "deny webfetch *" also stops file: and the like).
+  if (want === "*") return true;
+  // bücher.de and xn--bcher-kva.de are the same host.
+  if (!want.includes("*")) {
+    try {
+      want = new URL(`http://${want}`).hostname;
+    } catch {
+      // not a host name: compared as written
+    }
+  }
   if (!host) return false;
   if (want.startsWith("*.")) return host.endsWith(want.slice(1)) && host.length > want.length - 1;
   const body = want

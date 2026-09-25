@@ -60,6 +60,9 @@ export function toAegisCall(tool: string, input: Record<string, unknown>): { nam
       return { name: "grep", args: { pattern: input.pattern, path: input.path ?? "." } };
     case "WebFetch":
       return { name: "webfetch", args: { url: String(input.url ?? ""), prompt: input.prompt } };
+    case "Skill":
+      // Named like Aegis's own skill tool, so "deny skill <name>" works for Claude Code too.
+      return { name: "skill", args: { path: String(input.skill ?? input.name ?? "") } };
     case "WebSearch":
       return { name: "websearch", args: { query: String(input.query ?? "") } };
     default:

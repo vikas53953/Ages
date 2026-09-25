@@ -27,11 +27,18 @@ function privateFile(file) {
         const mode = statSync(file).mode & 0o777;
         return { ok: (mode & 0o077) === 0, detail: `mode ${mode.toString(8)}` };
     }
-    const acl = spawnSync("icacls", [file], { encoding: "utf8", windowsHide: true });
+    // Security IDs, not names: group names are translated on non-English Windows ("Jeder", "Utilisateurs").
+    const acl = spawnSync(powershellExe(), [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-Acl -LiteralPath $env:AEGIS_ACL_FILE).Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }",
+    ], { encoding: "utf8", windowsHide: true, timeout: 15_000, env: { ...process.env, AEGIS_ACL_FILE: file } });
     if (acl.status !== 0)
-        return { ok: true, detail: "ACL not readable" };
-    const wide = /\b(Everyone|BUILTIN\\Users|Authenticated Users|NT AUTHORITY\\Authenticated Users)\b/i.exec(acl.stdout);
-    return { ok: !wide, detail: wide ? `readable by ${wide[1]}` : "only your account (and SYSTEM/Administrators)" };
+        return { ok: false, detail: "could not check who can read it" };
+    const everyone = { "S-1-1-0": "Everyone", "S-1-5-32-545": "Users", "S-1-5-11": "Authenticated Users", "S-1-5-7": "Anonymous", "S-1-5-4": "Interactive" };
+    const wide = acl.stdout.split(/\r?\n/).map((line) => line.trim()).find((sid) => everyone[sid]);
+    return { ok: !wide, detail: wide ? `readable by ${everyone[wide]} (${wide})` : "only your account (and SYSTEM/Administrators)" };
 }
 async function reachable(url) {
     try {
@@ -80,7 +87,7 @@ export async function runDoctor(cwd, options = {}) {
             add({
                 status: ping.ok ? "ok" : "fail",
                 item: "Network",
-                detail: `${new URL(url).host}: ${ping.detail}`,
+                detail: ping.ok ? `${new URL(url).host} reachable (${ping.detail})` : `${new URL(url).host}: ${ping.detail}`,
                 fix: ping.ok ? undefined : "This PC cannot reach the chat service. Check the proxy (HTTPS_PROXY) or firewall.",
             });
         }

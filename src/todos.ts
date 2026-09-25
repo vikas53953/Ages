@@ -4,6 +4,8 @@
  * /rewind and /resume show the right one without extra state. It touches nothing outside the chat, so it never
  * asks you or Jev; a deny rule (`deny todo`) still turns it off.
  */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { ChatMessage } from "./session.ts";
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
@@ -50,6 +52,24 @@ export function todoLines(todos: Todo[], max = 5) {
   const lines = shown.slice(0, max).sort((a, b) => a.index - b.index).map(({ todo }) => `${mark[todo.status]} ${todo.content}`);
   if (todos.length > max) lines.push(`    … ${todos.length - max} more (/todos)`);
   return lines;
+}
+
+/** The list is also kept next to the session, so compaction (which drops old turns) cannot lose it. */
+export function todosFile(sessionDirectory: string) {
+  return path.join(sessionDirectory, "todos.json");
+}
+
+export async function saveTodos(sessionDirectory: string, todos: Todo[]) {
+  await mkdir(sessionDirectory, { recursive: true });
+  await writeFile(todosFile(sessionDirectory), `${JSON.stringify(cleanTodos(todos))}\n`);
+}
+
+export async function loadSavedTodos(sessionDirectory: string): Promise<Todo[] | undefined> {
+  try {
+    return cleanTodos(JSON.parse(await readFile(todosFile(sessionDirectory), "utf8")));
+  } catch {
+    return undefined;
+  }
 }
 
 /** The latest list in a saved conversation (the input of the last todo tool call). */

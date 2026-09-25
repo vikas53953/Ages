@@ -83,3 +83,13 @@
   - git is hardened because a repo's `.git/config` can start programs. On the command line: `core.fsmonitor=false`, `hooksPath` set to NUL, `pager=cat`, `diff.external=` empty, no sshCommand or credential helper, `--no-ext-diff`, `--no-textconv`. `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL=NUL` also apply.
   - Refs are checked with a pattern and `--end-of-options`, so `--output=…` is never passed to git as an option.
   - A test repo whose config sets fsmonitor, diff.external and textconv to a script proves none of them runs. Plain `git diff` in the same repo does run it.
+- webfetch (Claude Code's WebFetch, OpenCode's webfetch), gated by host rules (`allow webfetch docs.example.com`, `*.x.com` = subdomains only):
+  - SSRF-safe: https only (http upgraded), no user:pass URLs, bare IPs and local names refused. The host is resolved once, every address must be public (loopback, RFC1918, link-local/metadata, CGNAT, multicast, ULA, NAT64 and IPv4-mapped all refused), and the socket connects to exactly that address (TLS still checks the name), so DNS cannot change between check and connect.
+  - Same-host redirects are followed (5 max); another host is handed back to the model as a new, separately gated call.
+  - 5 MB cap counted after decompression (gzip bombs), 30 s, HTML reduced to text, 50,000 characters, wrapped as `<untrusted_web_content>`.
+  - No websearch yet: it needs a paid search API key; left for later.
+- Fixes from the doctor/todo/skills review:
+  - The doctor's `.env` permission check reads the ACL with Get-Acl and compares SIDs (Everyone, Users, Authenticated Users, Anonymous, Interactive), so it works on non-English Windows; if it cannot read the ACL it warns instead of passing.
+  - Todos are also saved to `<session>/todos.json`, because compaction drops the old todo call from the messages.
+  - Claude Code's `Skill` tool maps to Aegis's `skill` rule; `deny webfetch *` now also covers non-http URLs; IDN hosts match in either spelling.
+  - Project skill trust hashes every file in the skill folder, and symlinked skill folders are skipped. Frontmatter accepts an empty block and trailing spaces; skill names are lower-cased.

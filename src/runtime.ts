@@ -11,7 +11,7 @@ import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer, typ
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { copyToClipboard } from "./clipboard.ts";
 import { collectReview, reviewPrompt } from "./review.ts";
-import { todosFromMessages } from "./todos.ts";
+import { loadSavedTodos, saveTodos, todosFromMessages } from "./todos.ts";
 import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.ts";
 import { openUrl } from "./open-url.ts";
 import { CODEX_MODELS, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
@@ -27,6 +27,7 @@ import {
   createSession,
   listSessions,
   harnessRoot,
+  sessionDir,
   loadMessages,
   messageText,
   loadOrCreateSession,
@@ -109,7 +110,7 @@ function mcpBindings(mcp: McpState): McpBinding[] {
 
 /** The model's current todo list (from the conversation, so /rewind and /resume stay right). */
 export async function currentTodos(state: AppState) {
-  return todosFromMessages(await loadMessages(state.cwd, state.session.id));
+  return (await loadSavedTodos(sessionDir(state.cwd, state.session.id))) ?? todosFromMessages(await loadMessages(state.cwd, state.session.id));
 }
 
 /** Stop what this window started (MCP servers). Safe to call twice. */
@@ -303,6 +304,16 @@ export async function runPrompt(
   const at = new Date().toISOString();
   await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
   const checkpoint = (file: string) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
+  // Keep the latest todo list with the session (Aegis's own todo tool and Claude Code's TodoWrite alike).
+  const outerEvent = onEvent;
+  let todoSave: Promise<void> = Promise.resolve();
+  onEvent = (event) => {
+    if (event.type === "todos") {
+      const todos = event.todos;
+      todoSave = todoSave.then(() => saveTodos(sessionDir(state.cwd, session.id), todos)).catch(() => {});
+    }
+    outerEvent?.(event);
+  };
   const readOnly =
     turnOptions.readOnly ?? (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined);
   const planPrompt = state.planMode ? PLAN_PROMPT : "";
@@ -358,6 +369,7 @@ export async function runPrompt(
     state.sessionTokens.input += receipt.tokens.input;
     state.sessionTokens.output += receipt.tokens.output;
   }
+  await todoSave;
   // Save what the model really said, tool calls and results included, so the next turn remembers it.
   await appendMessages(state.cwd, session.id, capToolResults(receipt.newMessages ?? []));
   state.jevHealth = jevHealthFromReceipt(opts.mockJev, receipt);
@@ -809,6 +821,8 @@ async function rewindCommand(arg: string | undefined, what: string | undefined, 
     files: what !== "chat",
     chat: what !== "files",
   });
+  // The todo list goes back with the conversation.
+  if (what !== "files") await saveTodos(sessionDir(state.cwd, state.session.id), todosFromMessages(await loadMessages(state.cwd, state.session.id)));
   return {
     output: [
       `Rewound to before "${point.prompt.slice(0, 60)}".`,

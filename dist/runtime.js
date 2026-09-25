@@ -11,7 +11,7 @@ import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer } fr
 import { formatDoctor, runDoctor } from "./doctor.js";
 import { copyToClipboard } from "./clipboard.js";
 import { collectReview, reviewPrompt } from "./review.js";
-import { todosFromMessages } from "./todos.js";
+import { loadSavedTodos, saveTodos, todosFromMessages } from "./todos.js";
 import { commandPrompt, loadExtensions, readSkill, skillsPromptBlock, trustProjectExtensions } from "./extensions.js";
 import { openUrl } from "./open-url.js";
 import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
@@ -23,7 +23,7 @@ import { compactSession, loadSummary, modelSummarizer, needsCompaction } from ".
 import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
-import { createSession, listSessions, harnessRoot, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
+import { createSession, listSessions, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { loadSettingsSafe, saveThinking, settingsPath, thinkingOf } from "./rules.js";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.js";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.js";
@@ -59,7 +59,7 @@ function mcpBindings(mcp) {
 }
 /** The model's current todo list (from the conversation, so /rewind and /resume stay right). */
 export async function currentTodos(state) {
-    return todosFromMessages(await loadMessages(state.cwd, state.session.id));
+    return (await loadSavedTodos(sessionDir(state.cwd, state.session.id))) ?? todosFromMessages(await loadMessages(state.cwd, state.session.id));
 }
 /** Stop what this window started (MCP servers). Safe to call twice. */
 export function closeState(state) {
@@ -230,6 +230,16 @@ turnOptions = {}) {
     const at = new Date().toISOString();
     await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
     const checkpoint = (file) => snapshotFile(state.cwd, session.id, { at, prompt }, file);
+    // Keep the latest todo list with the session (Aegis's own todo tool and Claude Code's TodoWrite alike).
+    const outerEvent = onEvent;
+    let todoSave = Promise.resolve();
+    onEvent = (event) => {
+        if (event.type === "todos") {
+            const todos = event.todos;
+            todoSave = todoSave.then(() => saveTodos(sessionDir(state.cwd, session.id), todos)).catch(() => { });
+        }
+        outerEvent?.(event);
+    };
     const readOnly = turnOptions.readOnly ?? (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined);
     const planPrompt = state.planMode ? PLAN_PROMPT : "";
     // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
@@ -283,6 +293,7 @@ turnOptions = {}) {
         state.sessionTokens.input += receipt.tokens.input;
         state.sessionTokens.output += receipt.tokens.output;
     }
+    await todoSave;
     // Save what the model really said, tool calls and results included, so the next turn remembers it.
     await appendMessages(state.cwd, session.id, capToolResults(receipt.newMessages ?? []));
     state.jevHealth = jevHealthFromReceipt(opts.mockJev, receipt);
@@ -742,6 +753,9 @@ async function rewindCommand(arg, what, state) {
         files: what !== "chat",
         chat: what !== "files",
     });
+    // The todo list goes back with the conversation.
+    if (what !== "files")
+        await saveTodos(sessionDir(state.cwd, state.session.id), todosFromMessages(await loadMessages(state.cwd, state.session.id)));
     return {
         output: [
             `Rewound to before "${point.prompt.slice(0, 60)}".`,

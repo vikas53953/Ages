@@ -62,7 +62,7 @@ function cancelled(decision, name) {
     };
 }
 /** What plan mode lets through: reading, searching, loading a skill. */
-export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill"]);
+export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill", "webfetch"]);
 /** Tools that only touch the conversation (the todo list). */
 export const INTERNAL_TOOLS = new Set(["todo"]);
 export function toolTarget(name, args) {
