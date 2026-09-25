@@ -93,7 +93,9 @@ function isIgnored(rules, relative, isDir) {
     return ignored;
 }
 /** Files under root (links followed only inside it), minus SKIP and .gitignore. */
-export async function walkFiles(root, limit = 20_000, stats) {
+export async function walkFiles(start, limit = 20_000, stats) {
+    // The real path: files are compared as real paths, and on Windows the start may be an 8.3 short spelling.
+    const root = await realpath(start).catch(() => start);
     const out = [];
     // Real folders already walked: a link back to a parent (a repo can ship "self -> .") must not loop forever.
     const seenDirs = new Set();

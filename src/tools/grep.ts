@@ -94,7 +94,9 @@ export type Walked = { file: string; relative: string };
 export type WalkStats = { secretsSkipped: number };
 
 /** Files under root (links followed only inside it), minus SKIP and .gitignore. */
-export async function walkFiles(root: string, limit = 20_000, stats?: WalkStats): Promise<Walked[]> {
+export async function walkFiles(start: string, limit = 20_000, stats?: WalkStats): Promise<Walked[]> {
+  // The real path: files are compared as real paths, and on Windows the start may be an 8.3 short spelling.
+  const root = await realpath(start).catch(() => start);
   const out: Walked[] = [];
   // Real folders already walked: a link back to a parent (a repo can ship "self -> .") must not loop forever.
   const seenDirs = new Set<string>();

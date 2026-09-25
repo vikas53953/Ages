@@ -204,3 +204,4 @@
   - These now start as their own process group (`detached` on POSIX), and `killProcessTree` kills the group.
   - A detached group no longer gets the terminal's hang-up, so Aegis kills the groups still running when it exits, and turns SIGTERM/SIGHUP into a normal exit so that runs. Ctrl+C handling is unchanged.
   - Windows is unchanged (`taskkill /T`). The whole suite now passes on Linux too.
+- Windows CI: `walkFiles` returned nothing when started from an 8.3 short folder name (the tests call it with a temp dir directly). Every real file path then looked "outside" the short-spelled root. The root is now resolved to its real path first. A Linux test through a link fails on the old code.

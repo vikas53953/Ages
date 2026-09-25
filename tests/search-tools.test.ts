@@ -93,3 +93,17 @@ describe("nested .gitignore files", () => {
     expect(files).toEqual([".gitignore", "other/local.txt", "pkg/.gitignore", "pkg/a.ts", "pkg/keep.snap"]);
   });
 });
+
+describe("walkFiles from another spelling of the folder", () => {
+  it("still finds the files (a link here, an 8.3 short name on Windows)", async () => {
+    const real = await mkdtemp(path.join(os.tmpdir(), "aegis-walk-real-"));
+    await writeFile(path.join(real, "a.ts"), "x\n");
+    const alias = path.join(await mkdtemp(path.join(os.tmpdir(), "aegis-walk-alias-")), "proj");
+    try {
+      await symlink(real, alias, "junction");
+    } catch {
+      return;
+    }
+    expect((await walkFiles(alias)).map((f) => f.relative)).toEqual(["a.ts"]);
+  });
+});
