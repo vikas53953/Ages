@@ -32,6 +32,7 @@ export function parseArgs(argv: string[]) {
     if (arg === "--port") {
       port = Number(argv[i + 1]);
       i += 1;
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port needs a number from 0 to 65535");
       continue;
     }
     if (arg.startsWith("--") || /^-[a-z]$/i.test(arg)) flags.add(arg);

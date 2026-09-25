@@ -412,7 +412,9 @@ export async function createTuiApp(
       const detail = record.approved
         ? record.savedRule
           ? `you: always allow · saved rule ${record.savedRule}`
-          : `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
+          : record.saveFailed
+            ? `you said yes · rule not saved (${record.saveFailed})`
+            : `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
         : `denied · ${record.deniedReason ?? "no reason"}`;
       if (item) {
         item.status = record.approved ? "ran" : "denied";

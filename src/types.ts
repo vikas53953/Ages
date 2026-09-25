@@ -110,6 +110,8 @@ export type ToolRecord = {
   rule?: string;
   /** The allow rule you saved with "always" on this call's prompt. */
   savedRule?: string;
+  /** Set when you chose "always" but the rule could not be saved (the call still ran once). */
+  saveFailed?: string;
 };
 
 export type Receipt = {

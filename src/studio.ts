@@ -4,9 +4,10 @@
  *
  * Security: bound to 127.0.0.1 only; every /api call needs the random token printed in the URL; the Host header
  * must be 127.0.0.1 or localhost on our port (stops DNS-rebinding pages); no CORS headers, so other sites cannot
- * read responses. Approvals default to No if the page goes away.
+ * read responses. A waiting approval stays until you answer it: reopen the link to see the card again, or
+ * stop the turn (Stop, or ctrl+c in the terminal), which answers No.
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
@@ -41,6 +42,8 @@ export type StudioEvent =
       isTurn: boolean;
     }
   | { kind: "error"; message: string };
+
+class BadRequest extends Error {}
 
 type Pending = { resolve: (answer: ConfirmAnswer) => void; question: string; options?: ConfirmOptions };
 
@@ -96,7 +99,7 @@ export async function startStudio(input: {
 
   const send = (event: StudioEvent) => {
     const frame = `data: ${JSON.stringify(event)}\n\n`;
-    for (const client of clients) client.write(frame);
+    for (const client of clients) if (!client.writableEnded && !client.destroyed) client.write(frame);
   };
 
   const confirm = (question: string, options?: ConfirmOptions) =>
@@ -163,12 +166,25 @@ export async function startStudio(input: {
   };
 
   const readBody = async (req: IncomingMessage) => {
+    // Decode as one UTF-8 stream so a character split across chunks is not mangled.
+    req.setEncoding("utf8");
     let body = "";
     for await (const chunk of req) {
-      body += String(chunk);
-      if (body.length > 1_000_000) throw new Error("request too large");
+      body += chunk as string;
+      if (body.length > 1_000_000) throw new BadRequest("request too large");
     }
-    return body ? (JSON.parse(body) as Record<string, unknown>) : {};
+    if (!body) return {};
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      return parsed as Record<string, unknown>;
+    } catch {
+      throw new BadRequest("body must be a JSON object");
+    }
+  };
+  const tokenOk = (given: unknown) => {
+    if (typeof given !== "string" || given.length !== token.length) return false;
+    return timingSafeEqual(Buffer.from(given), Buffer.from(token));
   };
 
   const json = (res: ServerResponse, status: number, value: unknown) => {
@@ -198,12 +214,14 @@ export async function startStudio(input: {
         return res.end(body);
       }
       if (!url.pathname.startsWith("/api/")) return json(res, 404, { error: "not found" });
-      const given = req.headers["x-aegis-token"] ?? url.searchParams.get("t");
-      if (given !== token) return json(res, 401, { error: "missing or wrong token" });
+      // The key comes in a header; only the event stream (EventSource cannot set headers) may use ?t=.
+      const given = req.headers["x-aegis-token"] ?? (url.pathname === "/api/events" ? url.searchParams.get("t") : null);
+      if (!tokenOk(given)) return json(res, 401, { error: "missing or wrong token" });
 
       if (req.method === "GET" && url.pathname === "/api/events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
         res.write(": aegis\n\n");
+        res.on("error", () => clients.delete(res));
         clients.add(res);
         const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
         req.on("close", () => {
@@ -253,6 +271,7 @@ export async function startStudio(input: {
       const result = await run(line);
       return json(res, 200, { ok: Boolean(result), output: result?.output ?? "", state: await snapshot() });
     } catch (error) {
+      if (error instanceof BadRequest) return json(res, 400, { error: error.message });
       return json(res, 500, { error: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -272,6 +291,7 @@ export async function startStudio(input: {
       new Promise<void>((resolve) => {
         turnAbort?.abort();
         for (const client of clients) client.end();
+        clients.clear();
         server.close(() => resolve());
       }),
   };

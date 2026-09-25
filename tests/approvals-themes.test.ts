@@ -58,6 +58,10 @@ describe("which 'always allow' rule is offered", () => {
     expect(suggestAllowRule("edit", { path: "scripts/../../x/y" }, undefined, cwd)).toBeUndefined();
     // The deny rules see the same relative path.
     expect(matchRule(DEFAULT_SETTINGS, "write", { path: abs(".git", "config") }, cwd)?.action).toBe("deny");
+    // "../proj/.git/config" walks out and back in: still .git, still denied, never offered.
+    const reentry = `../${path.basename(cwd)}/.git/config`;
+    expect(matchRule(DEFAULT_SETTINGS, "write", { path: reentry }, cwd)?.action).toBe("deny");
+    expect(suggestAllowRule("write", { path: `../${path.basename(cwd)}/.aegis/settings.json` }, undefined, cwd)).toBeUndefined();
   });
 
   it("never offers 'always' for a command that runs another command", () => {
@@ -69,10 +73,21 @@ describe("which 'always allow' rule is offered", () => {
       "iex foo",
       "Start-Process notepad",
       "pwsh -EncodedCommand AAAA",
+      "Start-Job { Remove-Item x }",
+      "Invoke-Command -ScriptBlock { rm x }",
+      "node --eval 1",
+      "python -c 1",
+      "cmd.exe/c del x",
+      "pwsh -File build.ps1",
+      ".\\build.ps1",
+      ". .\\profile.ps1",
+      "start notepad",
     ]) {
       expect(suggestAllowRule("shell", { command }, undefined), command).toBeUndefined();
     }
     expect(suggestAllowRule("shell", { command: "npm run build" }, undefined)).toBe("shell npm run build");
+    expect(suggestAllowRule("shell", { command: "mkdir -p out" }, undefined)).toBe("shell mkdir -p out");
+    expect(suggestAllowRule("shell", { command: "git status" }, undefined)).toBe("shell git status");
   });
 
   it("saves the rule without dropping the default allow list", async () => {
@@ -163,6 +178,7 @@ describe("answering 'always' at the gate", () => {
     expect(run.output).toBe("edited");
     expect(run.record.approved).toBe(true);
     expect(run.record.savedRule).toBeUndefined();
+    expect(run.record.saveFailed).toMatch(/JSON object/);
     expect(settings.rules.allow).not.toContain("edit scripts/*");
   });
 

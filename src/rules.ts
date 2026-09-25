@@ -166,9 +166,11 @@ export function parseJevMode(text: string): JevMode | undefined {
 export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: string) {
   if (name === "shell") return String(args.command ?? "").trim();
   let raw = String(args.path ?? ".");
-  if (cwd && path.isAbsolute(raw)) {
-    const relative = path.relative(cwd, path.resolve(cwd, raw));
-    if (!relative.startsWith("..") && !path.isAbsolute(relative)) raw = relative || ".";
+  if (cwd) {
+    // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too.
+    const resolved = path.resolve(cwd, raw);
+    const relative = path.relative(cwd, resolved);
+    raw = !relative.startsWith("..") && !path.isAbsolute(relative) ? relative || "." : resolved;
   }
   const clean = path.posix.normalize(raw.replaceAll("\\", "/")).replace(/^\.\//, "");
   return clean || ".";
@@ -194,7 +196,8 @@ function splitRule(rule: string) {
 const CHAIN = /[;&|`\n\r<>]|\$\(/;
 
 /** Commands that run another command inside them; "always allow" is never offered for these. */
-const WRAPPED = /(^|\s)(pwsh|powershell|cmd|bash|sh|wsl)(\.exe)?(\s|$)|\b(Invoke-Expression|iex|Start-Process|saps)\b|\s-(c|command|encodedcommand|e)(\s|$)|\s\/c(\s|$)/i;
+const WRAPPED =
+  /(^|[\s&.])(pwsh|powershell|cmd|bash|sh|zsh|wsl|node|deno|python3?|py|php|perl|ruby)(\.exe)?([\s/-]|$)|\b(Invoke-Expression|iex|Start-Process|saps|start|Start-Job|sajb|Invoke-Command|icm|Invoke-Item|ii)\b|\s-(c|command|encodedcommand|e|file|eval)(\s|$)|--eval\b|\/c(\s|$)|(^|\s)\.\s|\.ps1\b/i;
 
 function shellPieces(command: string) {
   return [command, ...command.split(/[;&|\n\r]+/).map((piece) => piece.trim()).filter(Boolean)];

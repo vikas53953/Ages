@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { request } from "node:http";
+import { parseArgs } from "../src/cli.ts";
 import os from "node:os";
 import path from "node:path";
 import { simulateReadableStream } from "ai";
@@ -184,6 +185,72 @@ describe("Aegis Studio server", () => {
     expect(server.state.session.id).not.toBe(first);
     await api("/api/resume", { id: first });
     expect(server.state.session.id).toBe(first);
+  });
+});
+
+describe("Aegis Studio edge cases", () => {
+  it("?t= works only for the event stream; other routes need the header", async () => {
+    const { base, server } = await studio();
+    expect((await fetch(`${base}/api/state?t=${server.token}`)).status).toBe(401);
+    const events = await fetch(`${base}/api/events?t=${server.token}`);
+    expect(events.status).toBe(200);
+    await events.body?.cancel();
+  });
+
+  it("bad JSON is a 400, not a 500", async () => {
+    const { base, server } = await studio();
+    const res = await fetch(`${base}/api/prompt`, { method: "POST", headers: { "x-aegis-token": server.token }, body: "{ nope" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("body must be a JSON object");
+  });
+
+  it("keeps a character that is split across two network chunks", async () => {
+    const { server, cwd } = await studio();
+    const body = Buffer.from(JSON.stringify({ text: "/memory café €" }));
+    const cut = body.indexOf(Buffer.from("€")) + 1; // inside the 3-byte €
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: server.port,
+          method: "POST",
+          path: "/api/prompt",
+          headers: { host: `127.0.0.1:${server.port}`, "x-aegis-token": server.token, "content-length": body.length },
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      req.on("error", reject);
+      req.write(body.subarray(0, cut));
+      setTimeout(() => req.end(body.subarray(cut)), 50);
+    });
+    expect(status).toBe(200);
+    expect(await readFile(path.join(cwd, ".harness", "memory.md"), "utf8")).toContain("café €");
+  });
+
+  it("closing while an approval waits (page open) does not crash", async () => {
+    const { base, server, api } = await studio();
+    open.pop(); // closed by hand below
+    const res = await fetch(`${base}/api/events?t=${server.token}`);
+    const reader = res.body!.getReader();
+    await api("/api/prompt", { text: "add a ping script" });
+    for (let i = 0; i < 50 && !((await api("/api/state")).data.approvals as unknown[]).length; i++) await new Promise((r) => setTimeout(r, 20));
+    const crashes: unknown[] = [];
+    const onCrash = (error: unknown) => crashes.push(error);
+    process.on("uncaughtException", onCrash);
+    await server.close();
+    await new Promise((r) => setTimeout(r, 100));
+    process.off("uncaughtException", onCrash);
+    await reader.cancel().catch(() => {});
+    expect(crashes).toEqual([]);
+  });
+
+  it("--port must be a real port number", () => {
+    expect(parseArgs(["ui", "--port", "4455"]).port).toBe(4455);
+    expect(() => parseArgs(["ui", "--port", "abc"])).toThrow(/--port/);
+    expect(() => parseArgs(["ui", "--port"])).toThrow(/--port/);
   });
 });
 

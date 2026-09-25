@@ -179,7 +179,9 @@
     const why = record.approved
       ? record.savedRule
         ? `you: always allow · saved "${record.savedRule}"`
-        : `${record.action === "confirm" ? "you allowed" : "auto"} · ${record.rule ? `rule "${record.rule}"` : record.source === "default" ? "no rule" : record.source}`
+        : record.saveFailed
+          ? `you allowed · rule not saved (${record.saveFailed})`
+          : `${record.action === "confirm" ? "you allowed" : "auto"} · ${record.rule ? `rule "${record.rule}"` : record.source === "default" ? "no rule" : record.source}`
       : `denied · ${record.deniedReason || ""}`;
     match.row.classList.add(status);
     match.row.querySelector(".why").textContent = `· ${why}`;
@@ -285,6 +287,12 @@
     const source = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
     source.onmessage = (message) => {
       const data = JSON.parse(message.data);
+      if (data.kind === "started" && !state.busy) {
+        // Another tab (or window) started this turn: follow it here too.
+        if (!data.text.startsWith("/") && !data.text.startsWith("!")) addUser(data.text);
+        setBusy(true);
+        setWorking("Starting");
+      }
       if (data.kind === "event") onEvent(data.event);
       if (data.kind === "approval") {
         setWorking("Waiting for you");

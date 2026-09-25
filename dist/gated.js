@@ -197,8 +197,9 @@ export async function runGatedTool(input) {
                     settings.rules.allow = [...settings.rules.allow, always];
                 record.savedRule = always;
             }
-            catch {
-                // the call runs once; nothing is remembered
+            catch (error) {
+                // The call runs once; nothing is remembered, and the tool line says why.
+                record.saveFailed = error instanceof Error ? error.message : String(error);
             }
         }
         if (!raced.ok) {
