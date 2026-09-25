@@ -188,6 +188,16 @@ function wantTui(args) {
         return true;
     return Boolean(stdin.isTTY && stdout.isTTY);
 }
+/**
+ * First Ctrl+C stops the run gracefully; a second one exits at once, through process.exit so the process groups
+ * Aegis started (detached on Linux/macOS, so the terminal's Ctrl+C does not reach them) are killed on the way out.
+ */
+function onCtrlC(abort) {
+    process.once("SIGINT", () => {
+        abort.abort();
+        process.once("SIGINT", () => process.exit(130));
+    });
+}
 export async function main() {
     const args = parseArgs(process.argv.slice(2));
     if (args.version) {
@@ -215,7 +225,7 @@ export async function main() {
     };
     if (args.print) {
         const abort = new AbortController();
-        process.once("SIGINT", () => abort.abort());
+        onCtrlC(abort);
         const prompt = await headlessPrompt(args.prompt, stdin, args.stdin);
         if (!prompt) {
             console.error('usage: aegis -p "task"   (or pipe the task in)');
@@ -244,7 +254,7 @@ export async function main() {
     }
     if (args.prompt) {
         const abort = new AbortController();
-        process.once("SIGINT", () => abort.abort());
+        onCtrlC(abort);
         const state = await startState(process.cwd(), opts);
         try {
             const result = await handleLine(args.prompt, state, { ...opts, abortSignal: abort.signal }, createConfirm(opts));

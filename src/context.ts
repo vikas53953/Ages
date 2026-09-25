@@ -1,7 +1,8 @@
-import { readFile, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
 import { redactSecrets } from "./redact.ts";
+import { isSecretFile } from "./rules.ts";
 
 /** Project files, in this order: the shared ones, then AGENTS.local.md (yours, for this folder; keep it out of git). */
 const NAMES = ["AGENTS.md", "HARNESS.md", "AGENTS.local.md"];
@@ -10,8 +11,10 @@ const NAMES = ["AGENTS.md", "HARNESS.md", "AGENTS.local.md"];
 async function section(file: string, title: string, within?: string) {
   try {
     if (within) {
+      // A project's own file only: not a link (a repo can ship "AGENTS.md -> .env"), not outside the folder.
+      if ((await lstat(file)).isSymbolicLink()) return "";
       const relative = path.relative(await realpath(within), await realpath(file));
-      if (relative.startsWith("..") || path.isAbsolute(relative)) return "";
+      if (relative.startsWith("..") || path.isAbsolute(relative) || isSecretFile(relative)) return "";
     }
     // Sent with every turn, so secret-looking values are cut here too.
     const body = redactSecrets((await readFile(file, "utf8")).trim()).text;

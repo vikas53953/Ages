@@ -18,6 +18,7 @@ import path from "node:path";
 import { userAegisDir } from "./env.js";
 import { powershellExe } from "./tools/fs.js";
 import { programPath } from "./which.js";
+import { killProcessTree } from "./exec.js";
 const DEFAULT_TIMEOUT_S = 60;
 const MAX_TIMEOUT_S = 600;
 const MAX_OUTPUT = 64_000;
@@ -129,10 +130,12 @@ export function matcherMatches(matcher, names) {
 function spawnHook(hook, stdin, cwd, signal) {
     return new Promise((resolve) => {
         const env = { ...process.env, CLAUDE_PROJECT_DIR: cwd, AEGIS_PROJECT_DIR: cwd };
+        // POSIX: its own process group, so a timeout ends the hook and whatever it started.
+        const posix = process.platform !== "win32";
         let child;
         try {
             child = hook.args
-                ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
+                ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], detached: posix })
                 : process.platform === "win32"
                     ? spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
                         cwd,
@@ -140,7 +143,7 @@ function spawnHook(hook, stdin, cwd, signal) {
                         windowsHide: true,
                         stdio: ["pipe", "pipe", "pipe"],
                     })
-                    : spawn("sh", ["-c", hook.command], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+                    : spawn("sh", ["-c", hook.command], { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: posix });
         }
         catch (error) {
             resolve({ code: null, stdout: "", stderr: "", failed: error instanceof Error ? error.message : String(error) });
@@ -158,13 +161,10 @@ function spawnHook(hook, stdin, cwd, signal) {
             signal?.removeEventListener("abort", onAbort);
             resolve({ ...result, stdout, stderr, truncated });
         };
+        // The hook and anything it started (taskkill /T on Windows, the process group elsewhere).
         const kill = () => {
-            try {
-                child.kill();
-            }
-            catch {
-                // already gone
-            }
+            if (child.pid)
+                killProcessTree(child.pid);
         };
         const timer = setTimeout(() => {
             kill();

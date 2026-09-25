@@ -205,3 +205,18 @@
   - A detached group no longer gets the terminal's hang-up, so Aegis kills the groups still running when it exits, and turns SIGTERM/SIGHUP into a normal exit so that runs. Ctrl+C handling is unchanged.
   - Windows is unchanged (`taskkill /T`). The whole suite now passes on Linux too.
 - Windows CI: `walkFiles` returned nothing when started from an 8.3 short folder name (the tests call it with a temp dir directly). Every real file path then looked "outside" the short-spelled root. The root is now resolved to its real path first. A Linux test through a link fails on the old code.
+- Fixes from the review of the worker, redaction and process-group batch:
+  - P1 main-thread hangs outside the worker:
+    - Rule matching built a RegExp from each glob, so a cloned repo's ask rule such as `read *a*a*a…b`, against a long path, command or host, backtracked for seconds to hours on every tool call. Rules now use `globMatch`, a two-pointer wildcard walk (at most pattern × text steps). Host rules match label by label.
+    - The private-key pattern scanned 20,000 characters for every BEGIN line without an END; its body now may not contain another BEGIN (5.6 MB now takes milliseconds).
+  - P2:
+    - grep shows at most 300 characters of a line, around the match, and 200,000 characters in total. A folder of minified files returned 190 MB.
+    - Redaction now also catches `"API_KEY": "…"`, lower-case and camelCase names (`password:`, `"apiKey":`, `client_secret=`), `Bearer` tokens, `scheme://user:PASS@`, `;`-separated connection strings and `*_PWD`. In code, a lower-case name whose value is a variable (`token: userToken,`) is left alone. Values are bounded at 4 KB, and any failure withholds the output instead of passing it through.
+    - `AGENTS.md`-type files that are links, or resolve to a secrets file, are not loaded.
+    - The Claude Code engine's folder check covers `glob` and compares real paths, so a link inside the project that leads out is outside.
+    - A path tool's allow rule (`read *`) never matches an absolute or `..` target.
+    - A second Ctrl+C in a headless run exits through `process.exit`, so the process groups are killed. They are detached and no longer get the terminal's Ctrl+C.
+  - P3:
+    - `read .harness/*` is asked about, since restore points keep copies of changed files, secrets included.
+    - `.gitignore` character classes (`[ab]`, `[!ab]`, `[0-9]`).
+    - The agent's shell and hooks run as their own process group on POSIX, and a timeout or stop kills the whole tree (taskkill /T on Windows).

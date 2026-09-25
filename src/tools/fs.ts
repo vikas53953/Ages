@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { killProcessTree, ownGroup, releaseGroup } from "../exec.ts";
 import { findOnPath, windowsPowerShell } from "../which.ts";
 import { promisify } from "node:util";
 
@@ -35,13 +36,28 @@ export async function runPowerShell(
   const running = execFileAsync(
     powershellExe(),
     ["-NoProfile", "-NonInteractive", "-Command", command],
-    { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 2_000_000, signal },
+    // POSIX: its own process group, so a timeout or stop also ends what the command started.
+    { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 2_000_000, signal, ...{ detached: process.platform !== "win32" } },
   );
+  const pid = running.child.pid;
+  ownGroup(pid);
+  // execFile's timeout and stop end PowerShell itself; this ends everything it started (taskkill /T, or the group).
+  const killTree = () => {
+    if (pid) killProcessTree(pid);
+  };
+  const timer = setTimeout(killTree, timeoutMs);
+  signal?.addEventListener("abort", killTree, { once: true });
   // Nothing is ever typed into the command: close stdin so PowerShell never waits on an open pipe.
   running.child.stdin?.end();
-  const { stdout, stderr } = await running;
-  return {
-    stdout: stdout.trimEnd(),
-    stderr: stderr.trimEnd(),
-  };
+  try {
+    const { stdout, stderr } = await running;
+    return {
+      stdout: stdout.trimEnd(),
+      stderr: stderr.trimEnd(),
+    };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", killTree);
+    releaseGroup(pid);
+  }
 }

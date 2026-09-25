@@ -90,13 +90,15 @@ export const SECRET_FILES = [
 export const FLOOR_ASK = [
   "write .aegis/*",
   "edit .aegis/*",
+  // Aegis's own records: restore points keep copies of files you changed, secrets files included.
+  "read .harness/*",
   ...SECRET_FILES.flatMap((file) => [`read ${file}`, `grep ${file}`]),
 ];
 
 /** Does this folder-relative path look like a secrets file? (grep skips them when it walks a folder.) */
 export function isSecretFile(relative: string) {
   const target = relative.replaceAll("\\", "/");
-  return SECRET_FILES.some((glob) => globToRegex(glob).test(target));
+  return SECRET_FILES.some((glob) => globMatch(glob, target));
 }
 
 /** One spelling per folder: the real path, lower-cased on Windows (C:\\Proj and c:\\proj are the same folder). */
@@ -360,7 +362,7 @@ export function parseJevMode(text: string): JevMode | undefined {
 
 /** The real path (links, junctions and 8.3 names expanded); for a path that does not exist yet, its nearest
  * existing folder's real path plus the rest. */
-function realPathOf(absolute: string) {
+export function realPathOf(absolute: string) {
   const rest: string[] = [];
   let current = absolute;
   for (;;) {
@@ -426,19 +428,40 @@ function hostMatches(pattern: string, host: string) {
   }
   if (!host) return false;
   if (want.startsWith("*.")) return host.endsWith(want.slice(1)) && host.length > want.length - 1;
-  const body = want
-    .split("*")
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-    .join("[^.]*");
-  return new RegExp(`^${body}$`).test(host);
+  // Label by label: a "*" never crosses a dot.
+  const wantLabels = want.split(".");
+  const hostLabels = host.split(".");
+  return wantLabels.length === hostLabels.length && wantLabels.every((label, index) => globMatch(label, hostLabels[index]!));
 }
 
-function globToRegex(glob: string) {
-  const body = glob
-    .split("*")
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(`^${body}$`, "is");
+/**
+ * Does `text` match a "*" wildcard pattern (case-insensitive)? A plain two-pointer walk that backs up only to the
+ * last "*": at most pattern × text steps, never exponential. (A RegExp built from "*a*a*a*b" backtracks
+ * catastrophically, and rules from a cloned repo run on every tool call.)
+ */
+export function globMatch(pattern: string, text: string) {
+  const p = pattern.toLowerCase();
+  const t = text.toLowerCase();
+  let pi = 0;
+  let ti = 0;
+  let star = -1;
+  let mark = 0;
+  while (ti < t.length) {
+    if (pi < p.length && p[pi] !== "*" && p[pi] === t[ti]) {
+      pi += 1;
+      ti += 1;
+    } else if (pi < p.length && p[pi] === "*") {
+      star = pi;
+      pi += 1;
+      mark = ti;
+    } else if (star >= 0) {
+      pi = star + 1;
+      mark += 1;
+      ti = mark;
+    } else return false;
+  }
+  while (pi < p.length && p[pi] === "*") pi += 1;
+  return pi === p.length;
 }
 
 /** "shell git push*" → tool "shell", pattern "git push*". A bare "shell" matches every shell call. */
@@ -448,6 +471,9 @@ function splitRule(rule: string) {
   if (space < 0) return { tool: text.toLowerCase(), pattern: "*" };
   return { tool: text.slice(0, space).toLowerCase(), pattern: text.slice(space + 1).trim() };
 }
+
+/** Tools whose rule target is a path (relative to the folder when inside it). */
+const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "glob", "skill"]);
 
 /** Characters that chain or redirect PowerShell commands. */
 const CHAIN = /[;&|`\n\r<>]|\$\(/;
@@ -465,14 +491,17 @@ function matches(rule: string, action: RuleAction, name: string, target: string)
   // "mcp__github__*" names every tool of one MCP server; core tool names always match exactly
   // (so "allow *" does not quietly become "allow every tool").
   const toolGlob = tool.startsWith("mcp__") && tool.includes("*");
-  if (toolGlob ? !globToRegex(tool).test(name.toLowerCase()) : tool !== name.toLowerCase()) return false;
+  if (toolGlob ? !globMatch(tool, name) : tool !== name.toLowerCase()) return false;
   if (name === "webfetch") return hostMatches(pattern, target);
-  const regex = globToRegex(pattern);
-  if (name !== "shell") return regex.test(target);
+  if (name !== "shell") {
+    // A path tool's allow rule never reaches outside the folder: "read *" is not "read C:\\Users\\you\\.ssh\\x".
+    if (action === "allow" && PATH_TOOLS.has(name) && (path.isAbsolute(target) || target === ".." || target.startsWith("../"))) return false;
+    return globMatch(pattern, target);
+  }
   // allow must cover the whole command, and never a chained one: "git status; Remove-Item x" is not "git status".
-  if (action === "allow") return !CHAIN.test(target) && regex.test(target);
+  if (action === "allow") return !CHAIN.test(target) && globMatch(pattern, target);
   // deny/ask catch the command anywhere in a chain.
-  return shellPieces(target).some((piece) => regex.test(piece));
+  return shellPieces(target).some((piece) => globMatch(pattern, piece));
 }
 
 /** deny beats ask beats allow. Inside a list, the first rule that matches is reported. */

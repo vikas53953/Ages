@@ -8,6 +8,17 @@ const SKIP = new Set(["node_modules", ".git", ".gate", ".harness", "dist", "cove
 const MAX_HITS = 100;
 const MAX_FILES = 200;
 const MAX_FILE_BYTES = 2_000_000;
+/** One hit shows up to this much of its line (a minified file is one huge line), and all hits together this much. */
+const MAX_LINE_CHARS = 300;
+const MAX_RESULT_CHARS = 200_000;
+
+/** A long line cut to the part around the match. */
+function around(line: string, regex: RegExp) {
+  if (line.length <= MAX_LINE_CHARS) return line;
+  const at = Math.max(0, line.search(regex));
+  const start = Math.max(0, at - 100);
+  return `${start > 0 ? "…" : ""}${line.slice(start, start + MAX_LINE_CHARS)}…`;
+}
 
 function inside(root: string, candidate: string) {
   const rel = path.relative(root, candidate);
@@ -27,6 +38,15 @@ function globBody(glob: string) {
         i += slash ? 2 : 1;
       } else body += "[^/]*";
     } else if (ch === "?") body += "[^/]";
+    else if (ch === "[" && glob.indexOf("]", i + 2) > i) {
+      // [abc], [a-z], [!abc] as in git; inside, only "\\" and "]" need care.
+      const end = glob.indexOf("]", i + 2);
+      let inner = glob.slice(i + 1, end);
+      const negate = inner.startsWith("!") || inner.startsWith("^");
+      if (negate) inner = inner.slice(1);
+      body += `[${negate ? "^/" : ""}${inner.replace(/\\/g, "\\\\").replace(/\]/g, "\\]")}]`;
+      i = end;
+    }
     else if (ch === "{" && glob.indexOf("}", i) > i) {
       const end = glob.indexOf("}", i);
       body += `(?:${glob
@@ -177,6 +197,7 @@ export async function grepPath(pattern: string, relativePath: string, cwd: strin
   const base = await realpath(cwd).catch(() => cwd);
   const hits: string[] = [];
   let total = 0;
+  let size = 0;
   for (const file of files) {
     let body = "";
     try {
@@ -191,25 +212,31 @@ export async function grepPath(pattern: string, relativePath: string, cwd: strin
       if (!regex.test(line)) return;
       total += 1;
       if (hits.length >= MAX_HITS) return;
+      if (size >= MAX_RESULT_CHARS) return;
+      let hit: string;
       if (!context) {
-        hits.push(`${shown}:${index + 1}:${line.trim()}`);
-        return;
+        hit = `${shown}:${index + 1}:${around(line.trim(), regex)}`;
+      } else {
+        const from = Math.max(0, index - context);
+        const to = Math.min(lines.length, index + context + 1);
+        hit =
+          lines
+            .slice(from, to)
+            .map((text, offset) => `${shown}${from + offset === index ? ":" : "-"}${from + offset + 1}${from + offset === index ? ":" : "-"}${around(text, regex)}`)
+            .join("\n") + "\n--";
       }
-      const from = Math.max(0, index - context);
-      const to = Math.min(lines.length, index + context + 1);
-      hits.push(
-        lines
-          .slice(from, to)
-          .map((text, offset) => `${shown}${from + offset === index ? ":" : "-"}${from + offset + 1}${from + offset === index ? ":" : "-"}${text}`)
-          .join("\n") + "\n--",
-      );
+      size += hit.length;
+      hits.push(hit);
     });
   }
   const skipped = stats.secretsSkipped
     ? `\n[${stats.secretsSkipped} secrets file(s) such as .env were not searched; grep one by name to be asked]`
     : "";
   if (!hits.length) return `no matches${skipped}`;
-  const more = total > hits.length ? `\n[… ${total - hits.length} more matches not shown; narrow the pattern, path or glob]` : "";
+  const more =
+    total > hits.length
+      ? `\n[… ${total - hits.length} more matches not shown${size >= MAX_RESULT_CHARS ? " (output limit)" : ""}; narrow the pattern, path or glob]`
+      : "";
   return hits.join("\n") + more + skipped;
 }
 

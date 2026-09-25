@@ -22,6 +22,7 @@ import { runGatedTool, toolTarget } from "../gated.js";
 import { scorerOf, toolGuards } from "../plugin-api.js";
 import { unscoredTurn } from "../router.js";
 import { sessionDir } from "../session.js";
+import { realPathOf } from "../rules.js";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.js";
 export const CLAUDE_CODE_MODEL = "claude-code";
 /** Where `claude` is: AEGIS_CLAUDE_BIN, else the first `claude` on PATH. */
@@ -70,7 +71,7 @@ const HOOK_TIMEOUT_S = 86_400;
 const APPROVAL_LIMIT_MS = (HOOK_TIMEOUT_S - 600) * 1000;
 const MAX_HOOK_BODY = 2_000_000;
 /** Tools whose target is a file: Claude Code may only touch files inside the project, like Aegis's own tools. */
-const FILE_TOOLS = new Set(["read", "write", "edit", "grep"]);
+const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "glob"]);
 /** The reason to refuse before any rule is asked, or undefined. Mirrors what Aegis's own tools enforce when they run. */
 export function hardDeny(name, args, cwd, protectedFiles) {
     if (name === "shell" && !shellAllowed()) {
@@ -78,7 +79,8 @@ export function hardDeny(name, args, cwd, protectedFiles) {
     }
     if (FILE_TOOLS.has(name) && typeof args.path === "string" && args.path) {
         const resolved = path.resolve(cwd, args.path);
-        const relative = path.relative(path.resolve(cwd), resolved);
+        // Real paths on both sides: a link inside the project that points outside it is outside it.
+        const relative = path.relative(realPathOf(path.resolve(cwd)), realPathOf(resolved));
         if (relative.startsWith("..") || path.isAbsolute(relative))
             return `${args.path} is outside the project folder`;
         if ((name === "write" || name === "edit") && protectedFiles.some((file) => path.resolve(file) === resolved)) {

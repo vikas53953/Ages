@@ -18,6 +18,7 @@ import path from "node:path";
 import { userAegisDir } from "./env.ts";
 import { powershellExe } from "./tools/fs.ts";
 import { programPath } from "./which.ts";
+import { killProcessTree } from "./exec.ts";
 
 export type HookCommand = { command: string; args?: string[]; timeout: number };
 export type HookGroup = { matcher: string; hooks: HookCommand[] };
@@ -130,10 +131,12 @@ export function matcherMatches(matcher: string, names: string[]) {
 function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: AbortSignal) {
   return new Promise<{ code: number | null; stdout: string; stderr: string; failed?: string; truncated?: boolean }>((resolve) => {
     const env = { ...process.env, CLAUDE_PROJECT_DIR: cwd, AEGIS_PROJECT_DIR: cwd };
+    // POSIX: its own process group, so a timeout ends the hook and whatever it started.
+    const posix = process.platform !== "win32";
     let child;
     try {
       child = hook.args
-        ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
+        ? spawn(programPath(hook.command), hook.args, { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], detached: posix })
         : process.platform === "win32"
           ? spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", hook.command], {
               cwd,
@@ -141,7 +144,7 @@ function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: Abort
               windowsHide: true,
               stdio: ["pipe", "pipe", "pipe"],
             })
-          : spawn("sh", ["-c", hook.command], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+          : spawn("sh", ["-c", hook.command], { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: posix });
     } catch (error) {
       resolve({ code: null, stdout: "", stderr: "", failed: error instanceof Error ? error.message : String(error) });
       return;
@@ -157,12 +160,9 @@ function spawnHook(hook: HookCommand, stdin: string, cwd: string, signal?: Abort
       signal?.removeEventListener("abort", onAbort);
       resolve({ ...result, stdout, stderr, truncated });
     };
+    // The hook and anything it started (taskkill /T on Windows, the process group elsewhere).
     const kill = () => {
-      try {
-        child.kill();
-      } catch {
-        // already gone
-      }
+      if (child.pid) killProcessTree(child.pid);
     };
     const timer = setTimeout(() => {
       kill();
