@@ -93,3 +93,38 @@ setInterval(() => {}, 1 << 30);
     expect(alive).toBe(false);
   }, 20_000);
 });
+
+describe("shell: batch 6", () => {
+  it.runIf(process.platform !== "win32")("ends even when something it started keeps the output pipe open; keeps multi-byte text whole", async () => {
+    const { runPowerShell } = await import("../src/tools/fs.ts");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-shellpipe-"));
+    const fake = path.join(cwd, "fake-pwsh.mjs");
+    await writeFile(
+      fake,
+      `#!/usr/bin/env node
+import { spawn } from "node:child_process";
+if (process.argv.at(-1) === "euro") { process.stdout.write("€".repeat(100000), () => process.exit(0)); } else {
+const c = spawn(process.execPath, ["-e", "require('fs').writeFileSync('holder.json', JSON.stringify({pid:process.pid}));setInterval(()=>{},1<<30);"], { detached: true, stdio: ["ignore", "inherit", "ignore"] });
+c.unref();
+process.stdout.write("done\\n");
+setTimeout(() => process.exit(0), 300);
+}
+`,
+    );
+    await chmod(fake, 0o755);
+    process.env.AEGIS_POWERSHELL = fake;
+    const started = Date.now();
+    const result = await runPowerShell("anything", cwd, 1500).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? "", stderr: "" }));
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(result.stdout).toContain("done");
+    try {
+      const { pid } = JSON.parse(await (await import("node:fs/promises")).readFile(path.join(cwd, "holder.json"), "utf8")) as { pid: number };
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // gone
+    }
+    const euro = await runPowerShell("euro", cwd, 10_000);
+    expect(euro.stdout.length).toBe(100_000);
+    expect(euro.stdout).not.toContain("\uFFFD");
+  }, 20_000);
+});

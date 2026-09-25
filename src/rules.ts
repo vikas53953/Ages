@@ -178,7 +178,7 @@ function readYours(cwd: string): Record<string, unknown> | undefined {
 }
 
 /** Longer rules are refused (the file then counts as unreadable, which fails safe): matching costs rule × text. */
-const MAX_RULE_CHARS = 512;
+export const MAX_RULE_CHARS = 512;
 
 function stringList(value: unknown, fallback: string[], name = "rules.allow / rules.ask / rules.deny") {
   if (value === undefined) return [...fallback];
@@ -546,6 +546,17 @@ export function suggestAllowRule(
   matched: RuleMatch | undefined,
   cwd?: string,
 ) {
+  const rule = suggestAllowRuleUncapped(name, args, matched, cwd);
+  // Never offer a rule that could not be saved (it would make your settings file unreadable).
+  return rule && rule.length <= MAX_RULE_CHARS ? rule : undefined;
+}
+
+function suggestAllowRuleUncapped(
+  name: string,
+  args: Record<string, unknown>,
+  matched: RuleMatch | undefined,
+  cwd?: string,
+) {
   if (matched) return undefined;
   if (name === "explore") return "explore *"; // it only reads, and each of its reads passes the lock too
   if (name === "webfetch") {
@@ -571,6 +582,8 @@ export function suggestAllowRule(
 
 /** Add an allow rule to .aegis/settings.json (keeping the default allow list when the file had none). */
 export function saveAllowRule(cwd: string, rule: string) {
+  // A longer rule would make your own settings file unreadable next time (fail safe, but all allow rules gone).
+  if (rule.length > MAX_RULE_CHARS) throw new Error(`the rule is longer than ${MAX_RULE_CHARS} characters, so it is not saved`);
   updateYours(cwd, (raw) => {
     const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {}) as Record<string, unknown>;
     const allow = Array.isArray(rules.allow) ? (rules.allow as string[]) : [];

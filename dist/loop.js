@@ -182,7 +182,9 @@ export function createTools(input) {
                         ? `stopped: it ran longer than ${Math.round(input.config.shellTimeoutMs / 1000)} s`
                         : err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
                             ? "stopped: it printed more than 2 MB"
-                            : `exit code ${err.code}`;
+                            : typeof err.code === "number"
+                                ? `exit code ${err.code}`
+                                : error.message;
                     return `${[err.stdout.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || "(no output)"}\n[${ended}]`;
                 }
             }),

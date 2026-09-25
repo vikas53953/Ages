@@ -231,3 +231,14 @@
     - Dotted keys (`spring.datasource.password=`, `this.password =`), `:=` / `=>`, and URLs with an empty user (`redis://:pw@`) are caught.
     - Rules longer than 512 characters make the settings file unreadable (fail safe), and a target over 32 KB is never allowed, since matching costs rule × text.
     - Known false positive kept: a quoted lower-case value with a digit under a secret-sounding name (`Token = 'tokenkind1'`).
+- Fixes from the review of the shell rewrite:
+  - P1: a command whose detached helper kept stdout open never finished. Nothing closed the pipe, since killing the tree cannot reach it. Now a stop, timeout or overflow also destroys the pipes, and once PowerShell has exited and no output has arrived for 500 ms the run settles anyway. Output still flowing keeps it waiting, so large outputs are not cut.
+  - P1: "always allow" on a very long command could save a rule over the 512-character limit, making your own settings file unreadable. Such a rule is not offered, and `saveAllowRule` refuses one.
+  - P2:
+    - Output is decoded per stream (`setEncoding`), so a multi-byte character split across chunks is no longer garbled. The 2 MB cap counts bytes.
+    - Kills are guarded: once only, and never after the process has exited, since Windows recycles PIDs.
+    - A death by signal or a missing PowerShell reports its real message.
+  - Redaction:
+    - Code context decides: a bare word before `,` `;` `)` is a variable, while outside code (YAML, .properties, .env) a plain word is a value, unless it is a PascalCase type, a CONST_NAME or a camelCase word. `api-key:`, `password: correcthorsebatterystaple`, `secretKey: Sup3rS3cret9` and `apiKey: SUPERSECRETVALUE` are caught again.
+    - New: quoted values with spaces or `#`, `Basic` auth, and PowerShell `$password = "…"`.
+    - Left alone: `session?.token`, Windows and `~` paths, YAML aliases and tags, versions, IPs, and `.env.example` placeholders (`changeme`, `your-…`, `replace-me`).

@@ -22,6 +22,7 @@ const PATTERNS = [
 /** Replaced keeping the part before the secret: "Bearer [redacted:…]", "postgres://user:[redacted:…]@host". */
 const KEEPING = [
     { kind: "bearer-token", re: /(\bBearer[ \t]+)[A-Za-z0-9\-._~+/]{20,4096}=*/g },
+    { kind: "basic-auth", re: /(\bBasic[ \t]+)[A-Za-z0-9+/]{16,4096}={0,2}/g },
     { kind: "url-password", re: /(\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{0,200}:)[^\s@/]{3,1024}(?=@)/gi },
 ];
 /** Name words that mark a secret (whole words between "_"): AWS_SECRET_ACCESS_KEY yes, MONKEY or KEYBOARD no. */
@@ -30,14 +31,19 @@ const SECRET_WORDS = new Set(["KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "P
 const SECRET_WORDS_LOWER = new Set(["password", "passwd", "pwd", "passphrase", "secret", "token", "apikey", "credential", "credentials"]);
 const SECRET_PAIRS = new Set(["api key", "private key", "access key", "secret key", "client secret", "access token", "auth token"]);
 /** Words that describe a secret rather than hold one: secretName, secretKeyRef, tokenLifetime, passwordMinLength. */
-const DESCRIBING = new Set(["name", "names", "ref", "path", "file", "url", "id", "lifetime", "length", "type", "kind", "list", "store", "min", "max", "count", "field", "label", "header", "prefix", "expiry", "expires", "ttl", "mode", "policy", "provider", "format", "endpoint", "uri"]);
+const DESCRIBING = new Set([
+    "name", "names", "ref", "path", "file", "url", "id", "lifetime", "length", "type", "kind", "list", "store", "min", "max",
+    "count", "field", "label", "header", "prefix", "expiry", "expires", "ttl", "mode", "policy", "provider", "format",
+    "endpoint", "uri", "version", "server", "host", "port", "from", "reset", "hint", "pattern", "regex", "algorithm",
+]);
 /**
- * NAME=value / NAME: value with an upper-case name. The look-behind only lets a name start at a word start, which
- * keeps this linear and lets it match after a grep "file:12:" or a numbered read's "  12  " prefix.
+ * NAME=value / NAME: value / $name = value. The look-behind only lets a name start at a word start, which keeps
+ * this linear and lets it match after a grep "file:12:" or a numbered read's "  12  " prefix. A quoted value may
+ * hold spaces and other marks; an unquoted one ends at white space or code punctuation.
  */
-const SETTING = /(?<![A-Za-z0-9_$])((?:\$env:)?["']?[A-Za-z][A-Za-z0-9_]{1,80}["']?)([ \t]*(?::=|=>|[=:])[ \t]*["']?)([^\s"'#,;`)\]}]{8,4096})/g;
+const SETTING = /(?<![A-Za-z0-9_$])((?:\$env:|\$)?["']?[A-Za-z][A-Za-z0-9_-]{1,80}["']?)([ \t]*(?::=|=>|[=:])[ \t]*)(?:"([^"\n]{8,4096})"|'([^'\n]{8,4096})'|([^\s"'#,;`)\]}]{8,4096}))/g;
 function secretName(raw) {
-    const name = raw.replace(/^\$env:/, "").replace(/["']/g, "");
+    const name = raw.replace(/^\$(?:env:)?/, "").replace(/["']/g, "");
     if (/^[A-Z0-9_]+$/.test(name)) {
         const words = name.split("_");
         if (words.includes("PUBLIC") || words.some((word) => DESCRIBING.has(word.toLowerCase()) && word !== "ID"))
@@ -56,22 +62,34 @@ function secretName(raw) {
         return true;
     return words.some((word, index) => index > 0 && SECRET_PAIRS.has(`${words[index - 1]} ${word}`)) || words.join("") === "connectionstring";
 }
-/** Values that name something rather than being one: numbers, URLs, paths, variable references, code. */
-function notAValue(value, name, quoted) {
-    // In code, a lower-case or camelCase name usually holds a variable or a type: `token: userToken`,
-    // `password: PasswordField`, `token: API_TOKEN`, `secret: Promise<string>`, `password=password`.
-    if (!quoted && /[a-z]/.test(name.replace(/^\$env:/, ""))) {
-        // A bare lower-case word with a digit in it (hunter2hunter2) reads as a value, not a variable name.
-        const lowerWithDigit = /^[a-z0-9_]+$/.test(value) && /\d/.test(value);
-        if (!lowerWithDigit && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value))
+/** Example values in .env.example and docs are not secrets (and the model needs to see them to copy the file). */
+const PLACEHOLDER = /^(?:changeme|change[-_]me|replace[-_ ]?me|your[-_ ]|xxx|<|example|placeholder|dummy|todo)/i;
+/**
+ * Values that name something rather than being one: numbers, URLs, paths, variable references, code.
+ * `code` = the value is followed by , ; ) — a struct/object literal or a call, where a bare word is a variable.
+ */
+function notAValue(value, name, quoted, code) {
+    if (PLACEHOLDER.test(value))
+        return true;
+    if (!quoted) {
+        // A variable or type, not a value: `password: PasswordField;`, `token: API_TOKEN,`, `secret: Promise<string>`.
+        if (code && /^[A-Za-z_$][\w$]*(?:<.*>)?(?:\[\])?$/.test(value))
+            return true;
+        // Outside code (YAML, .properties, .env): a PascalCase type, a CONST_NAME or a camelCase word without digits.
+        if (/[a-z]/.test(name.replace(/^\$(?:env:)?/, ""))) {
+            if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)*$/.test(value) || /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(value))
+                return true;
+            if (/^[a-z]+(?:[A-Z][a-z]+)+$/.test(value))
+                return true;
+        }
+        if (/[[\]<>{}]/.test(value) || /^[*!&]/.test(value))
             return true;
     }
-    if (/[[\]<>{}]/.test(value))
-        return true;
-    return (/^\d+(?:\.\d+)?$/.test(value) ||
-        /^(?:https?:\/\/|\/|\.\/|\$|%|process\.env|os\.environ|\[redacted:)/.test(value) ||
-        value.includes("(") ||
-        /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value));
+    return (/^\d+(?:\.\d+)*(?:[-+][\w.]+)?$/.test(value) ||
+        /^(?:https?:\/\/|\/|\.\.?[\\/]|~[\\/]|[A-Za-z]:[\\/]|\\\\|\$|%|process\.env|os\.environ|\[redacted:)/.test(value) ||
+        (!quoted && value.includes("(")) ||
+        /^[A-Za-z_]\w*(?:[?!]?\.[A-Za-z_]\w*)+$/.test(value) ||
+        /^[\w.-]+\\[\w.\\-]+$/.test(value));
 }
 function redactAll(text) {
     let count = 0;
@@ -88,11 +106,14 @@ function redactAll(text) {
             return `${keep}[redacted:${pattern.kind}]`;
         });
     }
-    out = out.replace(SETTING, (match, name, between, value) => {
-        if (!secretName(name) || notAValue(value, name, /["']$/.test(between)))
+    out = out.replace(SETTING, (match, name, between, dq, sq, bare, offset, whole) => {
+        const value = dq ?? sq ?? bare ?? "";
+        const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : "";
+        const next = whole[offset + match.length] ?? "";
+        if (!secretName(name) || notAValue(value, name, Boolean(quote), /[,;)]/.test(next)))
             return match;
         count += 1;
-        return `${name}${between}[redacted:secret-value]`;
+        return `${name}${between}${quote}[redacted:secret-value]${quote}`;
     });
     return { text: out, count };
 }

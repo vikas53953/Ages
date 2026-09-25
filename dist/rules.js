@@ -149,7 +149,7 @@ function readYours(cwd) {
     return parseObject(text, file);
 }
 /** Longer rules are refused (the file then counts as unreadable, which fails safe): matching costs rule × text. */
-const MAX_RULE_CHARS = 512;
+export const MAX_RULE_CHARS = 512;
 function stringList(value, fallback, name = "rules.allow / rules.ask / rules.deny") {
     if (value === undefined)
         return [...fallback];
@@ -497,6 +497,11 @@ export function isMutation(name) {
  * command, never a chained or redirected one. Never for .git, .harness or .aegis.
  */
 export function suggestAllowRule(name, args, matched, cwd) {
+    const rule = suggestAllowRuleUncapped(name, args, matched, cwd);
+    // Never offer a rule that could not be saved (it would make your settings file unreadable).
+    return rule && rule.length <= MAX_RULE_CHARS ? rule : undefined;
+}
+function suggestAllowRuleUncapped(name, args, matched, cwd) {
     if (matched)
         return undefined;
     if (name === "explore")
@@ -526,6 +531,9 @@ export function suggestAllowRule(name, args, matched, cwd) {
 }
 /** Add an allow rule to .aegis/settings.json (keeping the default allow list when the file had none). */
 export function saveAllowRule(cwd, rule) {
+    // A longer rule would make your own settings file unreadable next time (fail safe, but all allow rules gone).
+    if (rule.length > MAX_RULE_CHARS)
+        throw new Error(`the rule is longer than ${MAX_RULE_CHARS} characters, so it is not saved`);
     updateYours(cwd, (raw) => {
         const rules = (raw.rules && typeof raw.rules === "object" ? raw.rules : {});
         const allow = Array.isArray(rules.allow) ? rules.allow : [];

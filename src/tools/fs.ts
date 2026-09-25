@@ -44,49 +44,87 @@ export function runPowerShell(command: string, cwd: string, timeoutMs: number, s
     ownGroup(pid);
     let stdout = "";
     let stderr = "";
+    let bytes = 0;
     let killed = false;
     let overflow = false;
     let settled = false;
     const killTree = () => {
+      if (killed) return;
       killed = true;
-      if (pid) killProcessTree(pid);
+      // Only while it runs: after exit its pid may already belong to something else (Windows recycles them fast).
+      if (pid && child.exitCode === null && child.signalCode === null) killProcessTree(pid);
+      // Something it started outside its group may still hold the pipes open: close them, so this always ends.
+      child.stdout.destroy();
+      child.stderr.destroy();
     };
     const timer = setTimeout(killTree, timeoutMs);
     const onAbort = () => killTree();
     if (signal?.aborted) killTree();
     else signal?.addEventListener("abort", onAbort, { once: true });
-    const take = (chunk: Buffer, into: "out" | "err") => {
-      if (stdout.length + stderr.length + chunk.length > MAX_SHELL_OUTPUT) {
+    const take = (chunk: string, into: "out" | "err") => {
+      if (overflow) return;
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > MAX_SHELL_OUTPUT) {
         overflow = true;
         killTree();
         return;
       }
-      if (into === "out") stdout += chunk.toString("utf8");
-      else stderr += chunk.toString("utf8");
+      if (into === "out") stdout += chunk;
+      else stderr += chunk;
     };
-    child.stdout.on("data", (chunk: Buffer) => take(chunk, "out"));
-    child.stderr.on("data", (chunk: Buffer) => take(chunk, "err"));
+    // Decoded as text per stream, so a character split across two chunks is not garbled.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => take(chunk, "out"));
+    child.stderr.on("data", (chunk: string) => take(chunk, "err"));
+    // Something it started may keep the pipes open after it exits: once it has exited and nothing has arrived for
+    // a moment, settle anyway (the pipes are closed then). Output still flowing keeps it waiting.
+    let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let idle: NodeJS.Timeout | undefined;
+    const armIdle = () => {
+      if (!exited) return;
+      clearTimeout(idle);
+      idle = setTimeout(() => settleExit(exited!.code, exited!.signal), 500);
+    };
+    child.stdout.on("data", armIdle);
+    child.stderr.on("data", armIdle);
+    child.on("exit", (code, exitSignal) => {
+      exited = { code, signal: exitSignal };
+      armIdle();
+    });
     const finish = (error: Error | undefined) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(idle);
       signal?.removeEventListener("abort", onAbort);
       releaseGroup(pid);
+      child.stdout.destroy();
+      child.stderr.destroy();
       if (!error) resolve({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd() });
       else reject(Object.assign(error, { stdout, stderr }));
     };
     child.on("error", (error) => finish(Object.assign(error, { code: (error as NodeJS.ErrnoException).code })));
-    child.on("close", (code, closeSignal) => {
+    const settleExit = (code: number | null, closeSignal: NodeJS.Signals | null) => {
       if (code === 0 && !killed) return finish(undefined);
-      const why = signal?.aborted ? "stopped" : overflow ? "output over 2 MB" : killed ? `timed out after ${timeoutMs} ms` : `exit code ${code}`;
+      const why = signal?.aborted
+        ? "stopped"
+        : overflow
+          ? "output over 2 MB"
+          : killed
+            ? `timed out after ${timeoutMs} ms`
+            : code === null
+              ? `ended by ${closeSignal ?? "a signal"}`
+              : `exit code ${code}`;
       finish(
         Object.assign(new Error(`Command failed (${why}): ${command}`), {
-          code: overflow ? "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" : (code ?? undefined),
+          code: overflow ? "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" : (code ?? closeSignal ?? "signal"),
           killed: killed && !overflow,
           signal: closeSignal ?? undefined,
         }),
       );
-    });
+    };
+    child.on("close", (code, closeSignal) => settleExit(code, closeSignal));
     // Nothing is ever typed into the command: close stdin so PowerShell never waits on an open pipe.
     child.stdin.end();
   });

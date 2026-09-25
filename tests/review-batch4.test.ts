@@ -182,3 +182,50 @@ describe("rule and target size limits", () => {
     expect(matchRule(s, "shell", { command: "echo hi" }, cwd)?.action).toBe("allow");
   });
 });
+
+describe("redaction: batch 6", () => {
+  it("catches kebab keys, plain YAML words, quoted values with spaces, Basic auth and PowerShell variables", () => {
+    for (const [text, secret] of [
+      ["api-key: Sup3rS3cret!Pw", "Sup3rS3cret!Pw"],
+      ["x-api-key: Sup3rS3cret!Pw", "Sup3rS3cret!Pw"],
+      ["secretKey: Sup3rS3cret9", "Sup3rS3cret9"],
+      ["apiKey: SUPERSECRETVALUE", "SUPERSECRETVALUE"],
+      ["password: correcthorsebatterystaple", "correcthorsebatterystaple"],
+      ['PASSWORD="Sup3r S3cret!"', "Sup3r S3cret!"],
+      ['PASSWORD="Sup3r#S3cret!"', "Sup3r#S3cret!"],
+      ["Authorization: Basic dXNlcjpTdXAzclMzY3JldCFQdw==", "dXNlcjpTdXAzclMzY3JldCFQdw"],
+      ['$password = "Sup3rS3cret!Pw"', "Sup3rS3cret!Pw"],
+    ]) {
+      expect(redactSecrets(text!).text, text).not.toContain(secret);
+    }
+  });
+
+  it("leaves code, paths and placeholders alone", () => {
+    const code = [
+      "  token: session?.token,",
+      "  apiKey: sha256hex,",
+      "PRIVATE_KEY=C:\\certs\\server.key",
+      "PRIVATE_KEY=~/.ssh/id_rsa",
+      "  password: *db_password",
+      "  secret: !isPublic,",
+      "password_server: 192.168.1.100",
+      "token_version: 1.2.3-beta.1",
+      "SECRET_KEY=your-secret-key-here",
+      "API_TOKEN=replace-me-please",
+      "DB_PASSWORD=changeme123",
+    ].join("\n");
+    expect(redactSecrets(code).text).toBe(code);
+  });
+});
+
+describe("always-allow never writes a rule that would break your settings", () => {
+  it("a very long command is not offered as an 'always' rule, and saving one is refused", async () => {
+    const { suggestAllowRule, saveAllowRule } = await import("../src/rules.ts");
+    const long = `npm install ${Array.from({ length: 80 }, (_, i) => `@scope/package-${i}`).join(" ")}`;
+    expect(suggestAllowRule("shell", { command: long }, undefined)).toBeUndefined();
+    expect(suggestAllowRule("shell", { command: "npm test" }, undefined)).toBe("shell npm test");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-longalways-"));
+    process.env.AEGIS_HOME = await mkdtemp(path.join(os.tmpdir(), "aegis-longalways-home-"));
+    expect(() => saveAllowRule(cwd, `shell ${long}`)).toThrow("longer than 512");
+  });
+});
