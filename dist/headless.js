@@ -45,8 +45,13 @@ export async function runHeadless(input) {
             if (result.notice)
                 process.stderr.write(`${result.notice}\n`);
             input.write((result.receipt?.answer ?? result.output ?? "").trim());
-            if (denied)
-                process.stderr.write(`${denied} tool call(s) denied: no rule allows them and nobody can be asked in -p mode.\n`);
+            if (denied) {
+                // Say why: a deny rule, or a question nobody can answer in -p mode (add an allow rule or --allow).
+                const reasons = (result.receipt?.tools ?? [])
+                    .filter((tool) => !tool.approved)
+                    .map((tool) => `  ${tool.name} ${tool.target ?? ""}: ${tool.rule && tool.action === "deny" ? `denied by rule "${tool.rule}"` : "needed a yes, and nobody can answer in -p mode (use --allow or an allow rule)"}`);
+                process.stderr.write(`${denied} tool call(s) denied:\n${reasons.join("\n")}\n`);
+            }
         }
         return denied ? 2 : 0;
     }
