@@ -16,6 +16,7 @@ import path from "node:path";
 import { packageRoot } from "../env.ts";
 import { killProcessTree } from "../exec.ts";
 import { serializeConfirm } from "../confirm-queue.ts";
+import { shellAllowed } from "../tools/shell.ts";
 import { runGatedTool, toolTarget } from "../gated.ts";
 import { scorerOf, toolGuards, type AegisPlugin } from "../plugin-api.ts";
 import { unscoredTurn } from "../router.ts";
@@ -63,6 +64,30 @@ export function toAegisCall(tool: string, input: Record<string, unknown>): { nam
   }
 }
 
+/** Claude Code's hook gives up after this; an unanswered question is answered No well before it. */
+const HOOK_TIMEOUT_S = 86_400;
+const APPROVAL_LIMIT_MS = (HOOK_TIMEOUT_S - 600) * 1000;
+const MAX_HOOK_BODY = 2_000_000;
+
+/** Tools whose target is a file: Claude Code may only touch files inside the project, like Aegis's own tools. */
+const FILE_TOOLS = new Set(["read", "write", "edit", "grep"]);
+
+/** The reason to refuse before any rule is asked, or undefined. Mirrors what Aegis's own tools enforce when they run. */
+export function hardDeny(name: string, args: Record<string, unknown>, cwd: string, protectedFiles: string[]) {
+  if (name === "shell" && !shellAllowed()) {
+    return "Shell is disabled in Aegis (it is not confined to the folder). Set AEGIS_ALLOW_SHELL=1 to allow it.";
+  }
+  if (FILE_TOOLS.has(name) && typeof args.path === "string" && args.path) {
+    const resolved = path.resolve(cwd, args.path);
+    const relative = path.relative(path.resolve(cwd), resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return `${args.path} is outside the project folder`;
+    if ((name === "write" || name === "edit") && protectedFiles.some((file) => path.resolve(file) === resolved)) {
+      return "that file is part of Aegis's lock";
+    }
+  }
+  return undefined;
+}
+
 /** Claude Code bookkeeping that touches nothing outside the conversation. */
 const HARMLESS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ExitPlanMode", "EnterPlanMode"]);
 
@@ -105,7 +130,20 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   const guards = toolGuards(input.plugins);
   const jev = input.jev ?? scorerOf(input.plugins);
   // Claude Code may run tools in parallel; you still get one question at a time.
-  const confirm = serializeConfirm(input.confirm);
+  const serial = serializeConfirm(input.confirm);
+  // A question nobody answers becomes No before Claude Code's hook would time out (a timed-out hook does not block).
+  const confirm: ConfirmFn = (question, options) => {
+    let timer: NodeJS.Timeout | undefined;
+    const limit = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), APPROVAL_LIMIT_MS);
+    });
+    return Promise.race([serial(question, options), limit]).finally(() => clearTimeout(timer));
+  };
+  const dir = sessionDir(input.cwd, input.sessionId);
+  const settingsFile = path.join(dir, "claude-settings.json");
+  const appendFile = path.join(dir, "claude-append.md");
+  const hookScript = path.join(packageRoot(), "scripts", "claude-hook.mjs");
+  const protectedFiles = [settingsFile, appendFile, hookScript];
   const turnAbort = new AbortController();
   input.abortSignal?.addEventListener("abort", () => turnAbort.abort(), { once: true });
 
@@ -118,7 +156,13 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
     if (req.method !== "POST" || req.headers["x-aegis-token"] !== token) return reply(401, { decision: "deny" });
     req.setEncoding("utf8");
     let body = "";
-    for await (const chunk of req) body += chunk as string;
+    for await (const chunk of req) {
+      body += chunk as string;
+      if (body.length > MAX_HOOK_BODY) {
+        req.destroy();
+        return;
+      }
+    }
     let call: { tool_name?: string; tool_input?: Record<string, unknown> };
     try {
       call = JSON.parse(body) as typeof call;
@@ -128,7 +172,25 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
     const tool = String(call.tool_name ?? "");
     if (HARMLESS.has(tool)) return reply(200, { decision: "allow", reason: "Claude Code bookkeeping" });
     const mapped = toAegisCall(tool, call.tool_input ?? {});
-    input.onEvent?.({ type: "tool_start", name: mapped.name, target: toolTarget(mapped.name, mapped.args as never) || undefined });
+    const target = toolTarget(mapped.name, mapped.args as never) || undefined;
+    input.onEvent?.({ type: "tool_start", name: mapped.name, target });
+    const refused = hardDeny(mapped.name, mapped.args, input.cwd, protectedFiles);
+    if (refused) {
+      const record: ToolRecord = {
+        name: mapped.name,
+        class: "irreversible",
+        dataLoss: 1,
+        confidence: 1,
+        action: "deny",
+        approved: false,
+        target,
+        source: "agreement",
+        deniedReason: refused,
+      };
+      tools.push(record);
+      input.onEvent?.({ type: "tool", record });
+      return reply(200, { decision: "deny", reason: `Aegis denied it: ${refused}. Do not retry this call.` });
+    }
     try {
       const run = await runGatedTool({
         name: mapped.name,
@@ -149,7 +211,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
       return reply(200, {
         decision: allowed ? "allow" : "deny",
         reason: allowed
-          ? `Aegis: ${run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
+          ? `Aegis: ${run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
           : `Aegis denied it: ${run.record.deniedReason ?? "not allowed"}. Do not retry this call.`,
       });
     } catch (error) {
@@ -159,13 +221,14 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
 
-  const dir = sessionDir(input.cwd, input.sessionId);
   await mkdir(dir, { recursive: true });
-  const settingsFile = path.join(dir, "claude-settings.json");
   await writeFile(
     settingsFile,
     JSON.stringify(
       {
+        // Your own ~/.claude settings cannot switch the lock off for this run, nor pre-approve around it.
+        disableAllHooks: false,
+        permissions: { defaultMode: "default" },
         hooks: {
           PreToolUse: [
             {
@@ -175,8 +238,8 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
                   type: "command",
                   // Exec form: no shell parses these paths (Git Bash or PowerShell on Windows).
                   command: process.execPath,
-                  args: [path.join(packageRoot(), "scripts", "claude-hook.mjs")],
-                  timeout: 3600,
+                  args: [hookScript],
+                  timeout: HOOK_TIMEOUT_S,
                 },
               ],
             },
@@ -191,7 +254,6 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--settings", settingsFile];
   if (resume && /^[\w-]+$/.test(resume)) args.push("--resume", resume);
   if (input.appendSystem) {
-    const appendFile = path.join(dir, "claude-append.md");
     await writeFile(appendFile, input.appendSystem);
     args.push("--append-system-prompt-file", appendFile);
   }

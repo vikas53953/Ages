@@ -53,6 +53,10 @@ process.stdin.on("end", async () => {
     if (answer.decision === "allow") writeFileSync(path.join(process.cwd(), "DELETED"), "yes");
     texts.push(answer.decision === "allow" ? "Deleted build." : `Blocked: ${answer.reason}`);
   }
+  if (prompt.includes("secrets")) {
+    const answer = await askHook("Read", { file_path: path.join(path.dirname(process.cwd()), "secret-outside.txt") });
+    texts.push(answer.decision === "allow" ? "read it" : `Blocked: ${answer.reason}`);
+  }
   if (prompt.includes("todo")) {
     const answer = await askHook("TodoWrite", { todos: [] });
     texts.push(`todo ${answer.decision}`);

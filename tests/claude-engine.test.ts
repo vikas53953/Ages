@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { toAegisCall } from "../src/engines/claude-code.ts";
+import { hardDeny, toAegisCall } from "../src/engines/claude-code.ts";
 import { loadSettings, settingsPath } from "../src/rules.ts";
 import { handleLine, modelChoices, startState } from "../src/runtime.ts";
 import { sessionDir } from "../src/session.ts";
@@ -92,6 +92,7 @@ describe("claude-code engine", () => {
   });
 
   it("a denied call is blocked inside Claude Code and nothing runs", async () => {
+    process.env.AEGIS_ALLOW_SHELL = "1";
     const { cwd, state, opts } = await project();
     await handleLine("/model claude-code", state, opts);
     const questions: string[] = [];
@@ -103,6 +104,37 @@ describe("claude-code engine", () => {
     expect(existsSync(path.join(cwd, "DELETED"))).toBe(false);
     expect(result.receipt?.answer).toContain("Blocked: Aegis denied it");
     expect(result.receipt?.tools[0]).toMatchObject({ name: "shell", approved: false });
+  });
+
+  it("shell stays off unless AEGIS_ALLOW_SHELL=1, even for Claude Code, without asking", async () => {
+    delete process.env.AEGIS_ALLOW_SHELL;
+    const { cwd, state, opts } = await project();
+    await handleLine("/model claude-code", state, opts);
+    const result = await handleLine("delete the build folder", state, opts, async () => {
+      throw new Error("must not ask");
+    });
+    expect(result.receipt?.answer).toContain("Shell is disabled in Aegis");
+    expect(existsSync(path.join(cwd, "DELETED"))).toBe(false);
+  });
+
+  it("files outside the project are refused before any rule (read * does not reach ~/.ssh)", async () => {
+    const { state, opts } = await project();
+    await handleLine("/model claude-code", state, opts);
+    const result = await handleLine("read my secrets", state, opts, async () => {
+      throw new Error("must not ask");
+    });
+    expect(result.receipt?.answer).toContain("outside the project folder");
+    expect(result.receipt?.tools[0]).toMatchObject({ name: "read", approved: false });
+  });
+
+  it("the settings Aegis gives Claude Code keep the hook on and Claude Code's own mode at 'ask'", async () => {
+    const { cwd, state, opts } = await project();
+    await handleLine("/model claude-code", state, opts);
+    await handleLine("hello", state, opts);
+    const settings = JSON.parse(await readFile(path.join(sessionDir(cwd, state.session.id), "claude-settings.json"), "utf8"));
+    expect(settings.disableAllHooks).toBe(false);
+    expect(settings.permissions.defaultMode).toBe("default");
+    expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(86_400);
   });
 
   it("Claude Code's own bookkeeping (TodoWrite) is allowed without asking", async () => {
@@ -139,6 +171,22 @@ describe("the hook script fails closed", () => {
       encoding: "utf8",
     });
     expect(run.status).toBe(2);
+  });
+});
+
+describe("hard refusals", () => {
+  it("refuses paths outside the folder, and writes to the lock's own files", () => {
+    process.env.AEGIS_ALLOW_SHELL = "1";
+    const cwd = path.resolve(os.tmpdir(), "proj");
+    const hook = path.join(cwd, "scripts", "claude-hook.mjs");
+    expect(hardDeny("read", { path: path.join(os.homedir(), ".ssh", "id_rsa") }, cwd, [])).toMatch(/outside/);
+    expect(hardDeny("write", { path: "../escape.txt" }, cwd, [])).toMatch(/outside/);
+    expect(hardDeny("write", { path: hook }, cwd, [hook])).toMatch(/lock/);
+    expect(hardDeny("read", { path: hook }, cwd, [hook])).toBeUndefined();
+    expect(hardDeny("edit", { path: "src/a.ts" }, cwd, [hook])).toBeUndefined();
+    expect(hardDeny("shell", { command: "git status" }, cwd, [])).toBeUndefined();
+    delete process.env.AEGIS_ALLOW_SHELL;
+    expect(hardDeny("shell", { command: "git status" }, cwd, [])).toMatch(/Shell is disabled/);
   });
 });
 

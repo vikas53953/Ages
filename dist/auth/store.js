@@ -4,7 +4,7 @@
  * API keys stay in ~/.aegis/.env as before.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { userAegisDir } from "../env.js";
 export function authFile() {
@@ -36,8 +36,16 @@ export function saveCredential(name, credential) {
     const file = authFile();
     mkdirSync(path.dirname(file), { recursive: true });
     const temp = `${file}.${process.pid}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(all, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temp, file);
+    try {
+        // Lock the empty temp file first, so the tokens are never readable by others, even for a moment.
+        writeFileSync(temp, "", { encoding: "utf8", mode: 0o600 });
+        lockToUser(temp);
+        writeFileSync(temp, `${JSON.stringify(all, null, 2)}\n`, "utf8");
+        renameSync(temp, file);
+    }
+    finally {
+        rmSync(temp, { force: true });
+    }
     lockToUser(file);
     return file;
 }

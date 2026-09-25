@@ -133,8 +133,9 @@ export async function loginCodexDevice(ui: LoginUi, options: { pollMs?: number; 
       );
       return toCredential(tokens);
     }
-    if (poll.status === 403 || poll.status === 404) continue; // not approved yet
     const text = await poll.text().catch(() => "");
+    if (/denied|declined|expired_token|access_denied/i.test(text)) throw new Error("ChatGPT sign-in was declined or the code expired. Run /login chatgpt again.");
+    if (poll.status === 403 || poll.status === 404) continue; // not approved yet
     if (/authorization_pending/.test(text)) continue;
     if (/slow_down/.test(text)) {
       interval += 5000;
@@ -235,7 +236,12 @@ export async function freshCodexCredential(options: { force?: boolean; signal?: 
   const saved = loadCredential(CODEX_CREDENTIAL);
   if (!saved) throw new Error("Not signed in to ChatGPT. Run /login chatgpt");
   if (!options.force && saved.expires - Date.now() > REFRESH_MARGIN_MS) return saved;
-  refreshing ??= refreshCodex(saved, options.signal)
+  refreshing ??= (async () => {
+    // Another Aegis window may have renewed it a moment ago: use that instead of spending the refresh token twice.
+    const latest = loadCredential(CODEX_CREDENTIAL) ?? saved;
+    if (latest.access !== saved.access && latest.expires - Date.now() > REFRESH_MARGIN_MS) return latest;
+    return refreshCodex(latest, options.signal);
+  })()
     .then((next) => {
       saveCredential(CODEX_CREDENTIAL, next);
       return next;
@@ -316,6 +322,7 @@ export function codexFetch(base: typeof fetch = fetch): typeof fetch {
     const signal = init?.signal ?? undefined;
     const first = await send(await freshCodexCredential({ signal }));
     if (first.status !== 401) return first;
+    await first.body?.cancel().catch(() => {});
     return send(await freshCodexCredential({ force: true, signal }));
   };
 }
