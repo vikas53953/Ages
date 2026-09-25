@@ -7,7 +7,7 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 1. Aegis is ahead on the lock: rules first, hooks that can only tighten, project trust by hash, secret redaction at the gate, and shell off by default. No reference tool ships all of this.
 2. Aegis is ahead on Windows: PowerShell, CRLF edits, 8.3 paths, `icacls`, System32-only lookups. The others treat Windows as second or third.
 3. Aegis is behind on models: no first-party Claude or Gemini plan sign-in, and the Claude route depends on running Claude Code as an engine.
-4. Aegis is behind on OS sandboxing (Claude Code, Codex) and a real subagent system beyond `explore`. (websearch and HTTP MCP were added the same night.)
+4. Aegis is behind on OS sandboxing (Claude Code, Codex). (websearch, HTTP MCP and custom agents were added the same night.)
 5. Aegis is behind on ecosystem: no IDE extension, no cloud runs, no plugin marketplace, small user base. (A GitHub Action now ships.)
 
 ## Safety & permissions
@@ -43,7 +43,7 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 | websearch | ✅ your Brave key; every query gated | ✅ | ✅ `--search` | ❌ | ⚠️ unverified |
 | Images | ✅ @path, read, Studio paste | ✅ | ✅ | ✅ | ✅ |
 | MCP | ✅ stdio + HTTP, per-server trust, no redirects | ✅ stdio + HTTP | ✅ | ❌ by design | ✅ |
-| Subagents | ⚠️ `explore` only, read-only | ✅ custom agents, Task | ⚠️ unverified | ⚠️ extension | ✅ agents, @explore |
+| Subagents | ✅ `explore` + custom agents (agents/<name>.md), every call gated | ✅ custom agents, Task | ⚠️ unverified | ⚠️ extension | ✅ agents, @explore |
 | Skills (SKILL.md) | ✅ hashed trust | ✅ | ✅ | ✅ | ✅ |
 
 ## Sessions & context
@@ -83,14 +83,13 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 
 ## Gaps worth closing next
 
-Closed the same night: websearch, HTTP MCP, the GitHub Action.
+Closed the same night: websearch, HTTP MCP, the GitHub Action, custom agents (`agents/<name>.md`).
 
-1. **Real subagents** — `explore` is read-only. Let custom agents run with their own rule set, still behind the lock.
-2. **OS sandbox on Windows** — AppContainer or a restricted job object for shell. The lock is not isolation; the README says so.
-3. **Redaction in the Claude Code engine** — the biggest hole in the secrets story: Claude Code's own reads reach it before Aegis can cut anything.
-4. **Auto memory** — Claude Code learns across sessions; Aegis needs manual `/memory`.
-5. **Image input to the Claude Code engine** — `stream-json` input parts so pasted screenshots work there too.
-6. **VS Code panel** — `-p --json` already fits; a thin extension would bring Aegis into the editor.
+1. **OS sandbox on Windows** — AppContainer or a restricted job object for shell. The lock is not isolation; the README says so.
+2. **Redaction in the Claude Code engine** — the biggest hole in the secrets story: Claude Code's own reads reach it before Aegis can cut anything.
+3. **Auto memory** — Claude Code learns across sessions; Aegis needs manual `/memory`.
+4. **Image input to the Claude Code engine** — `stream-json` input parts so pasted screenshots work there too.
+5. **VS Code panel** — `-p --json` already fits; a thin extension would bring Aegis into the editor.
 
 ## Where Aegis is deliberately different
 
