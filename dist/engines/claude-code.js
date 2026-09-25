@@ -17,6 +17,7 @@ import { packageRoot } from "../env.js";
 import { killProcessTree } from "../exec.js";
 import { serializeConfirm } from "../confirm-queue.js";
 import { shellAllowed } from "../tools/shell.js";
+import { cleanTodos } from "../todos.js";
 import { runGatedTool, toolTarget } from "../gated.js";
 import { scorerOf, toolGuards } from "../plugin-api.js";
 import { unscoredTurn } from "../router.js";
@@ -144,8 +145,11 @@ export async function runClaudeCodeTurn(input) {
             return reply(200, { decision: "deny", reason: "unreadable tool call" });
         }
         const tool = String(call.tool_name ?? "");
-        if (HARMLESS.has(tool))
+        if (HARMLESS.has(tool)) {
+            if (tool === "TodoWrite")
+                input.onEvent?.({ type: "todos", todos: cleanTodos(call.tool_input?.todos) });
             return reply(200, { decision: "allow", reason: "Claude Code bookkeeping" });
+        }
         const mapped = toAegisCall(tool, call.tool_input ?? {});
         const target = toolTarget(mapped.name, mapped.args) || undefined;
         input.onEvent?.({ type: "tool_start", name: mapped.name, target });

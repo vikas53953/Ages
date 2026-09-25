@@ -209,3 +209,21 @@ describe("the project folder spelled two ways", () => {
     expect(await readFile(path.join(real, "n.txt"), "utf8")).toBe("N0");
   });
 });
+
+describe("a new file in a folder that does not exist yet", () => {
+  it.skipIf(process.platform === "win32")("is kept and removed on rewind, also when cwd is spelled through a link", async () => {
+    const real = await mkdtemp(path.join(os.tmpdir(), "aegis-cp-new-"));
+    const alias = path.join(await mkdtemp(path.join(os.tmpdir(), "aegis-cp-newalias-")), "proj");
+    await symlink(real, alias);
+    const turn = { at: "2026-09-25T12:00:00.000Z", prompt: "p" };
+    await snapshotFile(alias, "s1", turn, path.join(alias, "scripts", "new.ps1"));
+    await mkdir(path.join(real, "scripts"));
+    await writeFile(path.join(real, "scripts", "new.ps1"), "x");
+    const points = await rewindPoints(alias, "s1");
+    expect(points).toHaveLength(1);
+    const result = await rewindTo(alias, "s1", turn.at, { files: true, chat: false });
+    expect(result.removed).toHaveLength(1);
+    expect(existsSync(path.join(real, "scripts", "new.ps1"))).toBe(false);
+  });
+});
+

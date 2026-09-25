@@ -88,6 +88,9 @@ function cancelled(decision: ToolDecision | undefined, name: string): GatedRun {
   };
 }
 
+/** Tools that only touch the conversation (the todo list). */
+export const INTERNAL_TOOLS = new Set(["todo"]);
+
 export function toolTarget(name: string, args: JsonObject) {
   if (name === "shell") return String(args.command ?? "").slice(0, 120);
   if (name === "grep") return `"${String(args.pattern ?? "")}" in ${String(args.path ?? ".")}`;
@@ -173,7 +176,7 @@ export async function runGatedTool(input: {
   if (input.abortSignal?.aborted) {
     return cancelled(undefined, input.name);
   }
-  if (input.readOnly && input.name !== "read" && input.name !== "grep") {
+  if (input.readOnly && input.name !== "read" && input.name !== "grep" && !INTERNAL_TOOLS.has(input.name)) {
     return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
   }
   for (const guard of input.guards ?? []) {
@@ -189,6 +192,14 @@ export async function runGatedTool(input: {
   const rule = matchRule(settings, input.name, input.args, input.cwd);
   if (rule?.action === "deny") {
     return denied({ name: input.name, target, reason: `rule: ${rule.rule}`, source: "rule", rule: rule.rule });
+  }
+  // Conversation-only tools (the todo list) change nothing outside the chat: no question, no Jev, only deny rules.
+  if (INTERNAL_TOOLS.has(input.name)) {
+    const output = await input.execute();
+    return {
+      output,
+      record: { name: input.name, class: "read_only", dataLoss: 0, confidence: 1, action: "auto", approved: true, target, source: "default" },
+    };
   }
 
   let decision: ToolDecision | undefined;

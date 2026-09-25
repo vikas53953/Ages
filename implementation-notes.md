@@ -61,3 +61,9 @@
   - Tool names over 64 characters and non-object schemas are skipped, and duplicate names are dropped.
   - `*` in a rule's tool name only globs `mcp__…` names, so `allow *` is not "every tool".
   - Anything that is not read or grep counts as a possible change (MCP and unknown tools), so Jev scores it and it is never shown as read-only.
+- Todo tool (Claude Code's TodoWrite, OpenCode's todowrite, Codex's update_plan):
+  - `todo {todos}` replaces the whole list. It is an internal tool: deny rules apply, but there is no question and no Jev, because it touches only the chat. It is allowed in plan mode.
+  - It is capped at 30 items of 200 characters, with control and escape characters stripped. Studio renders it as text only.
+  - The list lives in the conversation (the last todo call), so /rewind and /resume show the right one.
+  - The Claude Code engine's own TodoWrite feeds the same view.
+- Windows CI found two more path-spelling cases. A new file in a folder that did not exist yet was not kept, because the realpath of a missing short-spelled folder fell back to the short form. Rewind now resolves the nearest existing folder and adds the rest back, and shows paths relative to the real project root.

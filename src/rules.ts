@@ -264,7 +264,7 @@ export function matchRule(
 
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name: string) {
-  return name !== "read" && name !== "grep";
+  return name !== "read" && name !== "grep" && name !== "todo";
 }
 
 /**

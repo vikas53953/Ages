@@ -17,7 +17,8 @@ import {
 } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
-import { closeState, handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo, type HandleResult, type RunOpts } from "./runtime.ts";
+import { todoLines, type Todo } from "./todos.ts";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.ts";
 import { formatTokenLine } from "./receipt.ts";
 import { ModelPicker } from "./tui-model-picker.ts";
@@ -166,7 +167,13 @@ export async function createTuiApp(
   );
   // Claude-Code-style working line above the editor: spinner, what is happening, time, how to stop.
   const status = new Text("", 0, 0);
-  const dock = new VStack([status, editor, footer]);
+  // The model's todo list, above the working line; empty (and gone) when nothing is open.
+  const todoBox = new Text("", 0, 0);
+  const showTodos = (todos: Todo[]) => {
+    const lines = todoLines(todos);
+    todoBox.setText(lines.length ? lines.map((line) => paint("dim", `  ${line}`)).join("\n") : "");
+  };
+  const dock = new VStack([todoBox, status, editor, footer]);
   const scroll = new ScrollView(new VStack([header, transcript]), {
     follow: "end",
     primary: true,
@@ -361,6 +368,10 @@ export async function createTuiApp(
   };
 
   const applyEvent = (event: TurnEvent) => {
+    if (event.type === "todos") {
+      showTodos(event.todos);
+      return;
+    }
     if (event.type === "notice") {
       add("system", event.text);
       return;
@@ -466,11 +477,13 @@ export async function createTuiApp(
   const applyChat = async (result: HandleResult) => {
     if (result.chat === "reset") {
       log.length = 0;
+      showTodos([]);
       paintTranscript();
       return;
     }
     if (result.chat === "reload") {
       await loadConversation();
+      showTodos(await currentTodos(state));
     }
   };
 
@@ -607,6 +620,7 @@ export async function createTuiApp(
 
   await refreshWelcome();
   await loadConversation();
+  showTodos(await currentTodos(state));
   paintFooter();
   tui.setFocus(editor);
   tui.start();

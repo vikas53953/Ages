@@ -44,13 +44,30 @@ function serialize(key, work) {
     queues.set(key, next.catch(() => { }));
     return next;
 }
-async function realOrSelf(target) {
-    try {
-        return await realpath(target);
+/**
+ * The real path, even for something that does not exist yet: resolve the nearest folder that does exist,
+ * then add the rest back. (On Windows a missing folder spelled short, RUNNER~1, must still match the long root.)
+ */
+export async function realOrSelf(target) {
+    let current = path.resolve(target);
+    const rest = [];
+    for (;;) {
+        try {
+            return path.join(await realpath(current), ...rest);
+        }
+        catch {
+            const parent = path.dirname(current);
+            if (parent === current)
+                return path.resolve(target);
+            rest.unshift(path.basename(current));
+            current = parent;
+        }
     }
-    catch {
-        return path.resolve(target);
-    }
+}
+/** How a kept file is shown: relative to the project, whichever way its folder is spelled. */
+export async function projectPath(cwd, file) {
+    const relative = path.relative(await realOrSelf(cwd), file);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : file;
 }
 /**
  * The file as a safe restore target, or the reason it is not one: it must sit inside the project (after

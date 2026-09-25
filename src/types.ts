@@ -95,6 +95,8 @@ export type TurnEvent =
   | { type: "tool"; record: ToolRecord }
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
+  /** The model's todo list changed. */
+  | { type: "todos"; todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" | "cancelled" }> }
   /** A line to show now, before the command finishes (the ChatGPT sign-in code). */
   | { type: "notice"; text: string }
   | { type: "outcome"; outcome: TurnOutcome };

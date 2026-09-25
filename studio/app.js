@@ -247,7 +247,22 @@
     $("working").hidden = !text;
     $("workingText").textContent = text || "";
   }
+  // The model's todo list: text only (textContent), never markup.
+  function renderTodos(todos) {
+    const list = $("todos");
+    list.textContent = "";
+    const open = (todos || []).some((todo) => todo.status === "pending" || todo.status === "in_progress");
+    $("todoCard").hidden = !open;
+    const mark = { pending: "○", in_progress: "▸", completed: "✓", cancelled: "–" };
+    for (const todo of todos || []) {
+      const li = el("li", todo.status);
+      li.append(el("span", "", mark[todo.status] || "○"), el("span", "", todo.content));
+      list.append(li);
+    }
+  }
+
   function onEvent(event) {
+    if (event.type === "todos") renderTodos(event.todos);
     if (event.type === "notice") addNote(event.text);
     if (phases[event.type]) setWorking(phases[event.type]);
     if (event.type === "route" && event.reason !== "selected") addNote(`model ${event.model} · ${event.reason}`, "route");
@@ -371,6 +386,7 @@
     $("showMode").textContent = { fold: "folded", show: "shown", hide: "hidden" }[s.thinking.display];
     $("topMeta").textContent = `${s.plan ? "PLAN MODE · " : ""}${s.model === "auto" ? s.welcome.model : s.model} · ${s.welcome.provider} · runs on this PC`;
     state.plan = Boolean(s.plan);
+    renderTodos(s.todos);
     $("planState").textContent = s.plan ? "on" : "off";
     $("planChip").setAttribute("aria-pressed", String(s.plan));
     const total = s.tokens.input + s.tokens.output;

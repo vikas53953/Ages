@@ -63,12 +63,29 @@ function serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function realOrSelf(target: string) {
-  try {
-    return await realpath(target);
-  } catch {
-    return path.resolve(target);
+/**
+ * The real path, even for something that does not exist yet: resolve the nearest folder that does exist,
+ * then add the rest back. (On Windows a missing folder spelled short, RUNNER~1, must still match the long root.)
+ */
+export async function realOrSelf(target: string) {
+  let current = path.resolve(target);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return path.join(await realpath(current), ...rest);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      rest.unshift(path.basename(current));
+      current = parent;
+    }
   }
+}
+
+/** How a kept file is shown: relative to the project, whichever way its folder is spelled. */
+export async function projectPath(cwd: string, file: string) {
+  const relative = path.relative(await realOrSelf(cwd), file);
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : file;
 }
 
 /**

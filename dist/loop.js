@@ -1,4 +1,5 @@
 import { lexicalInsideCwd } from "./env.js";
+import { MAX_TODOS, TODO_TOOL_DESCRIPTION, cleanTodos, todoSummary } from "./todos.js";
 import { jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.js";
@@ -72,6 +73,19 @@ export function createTools(input) {
     ]));
     return {
         ...mcp,
+        todo: tool({
+            description: TODO_TOOL_DESCRIPTION,
+            inputSchema: z.object({
+                todos: z
+                    .array(z.object({ content: z.string(), status: z.enum(["pending", "in_progress", "completed", "cancelled"]) }))
+                    .max(MAX_TODOS),
+            }),
+            execute: async ({ todos }) => gate("todo", { path: "." }, async () => {
+                const clean = cleanTodos(todos);
+                input.onEvent?.({ type: "todos", todos: clean });
+                return todoSummary(clean);
+            }),
+        }),
         read: tool({
             description: "Read a file or list a directory. Path is relative to the working folder.",
             inputSchema: z.object({

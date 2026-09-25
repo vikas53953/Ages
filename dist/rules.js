@@ -236,7 +236,7 @@ export function matchRule(settings, name, args, cwd) {
 }
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name) {
-    return name !== "read" && name !== "grep";
+    return name !== "read" && name !== "grep" && name !== "todo";
 }
 /**
  * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.

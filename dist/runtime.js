@@ -5,9 +5,10 @@ import { formatChat, formatTokenLine } from "./receipt.js";
 import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.js";
 import { loadCredential, saveCredential } from "./auth/store.js";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.js";
-import { rewindPoints, rewindTo, snapshotFile } from "./checkpoints.js";
+import { realOrSelf, rewindPoints, rewindTo, snapshotFile } from "./checkpoints.js";
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer } from "./mcp.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
+import { todosFromMessages } from "./todos.js";
 import { openUrl } from "./open-url.js";
 import { CODEX_MODELS, modelsFor, resolveProvider } from "./providers.js";
 import { HELP, parseLine } from "./commands.js";
@@ -51,6 +52,10 @@ function mcpBindings(mcp) {
             return connection.callTool(tool.tool, args, signal);
         },
     }));
+}
+/** The model's current todo list (from the conversation, so /rewind and /resume stay right). */
+export async function currentTodos(state) {
+    return todosFromMessages(await loadMessages(state.cwd, state.session.id));
 }
 /** Stop what this window started (MCP servers). Safe to call twice. */
 export function closeState(state) {
@@ -404,6 +409,14 @@ export async function handleLine(line, state, opts, confirm = async () => false,
         return rewindCommand(cmd.arg, cmd.what, state);
     if (cmd.type === "mcp")
         return mcpCommand(cmd.action, cmd.name, state);
+    if (cmd.type === "todos") {
+        const todos = await currentTodos(state);
+        const mark = { pending: "[ ]", in_progress: "[>]", completed: "[x]", cancelled: "[-]" };
+        return {
+            output: todos.length ? todos.map((todo) => `${mark[todo.status]} ${todo.content}`).join("\n") : "No todo list in this session.",
+            session: state.session,
+        };
+    }
     if (cmd.type === "doctor")
         return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
     if (cmd.type === "plan") {
@@ -593,7 +606,11 @@ async function mcpCommand(action, name, state) {
 /** /rewind: list restore points, or put files and/or the conversation back to before a turn. */
 async function rewindCommand(arg, what, state) {
     const points = await rewindPoints(state.cwd, state.session.id);
-    const short = (file) => path.relative(state.cwd, file) || file;
+    const root = await realOrSelf(state.cwd);
+    const short = (file) => {
+        const relative = path.relative(root, file);
+        return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : file;
+    };
     if (!arg) {
         if (!points.length)
             return { output: "No restore points yet. Aegis keeps a file before each write or edit you allow.", session: state.session };

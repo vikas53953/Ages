@@ -12,6 +12,7 @@ export type Slash =
   | { type: "plan"; arg?: string }
   | { type: "mcp"; action?: string; name?: string }
   | { type: "doctor" }
+  | { type: "todos" }
   | { type: "clear" }
   | { type: "status" }
   | { type: "models" }
@@ -58,6 +59,9 @@ export function parseLine(line: string): Slash {
       return { type: "compact" };
     case "doctor":
       return { type: "doctor" };
+    case "todos":
+    case "todo":
+      return { type: "todos" };
     case "mcp":
       return { type: "mcp", action: rest[0]?.toLowerCase(), name: rest[1] };
     case "plan":
@@ -112,6 +116,7 @@ export const HELP = [
   "  /theme aegis|light|contrast  colours (saved for you, every folder)",
   "  /login             show sign-ins and keys; /login opencode <key> saves one for every folder",
   "  /login chatgpt     sign in with your ChatGPT plan (add 'browser' to use this PC's browser)",
+  "  /todos             the agent's todo list for this session (shown above the prompt while work is open)",
   "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
   "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",
   "  /plan              plan mode: read-only until you approve; /plan go carries it out, /plan off leaves",

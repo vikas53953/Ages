@@ -1,7 +1,8 @@
 import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, truncateToWidth, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
-import { closeState, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
+import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
+import { todoLines } from "./todos.js";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.js";
 import { formatTokenLine } from "./receipt.js";
 import { ModelPicker } from "./tui-model-picker.js";
@@ -101,7 +102,13 @@ export async function createTuiApp(opts, input = {}) {
     editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? [])]), cwd));
     // Claude-Code-style working line above the editor: spinner, what is happening, time, how to stop.
     const status = new Text("", 0, 0);
-    const dock = new VStack([status, editor, footer]);
+    // The model's todo list, above the working line; empty (and gone) when nothing is open.
+    const todoBox = new Text("", 0, 0);
+    const showTodos = (todos) => {
+        const lines = todoLines(todos);
+        todoBox.setText(lines.length ? lines.map((line) => paint("dim", `  ${line}`)).join("\n") : "");
+    };
+    const dock = new VStack([todoBox, status, editor, footer]);
     const scroll = new ScrollView(new VStack([header, transcript]), {
         follow: "end",
         primary: true,
@@ -285,6 +292,10 @@ export async function createTuiApp(opts, input = {}) {
         tui.requestRender();
     };
     const applyEvent = (event) => {
+        if (event.type === "todos") {
+            showTodos(event.todos);
+            return;
+        }
         if (event.type === "notice") {
             add("system", event.text);
             return;
@@ -395,11 +406,13 @@ export async function createTuiApp(opts, input = {}) {
     const applyChat = async (result) => {
         if (result.chat === "reset") {
             log.length = 0;
+            showTodos([]);
             paintTranscript();
             return;
         }
         if (result.chat === "reload") {
             await loadConversation();
+            showTodos(await currentTodos(state));
         }
     };
     const submit = async (line) => {
@@ -538,6 +551,7 @@ export async function createTuiApp(opts, input = {}) {
     });
     await refreshWelcome();
     await loadConversation();
+    showTodos(await currentTodos(state));
     paintFooter();
     tui.setFocus(editor);
     tui.start();

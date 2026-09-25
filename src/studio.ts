@@ -16,6 +16,7 @@ import type { TurnEvent } from "./loop.ts";
 import { loadSettingsSafe, thinkingOf } from "./rules.ts";
 import {
   closeState,
+  currentTodos,
   handleLine,
   modelChoices,
   startState,
@@ -161,6 +162,7 @@ export async function startStudio(input: {
       thinking: thinkingOf(settings),
       tokens: state.sessionTokens,
       plan: Boolean(state.planMode),
+      todos: await currentTodos(state),
       plugins: state.plugins.map((plugin) => plugin.name),
       busy,
       approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),

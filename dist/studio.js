@@ -13,7 +13,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { packageRoot } from "./env.js";
 import { loadSettingsSafe, thinkingOf } from "./rules.js";
-import { closeState, handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
+import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
 import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
 class BadRequest extends Error {
@@ -124,6 +124,7 @@ export async function startStudio(input) {
             thinking: thinkingOf(settings),
             tokens: state.sessionTokens,
             plan: Boolean(state.planMode),
+            todos: await currentTodos(state),
             plugins: state.plugins.map((plugin) => plugin.name),
             busy,
             approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),
