@@ -1,6 +1,7 @@
 import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { assertInsideCwd } from "../env.ts";
+import { isSecretFile } from "../rules.ts";
 
 /** Never searched, whatever .gitignore says. */
 const SKIP = new Set(["node_modules", ".git", ".gate", ".harness", "dist", "coverage"]);
@@ -84,13 +85,20 @@ async function loadIgnore(root: string) {
 }
 
 export type Walked = { file: string; relative: string };
+export type WalkStats = { secretsSkipped: number };
 
 /** Files under root (links followed only inside it), minus SKIP and .gitignore. */
-export async function walkFiles(root: string, limit = 20_000): Promise<Walked[]> {
+export async function walkFiles(root: string, limit = 20_000, stats?: WalkStats): Promise<Walked[]> {
   const ignored = await loadIgnore(root);
   const out: Walked[] = [];
+  // Real folders already walked: a link back to a parent (a repo can ship "self -> .") must not loop forever.
+  const seenDirs = new Set<string>();
+  const seenFiles = new Set<string>();
   const visit = async (dir: string) => {
     if (out.length >= limit) return;
+    const realDir = await realpath(dir).catch(() => dir);
+    if (seenDirs.has(realDir)) return;
+    seenDirs.add(realDir);
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -113,7 +121,15 @@ export async function walkFiles(root: string, limit = 20_000): Promise<Walked[]>
       const relative = path.relative(root, full).split(path.sep).join("/");
       if (ignored(relative, info.isDirectory())) continue;
       if (info.isDirectory()) await visit(real);
-      else if (info.isFile()) out.push({ file: real, relative });
+      else if (info.isFile() && !seenFiles.has(real)) {
+        seenFiles.add(real);
+        // Secrets files are not searched as part of a folder; naming one (grep x .env) is asked about instead.
+        if (stats && isSecretFile(relative)) {
+          stats.secretsSkipped += 1;
+          continue;
+        }
+        out.push({ file: real, relative });
+      }
     }
   };
   await visit(root);
@@ -143,8 +159,9 @@ export async function grepPath(pattern: string, relativePath: string, cwd: strin
     return `bad pattern: ${error instanceof Error ? error.message : String(error)}`;
   }
   const only = options.glob ? globRegex(options.glob) : undefined;
+  const stats: WalkStats = { secretsSkipped: 0 };
   const files = info.isDirectory()
-    ? (await walkFiles(root)).filter((entry) => !only || only.test(entry.relative)).map((entry) => entry.file)
+    ? (await walkFiles(root, 20_000, stats)).filter((entry) => !only || only.test(entry.relative)).map((entry) => entry.file)
     : [root];
   const context = Math.max(0, Math.min(5, Math.floor(options.context ?? 0)));
   // Show paths from the real folder: files are real paths, and on Windows cwd may be an 8.3 short spelling.
@@ -179,9 +196,12 @@ export async function grepPath(pattern: string, relativePath: string, cwd: strin
       );
     });
   }
-  if (!hits.length) return "no matches";
+  const skipped = stats.secretsSkipped
+    ? `\n[${stats.secretsSkipped} secrets file(s) such as .env were not searched; grep one by name to be asked]`
+    : "";
+  if (!hits.length) return `no matches${skipped}`;
   const more = total > hits.length ? `\n[… ${total - hits.length} more matches not shown; narrow the pattern, path or glob]` : "";
-  return hits.join("\n") + more;
+  return hits.join("\n") + more + skipped;
 }
 
 /** File paths matching a glob, newest first (like Claude Code's Glob). */

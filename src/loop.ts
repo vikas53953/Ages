@@ -18,7 +18,8 @@ import { scorerOf, toolGuards, type AegisPlugin, type ToolGuard, type TurnEndRes
 import { readPath } from "./tools/read.ts";
 import { writePath } from "./tools/write.ts";
 import { editPath } from "./tools/edit.ts";
-import { globPath, grepPath } from "./tools/grep.ts";
+import { searchInWorker } from "./tools/search.ts";
+import { REDACTED_MARK } from "./redact.ts";
 import { runShell } from "./tools/shell.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
@@ -201,7 +202,9 @@ export function createTools(input: {
         contents: z.string(),
       }),
       execute: async ({ path: filePath, contents }) =>
-        gate("write", { path: filePath, contents }, async () => {
+        contents.includes(REDACTED_MARK)
+          ? PLACEHOLDER_REFUSED
+          : gate("write", { path: filePath, contents }, async () => {
           await keep(filePath);
           return writePath(filePath, contents, input.cwd);
         }),
@@ -216,7 +219,9 @@ export function createTools(input: {
         replace_all: z.boolean().optional().describe("Replace every match instead of exactly one."),
       }),
       execute: async ({ path: filePath, old_string, new_string, replace_all }) =>
-        gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
+        new_string.includes(REDACTED_MARK)
+          ? PLACEHOLDER_REFUSED
+          : gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
           await keep(filePath);
           return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
         }),
@@ -233,14 +238,16 @@ export function createTools(input: {
       }),
       execute: async ({ pattern, path: filePath, glob, caseSensitive, context }) =>
         gate("grep", { pattern, path: filePath ?? "." }, () =>
-          grepPath(pattern, filePath ?? ".", input.cwd, { glob, caseSensitive, context }),
+          searchInWorker({ kind: "grep", pattern, path: filePath ?? ".", cwd: input.cwd, options: { glob, caseSensitive, context } }, input.abortSignal),
         ),
     }),
     glob: tool({
       description: "List files whose path matches a glob (\"**/*.ts\", \"src/*.md\"), newest first. Skips .gitignore'd files.",
       inputSchema: z.object({ pattern: z.string(), path: z.string().optional() }),
       execute: async ({ pattern, path: filePath }) =>
-        gate("glob", { pattern, path: filePath ?? "." }, () => globPath(pattern, filePath ?? ".", input.cwd)),
+        gate("glob", { pattern, path: filePath ?? "." }, () =>
+          searchInWorker({ kind: "glob", pattern, path: filePath ?? ".", cwd: input.cwd }, input.abortSignal),
+        ),
     }),
     shell: tool({
       description:
@@ -272,6 +279,9 @@ export function createTools(input: {
 const localOpts = { toolCallId: "local", messages: [], context: {} } as never;
 
 const EXPLORE_MAX_STEPS = 20;
+/** The model copied a redaction placeholder into a file: writing it would replace a real secret with the mark. */
+const PLACEHOLDER_REFUSED =
+  "Not written: the text contains an Aegis [redacted:…] placeholder, which stands for a secret you were not shown. Change only the parts you need with edit, leaving the redacted lines untouched, or ask the user to fill in the value.";
 const EXPLORE_MAX_CHARS = 8_000;
 const EXPLORE_DESCRIPTION =
   "Hand an open-ended search of this project to a read-only helper (fresh context, cheaper model) and get back a short report with file paths. Use it for questions that would take many reads or searches (where is X handled, how does Y work, find every use of Z). Do not use it for one file you already know.";

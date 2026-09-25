@@ -21,7 +21,8 @@ export async function readPath(relativePath, cwd, lines) {
         const width = String(start + slice.length).length;
         const numbered = slice.map((text, index) => `${String(start + index).padStart(width)}  ${text}`).join("\n");
         const after = start - 1 + slice.length < all.length ? `\n[lines ${start}-${start + slice.length - 1} of ${all.length}]` : "";
-        return (numbered || `[the file has ${all.length} lines]`) + after;
+        const text = numbered.length > 80_000 ? `${numbered.slice(0, 80_000)}\n[cut at 80,000 characters; ask for fewer lines]` : numbered;
+        return (text || `[the file has ${all.length} lines]`) + after;
     }
     if (body.length > 80_000) {
         const total = body.split(/\r?\n/).length;

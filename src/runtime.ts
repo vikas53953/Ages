@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, writeFile } from "node:fs/promises";
 import { attachMentions } from "./mentions.ts";
+import { redactSecrets } from "./redact.ts";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.ts";
 import { formatReceipt, localGenerate, runLoop, type GenerateFn, type McpBinding, type TurnEvent } from "./loop.ts";
@@ -94,6 +95,8 @@ export type AppState = {
   trustNoticeShown?: boolean;
   /** Conversation size as a % of the auto-compaction limit. */
   contextPercent?: number;
+  /** Ids in the order /sessions last showed them, so /resume <n> opens what you saw. */
+  sessionList?: string[];
 };
 
 function statusTrust(cwd: string) {
@@ -565,6 +568,7 @@ async function handleLineInner(
   }
   if (cmd.type === "sessions" || (cmd.type === "resume" && !cmd.id)) {
     const rows = await recentSessions(state.cwd, 15);
+    state.sessionList = rows.map((row) => row.id);
     if (!rows.length) return { output: "No saved conversations yet.", session: state.session };
     const lines = rows.map((row, index) => {
       const here = row.id === state.session.id ? "  (this one)" : "";
@@ -577,10 +581,11 @@ async function handleLineInner(
     let id = cmd.id;
     // A small number picks from the /sessions list; anything else is an id.
     if (/^\d{1,2}$/.test(id)) {
-      const rows = await recentSessions(state.cwd, 15);
-      const row = rows[Number(id) - 1];
-      if (!row) return { output: `No conversation ${id} in the list. /sessions shows them.`, session: state.session };
-      id = row.id;
+      // The numbers of the list you saw, even if another window has started a conversation since.
+      const ids = state.sessionList ?? (await recentSessions(state.cwd, 15)).map((row) => row.id);
+      const picked = ids[Number(id) - 1];
+      if (!picked) return { output: `No conversation ${id} in the list. /sessions shows them.`, session: state.session };
+      id = picked;
     }
     try {
       await switchSession(state.cwd, id);
@@ -1052,6 +1057,8 @@ export async function runUserShell(line: string, state: AppState, opts: RunOpts)
     const err = error as { stdout?: string; stderr?: string; message?: string };
     output = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || String(err.message ?? error);
   }
+  // Your own command, but its output joins the chat that goes to the model: secret-looking values are cut.
+  output = redactSecrets(output).text;
   const shown = output.length > 20_000 ? `${output.slice(0, 20_000)}\n[… ${output.length - 20_000} more characters]` : output;
   if (keep) {
     await appendMessage(state.cwd, state.session.id, {

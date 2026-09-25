@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { redactSecrets } from "./redact.js";
 import { loadHooks, runPostToolHooks, runPreToolHooks } from "./hooks.js";
@@ -45,11 +45,12 @@ export function formatActionDiff(oldText, newText, context = 2) {
 function existingText(cwd, file) {
     if (typeof file !== "string" || !file)
         return undefined;
-    const target = path.resolve(cwd, file);
-    const relative = path.relative(path.resolve(cwd), target);
-    if (relative.startsWith("..") || path.isAbsolute(relative))
-        return undefined;
     try {
+        // Real paths: a link that leads out of the folder shows nothing (the write itself is refused there too).
+        const target = realpathSync.native(path.resolve(cwd, file));
+        const relative = path.relative(realpathSync.native(path.resolve(cwd)), target);
+        if (relative.startsWith("..") || path.isAbsolute(relative))
+            return undefined;
         const info = statSync(target);
         if (!info.isFile() || info.size > 2_000_000)
             return undefined;

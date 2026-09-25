@@ -34,24 +34,43 @@ export const DEFAULT_SETTINGS = {
 export function settingsPath(cwd) {
     return path.join(cwd, ".aegis", "settings.json");
 }
-/** Always on, whatever any file says: the lock's own files are asked about even when a rule allows writes. */
+/** Files that usually hold secrets (rule globs: "*" crosses folders, case-insensitive). */
+export const SECRET_FILES = [
+    "*.env",
+    "*.env.*",
+    "*.envrc",
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "*.p8",
+    "*.ppk",
+    "*.kdbx",
+    "*id_rsa*",
+    "*id_ed25519*",
+    "*id_ecdsa*",
+    "*.aws/credentials",
+    "*.ssh/*",
+    "*.npmrc",
+    "*.pypirc",
+    "*.netrc",
+    "*.git-credentials",
+    "*credentials.json",
+];
+/**
+ * Always on, whatever any file says: the lock's own files are asked about even when a rule allows writes, and
+ * reading or searching a secrets file is asked about every time (no "always"); output is redacted too (redact.ts).
+ */
 export const FLOOR_ASK = [
     "write .aegis/*",
     "edit .aegis/*",
-    // Secrets: reading them is asked about every time (no "always"), and output is redacted anyway (redact.ts).
-    "read *.env",
-    "read *.env.*",
-    "read *.pem",
-    "read *.key",
-    "read *.pfx",
-    "read *.p12",
-    "read *.kdbx",
-    "read *id_rsa*",
-    "read *id_ed25519*",
-    "read *id_ecdsa*",
-    "read *.aws/credentials",
-    "read *.ssh/*",
+    ...SECRET_FILES.flatMap((file) => [`read ${file}`, `grep ${file}`]),
 ];
+/** Does this folder-relative path look like a secrets file? (grep skips them when it walks a folder.) */
+export function isSecretFile(relative) {
+    const target = relative.replaceAll("\\", "/");
+    return SECRET_FILES.some((glob) => globToRegex(glob).test(target));
+}
 /** One spelling per folder: the real path, lower-cased on Windows (C:\\Proj and c:\\proj are the same folder). */
 export function projectKey(cwd) {
     let real = path.resolve(cwd);

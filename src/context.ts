@@ -1,13 +1,20 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { userAegisDir } from "./env.ts";
+import { redactSecrets } from "./redact.ts";
 
 /** Project files, in this order: the shared ones, then AGENTS.local.md (yours, for this folder; keep it out of git). */
 const NAMES = ["AGENTS.md", "HARNESS.md", "AGENTS.local.md"];
 
-async function section(file: string, title: string) {
+/** A file's text for the system prompt; `within` = it must really be inside that folder (no link out of it). */
+async function section(file: string, title: string, within?: string) {
   try {
-    const body = (await readFile(file, "utf8")).trim();
+    if (within) {
+      const relative = path.relative(await realpath(within), await realpath(file));
+      if (relative.startsWith("..") || path.isAbsolute(relative)) return "";
+    }
+    // Sent with every turn, so secret-looking values are cut here too.
+    const body = redactSecrets((await readFile(file, "utf8")).trim()).text;
     return body ? `## ${title}\n${body}` : "";
   } catch {
     return ""; // optional
@@ -20,7 +27,7 @@ async function section(file: string, title: string) {
  */
 export async function loadContext(cwd: string) {
   const chunks = [await section(path.join(userAegisDir(), "AGENTS.md"), "Your AGENTS.md (every project)")];
-  for (const name of NAMES) chunks.push(await section(path.join(cwd, name), name));
+  for (const name of NAMES) chunks.push(await section(path.join(cwd, name), name, cwd));
   return chunks.filter(Boolean).join("\n\n");
 }
 

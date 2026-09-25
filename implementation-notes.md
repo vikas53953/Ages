@@ -179,3 +179,23 @@
   - The output passes redaction after the hooks, so a hook cannot put a key back into the conversation.
   - Only your ~/.aegis hooks, as for PreToolUse.
 - Windows CI: grep and glob showed `../../../../runneradmin/…` paths when the working folder was spelled short (`C:\Users\RUNNER~1\…`), because walked files are real paths and were made relative to the short spelling. Paths are now made relative to the real folder. A Linux test reaches the project through a link, fails on the old code, and passes now. (A run on `aef4155` where nine unrelated tests each hit 5 s at once on one Node leg was a stalled runner; the next commit passed with the same code.)
+- Fixes from the review of the secrets, search and session batch:
+  - P1 hangs:
+    - grep and glob run in a worker thread (`search-worker.ts`, loaded directly as TypeScript through Node's type stripping, or as the compiled .js from dist). They are terminated after 20 s or when you stop the turn. A regular expression cannot be interrupted on its own thread, so a model's `(a+)+$`, a slow glob, or a cloned repo's `.gitignore` line could freeze Aegis for good.
+    - The walker keeps a set of real folders and files already seen, so a link back to a parent (`self -> .`) no longer loops.
+  - P1 secrets:
+    - `grep` on a secrets file is asked about like `read`, and grep over a folder skips secrets files and says how many it skipped.
+    - The list is shared (`SECRET_FILES`) and grew: `.envrc`, `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `credentials.json`, `*.p8`, `*.ppk`.
+  - P1/P2 redaction:
+    - The NAME=value rule only started at column 0, so grep hits and numbered reads went through in the clear. A look-behind lets a name start at any word start, which also makes it linear: blank-line input was quadratic, and 80K newlines took 16 s.
+    - Names must contain a secret word between underscores (so MONKEY, KEYBOARD and MAX_TOKENS are not caught; PWD dropped, PUBLIC skipped), and numbers, URLs, paths and references are not values.
+    - A private-key header without END no longer eats the rest of the file; a cut key's base64 body still is cut.
+  - P2:
+    - `write`/`edit` text that carries a `[redacted:` placeholder is refused, so a secret on disk is never replaced by the mark.
+    - Offset/limit reads are capped at 80,000 characters.
+    - `AGENTS.md`/`AGENTS.local.md` linked out of the project are not loaded, and loaded text is redacted.
+  - P3:
+    - `!cmd` output is redacted before it joins the chat.
+    - The overwrite diff uses real paths.
+    - `/resume <n>` uses the list `/sessions` showed.
+  - Still true (documented): in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot redact it. Nested `.gitignore` files are not read.

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, writeFile } from "node:fs/promises";
 import { attachMentions } from "./mentions.js";
+import { redactSecrets } from "./redact.js";
 import path from "node:path";
 import { loadEnv, hasJevCredentials } from "./env.js";
 import { formatReceipt, localGenerate, runLoop } from "./loop.js";
@@ -477,6 +478,7 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
     }
     if (cmd.type === "sessions" || (cmd.type === "resume" && !cmd.id)) {
         const rows = await recentSessions(state.cwd, 15);
+        state.sessionList = rows.map((row) => row.id);
         if (!rows.length)
             return { output: "No saved conversations yet.", session: state.session };
         const lines = rows.map((row, index) => {
@@ -490,11 +492,12 @@ async function handleLineInner(line, state, opts, confirm, onEvent) {
         let id = cmd.id;
         // A small number picks from the /sessions list; anything else is an id.
         if (/^\d{1,2}$/.test(id)) {
-            const rows = await recentSessions(state.cwd, 15);
-            const row = rows[Number(id) - 1];
-            if (!row)
+            // The numbers of the list you saw, even if another window has started a conversation since.
+            const ids = state.sessionList ?? (await recentSessions(state.cwd, 15)).map((row) => row.id);
+            const picked = ids[Number(id) - 1];
+            if (!picked)
                 return { output: `No conversation ${id} in the list. /sessions shows them.`, session: state.session };
-            id = row.id;
+            id = picked;
         }
         try {
             await switchSession(state.cwd, id);
@@ -977,6 +980,8 @@ export async function runUserShell(line, state, opts) {
         const err = error;
         output = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || String(err.message ?? error);
     }
+    // Your own command, but its output joins the chat that goes to the model: secret-looking values are cut.
+    output = redactSecrets(output).text;
     const shown = output.length > 20_000 ? `${output.slice(0, 20_000)}\n[… ${output.length - 20_000} more characters]` : output;
     if (keep) {
         await appendMessage(state.cwd, state.session.id, {

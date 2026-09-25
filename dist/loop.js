@@ -14,7 +14,8 @@ import { scorerOf, toolGuards } from "./plugin-api.js";
 import { readPath } from "./tools/read.js";
 import { writePath } from "./tools/write.js";
 import { editPath } from "./tools/edit.js";
-import { globPath, grepPath } from "./tools/grep.js";
+import { searchInWorker } from "./tools/search.js";
+import { REDACTED_MARK } from "./redact.js";
 import { runShell } from "./tools/shell.js";
 import { languageModel, modelsFor, resolveProvider } from "./providers.js";
 import { planLocal } from "./planner.js";
@@ -124,10 +125,12 @@ export function createTools(input) {
                 path: z.string(),
                 contents: z.string(),
             }),
-            execute: async ({ path: filePath, contents }) => gate("write", { path: filePath, contents }, async () => {
-                await keep(filePath);
-                return writePath(filePath, contents, input.cwd);
-            }),
+            execute: async ({ path: filePath, contents }) => contents.includes(REDACTED_MARK)
+                ? PLACEHOLDER_REFUSED
+                : gate("write", { path: filePath, contents }, async () => {
+                    await keep(filePath);
+                    return writePath(filePath, contents, input.cwd);
+                }),
         }),
         edit: tool({
             description: "Replace one unique string in an existing file. Prefer this over write when changing a file.",
@@ -137,10 +140,12 @@ export function createTools(input) {
                 new_string: z.string(),
                 replace_all: z.boolean().optional().describe("Replace every match instead of exactly one."),
             }),
-            execute: async ({ path: filePath, old_string, new_string, replace_all }) => gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
-                await keep(filePath);
-                return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
-            }),
+            execute: async ({ path: filePath, old_string, new_string, replace_all }) => new_string.includes(REDACTED_MARK)
+                ? PLACEHOLDER_REFUSED
+                : gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
+                    await keep(filePath);
+                    return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
+                }),
         }),
         grep: tool({
             description: "Search file contents under a relative path with a regex (case-insensitive unless caseSensitive). Skips .gitignore'd, binary and huge files. glob narrows the files (e.g. \"*.ts\"); context adds lines around each hit.",
@@ -151,12 +156,12 @@ export function createTools(input) {
                 caseSensitive: z.boolean().optional(),
                 context: z.number().int().min(0).max(5).optional(),
             }),
-            execute: async ({ pattern, path: filePath, glob, caseSensitive, context }) => gate("grep", { pattern, path: filePath ?? "." }, () => grepPath(pattern, filePath ?? ".", input.cwd, { glob, caseSensitive, context })),
+            execute: async ({ pattern, path: filePath, glob, caseSensitive, context }) => gate("grep", { pattern, path: filePath ?? "." }, () => searchInWorker({ kind: "grep", pattern, path: filePath ?? ".", cwd: input.cwd, options: { glob, caseSensitive, context } }, input.abortSignal)),
         }),
         glob: tool({
             description: "List files whose path matches a glob (\"**/*.ts\", \"src/*.md\"), newest first. Skips .gitignore'd files.",
             inputSchema: z.object({ pattern: z.string(), path: z.string().optional() }),
-            execute: async ({ pattern, path: filePath }) => gate("glob", { pattern, path: filePath ?? "." }, () => globPath(pattern, filePath ?? ".", input.cwd)),
+            execute: async ({ pattern, path: filePath }) => gate("glob", { pattern, path: filePath ?? "." }, () => searchInWorker({ kind: "glob", pattern, path: filePath ?? ".", cwd: input.cwd }, input.abortSignal)),
         }),
         shell: tool({
             description: "Run one PowerShell command in the working folder. Do not use this to leave the folder.",
@@ -186,6 +191,8 @@ export function createTools(input) {
 }
 const localOpts = { toolCallId: "local", messages: [], context: {} };
 const EXPLORE_MAX_STEPS = 20;
+/** The model copied a redaction placeholder into a file: writing it would replace a real secret with the mark. */
+const PLACEHOLDER_REFUSED = "Not written: the text contains an Aegis [redacted:…] placeholder, which stands for a secret you were not shown. Change only the parts you need with edit, leaving the redacted lines untouched, or ask the user to fill in the value.";
 const EXPLORE_MAX_CHARS = 8_000;
 const EXPLORE_DESCRIPTION = "Hand an open-ended search of this project to a read-only helper (fresh context, cheaper model) and get back a short report with file paths. Use it for questions that would take many reads or searches (where is X handled, how does Y work, find every use of Z). Do not use it for one file you already know.";
 const EXPLORE_SYSTEM = [
