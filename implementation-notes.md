@@ -318,3 +318,7 @@
     - No ring after you stop a turn.
     - `~/.aegis/settings.json` is never rewritten when it does not parse; before, `/bell` and `/theme` silently dropped your other settings.
   - The headless tests get 20 s each: one timed out once on a slow Windows runner (a full turn per test).
+- Git branch in the TUI footer (`~/app (main) · …`, like Pi) and next to the folder in Studio.
+  - It is read from `.git/HEAD`, following a worktree's `.git` file; no git program runs, so a repo's config cannot run anything.
+  - Only the characters branch names use are shown, so a crafted HEAD cannot put escape codes into the terminal. A detached HEAD shows the short commit id.
+  - The TUI caches it for 2 s, since the footer repaints four times a second during a turn.

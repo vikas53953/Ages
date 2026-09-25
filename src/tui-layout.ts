@@ -91,6 +91,8 @@ export function footerText(input: {
   task?: string;
   /** Short working folder, shown first like Pi's footer. */
   cwd?: string;
+  /** Git branch of the folder, shown after it: "~/app (main)". */
+  branch?: string;
   /** Thinking level, e.g. "low". */
   think?: string;
   /** Session token total, e.g. "↑ 12k ↓ 830". */
@@ -102,7 +104,7 @@ export function footerText(input: {
 }): string {
   const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
   const task = `task ${input.task ?? "none"}`;
-  const place = input.cwd ? `${input.cwd} · ` : "";
+  const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
   const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
   if (input.busy) {
     const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));

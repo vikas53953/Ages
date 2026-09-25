@@ -28,6 +28,7 @@ import {
 import { loadMessages, messageText, recentSessions, type ChatMessage } from "./session.ts";
 import { turnStatusLines } from "./tui-layout.ts";
 import type { ConfirmAnswer, ConfirmOptions } from "./types.ts";
+import { gitBranch } from "./git-head.ts";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage, type ImageAttachment } from "./images.ts";
 
 export type StudioEvent =
@@ -192,6 +193,7 @@ export async function startStudio(input: {
       todos: await currentTodos(state),
       plugins: state.plugins.map((plugin) => plugin.name),
       context: state.contextPercent ?? 0,
+      branch: gitBranch(state.cwd),
       busy,
       approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),
     };

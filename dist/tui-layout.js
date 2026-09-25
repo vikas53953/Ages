@@ -64,7 +64,7 @@ export function jevStatus(mockJev, hasKey, healthy) {
 export function footerText(input) {
     const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
     const task = `task ${input.task ?? "none"}`;
-    const place = input.cwd ? `${input.cwd} · ` : "";
+    const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
     const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
     if (input.busy) {
         const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));

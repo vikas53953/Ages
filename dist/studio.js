@@ -16,6 +16,7 @@ import { loadSettingsSafe, thinkingOf } from "./rules.js";
 import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
 import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
+import { gitBranch } from "./git-head.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage } from "./images.js";
 /** 4 images of 5 MB as base64, plus the text. */
 const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) + 1_000_000;
@@ -156,6 +157,7 @@ export async function startStudio(input) {
             todos: await currentTodos(state),
             plugins: state.plugins.map((plugin) => plugin.name),
             context: state.contextPercent ?? 0,
+            branch: gitBranch(state.cwd),
             busy,
             approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),
         };

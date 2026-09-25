@@ -41,6 +41,7 @@ import {
 import type { ConfirmAnswer, ConfirmFn } from "./types.ts";
 import type { TurnEvent } from "./loop.ts";
 import { loadBell, shouldRing } from "./bell.ts";
+import { cachedGitBranch } from "./git-head.ts";
 
 const dim = (text: string) => paint("dim", text);
 /** How the model's Markdown answers look, in the current theme's colours. */
@@ -227,6 +228,7 @@ export async function createTuiApp(
     }
   };
 
+  const branchOf = cachedGitBranch();
   const paintFooter = () => {
     paintStatus();
     footer.setText(
@@ -240,6 +242,7 @@ export async function createTuiApp(
         elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
         task: state.taskPermission,
         cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
+        branch: branchOf(cwd),
         think: thinkingLevel,
         tokens: formatTokenLine(state.sessionTokens),
         context: state.contextPercent,

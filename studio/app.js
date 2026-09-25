@@ -402,7 +402,7 @@
     state.model = s.model;
     state.thinking = s.thinking;
     $("version").textContent = `v${s.welcome.version}`;
-    $("folder").textContent = s.welcome.cwd;
+    $("folder").textContent = s.branch ? `${s.welcome.cwd} (${s.branch})` : s.welcome.cwd;
     $("modelName").textContent = s.model;
     $("thinkLevel").textContent = s.thinking.level;
     $("showMode").textContent = { fold: "folded", show: "shown", hide: "hidden" }[s.thinking.display];

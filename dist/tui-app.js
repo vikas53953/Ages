@@ -14,6 +14,7 @@ import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
 import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
 import { loadBell, shouldRing } from "./bell.js";
+import { cachedGitBranch } from "./git-head.js";
 const dim = (text) => paint("dim", text);
 /** How the model's Markdown answers look, in the current theme's colours. */
 const markdownTheme = () => ({
@@ -158,6 +159,7 @@ export async function createTuiApp(opts, input = {}) {
             status.setText("");
         }
     };
+    const branchOf = cachedGitBranch();
     const paintFooter = () => {
         paintStatus();
         footer.setText(footerText({
@@ -170,6 +172,7 @@ export async function createTuiApp(opts, input = {}) {
             elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
             task: state.taskPermission,
             cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
+            branch: branchOf(cwd),
             think: thinkingLevel,
             tokens: formatTokenLine(state.sessionTokens),
             context: state.contextPercent,
