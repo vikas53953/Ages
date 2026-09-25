@@ -94,10 +94,9 @@ Written 25 Sep 2026 from README.md, PROJECT-MAP.md and implementation-notes.md. 
 
 ## Where Aegis is deliberately different
 
-- **Shell off by default.** The others run bash first and ask second. Aegis needs `AEGIS_ALLOW_SHELL=1`, never auto-allows chained or wrapped commands, and runs `pwsh` from System32 by path.
-- **Rules-first lock, tighten-only.** Jev, hooks and plugins can only make a decision stricter. Nothing but a rule you saw can skip a question. Default answer is n.
+- **Shell off by default.** The others run shell first and ask second. Aegis needs `AEGIS_ALLOW_SHELL=1` and never auto-allows chained or wrapped commands.
+- **Rules-first lock, tighten-only.** Jev, hooks and plugins can only make a decision stricter. Only a rule you saw can skip a question. Default answer is n.
 - **No impersonation.** Aegis never poses as Claude Code or Gemini CLI for plan sign-in. Claude plans work only by driving the unmodified `claude` binary with its own hook.
-- **Repo cannot arm itself.** Project allow rules, plugins, MCP servers, skills and hooks wait for `/trust`; git hooks and filters are blanked before Aegis runs git.
-- **Windows-first.** CRLF edits, 8.3 names, `icacls` on auth.json, `rundll32` link opening, Windows CI on every push.
-- **Studio, not a cloud.** The browser face is your own PC on 127.0.0.1 with a one-time key, strict CSP and no CDN. Same lock, same sessions.
-- **No money meter, no telemetry.** Tokens are shown like Pi; nothing phones home.
+- **A repo cannot arm itself.** Project allow rules, plugins, MCP servers and skills wait for `/trust`; hooks come only from your home folder; git hooks and filters are blanked.
+- **Windows-first.** CRLF edits, 8.3 names, `icacls` on auth.json, System32-only lookups, Windows CI on every push.
+- **Studio, not a cloud.** The browser face runs on your PC at 127.0.0.1 with a one-time key and strict CSP. Same lock, same sessions. Nothing phones home.
