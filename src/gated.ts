@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { loadHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
 import { decideToolAction, stricter } from "./policy.ts";
@@ -30,24 +31,64 @@ function clipDisplay(text: string) {
   return `${text.slice(0, DISPLAY_LIMIT)}\n  … [${text.length - DISPLAY_LIMIT} more bytes]`;
 }
 
-export function formatActionDiff(oldText: string, newText: string) {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  return ["  --- old", "  +++ new", ...oldLines.map((line) => `  - ${line}`), ...newLines.map((line) => `  + ${line}`)].join(
-    "\n",
-  );
+/**
+ * A short diff: the unchanged start and end are trimmed to two lines of context, so a one-line change in a
+ * long file shows as one line, not the whole file twice.
+ */
+export function formatActionDiff(oldText: string, newText: string, context = 2) {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA -= 1;
+    endB -= 1;
+  }
+  if (start === a.length && start === b.length) return "  (no change)";
+  const from = Math.max(0, start - context);
+  return [
+    "  --- old",
+    "  +++ new",
+    `  @@ line ${from + 1} @@`,
+    ...a.slice(from, start).map((line) => `    ${line}`),
+    ...a.slice(start, endA).map((line) => `  - ${line}`),
+    ...b.slice(start, endB).map((line) => `  + ${line}`),
+    ...b.slice(endB, Math.min(b.length, endB + context)).map((line) => `    ${line}`),
+  ].join("\n");
 }
 
-export function formatConfirm(name: string, args: JsonObject, decision?: ToolDecision, why?: string) {
+/** The current text of the file a write would replace (inside the folder, a plain file under 2 MB), if any. */
+function existingText(cwd: string, file: unknown) {
+  if (typeof file !== "string" || !file) return undefined;
+  const target = path.resolve(cwd, file);
+  const relative = path.relative(path.resolve(cwd), target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+  try {
+    const info = statSync(target);
+    if (!info.isFile() || info.size > 2_000_000) return undefined;
+    return readFileSync(target, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+export function formatConfirm(name: string, args: JsonObject, decision?: ToolDecision, why?: string, existing?: string) {
   const details =
     name === "edit"
       ? [
           `  path: ${String(args.path ?? "")}`,
           clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
         ].join("\n")
-      : Object.entries(args)
-          .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
-          .join("\n");
+      : name === "write" && existing !== undefined
+        ? [
+            `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
+            clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+          ].join("\n")
+        : Object.entries(args)
+            .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
+            .join("\n");
   const score = decision
     ? `${decision.class}  data_loss=${decision.dataLoss.toFixed(2)}  via ${decision.source}`
     : "not scored by Jev";
@@ -291,7 +332,8 @@ export async function runGatedTool(input: {
     const sameRoot = !input.settingsCwd || path.resolve(input.settingsCwd) === path.resolve(input.cwd);
     // A hook that asked is asked every time: no "always" rule can quiet it.
     const always = loaded.error || !sameRoot || hook ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
-    const prompt = formatConfirm(input.name, input.args, decision, why);
+    const existing = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
+    const prompt = formatConfirm(input.name, input.args, decision, why, existing);
     const raced = await Promise.race([
       input
         .confirm(prompt, { always, tool: input.name, target, why })
