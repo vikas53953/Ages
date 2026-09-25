@@ -26,7 +26,7 @@ import { addMemory, loadMemory, memoryNotes, removeMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
 import { INIT_PROMPT, loadContext } from "./context.ts";
 import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction, type Summarizer } from "./compact.ts";
-import { buildSystemPrompt } from "./system.ts";
+import { buildSystemPrompt, MEMORY_NOTE } from "./system.ts";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.ts";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.ts";
 import {
@@ -72,6 +72,8 @@ export type RunOpts = {
   summarize?: Summarizer;
   /** Start a fresh session instead of continuing the last one (the CLI default; `aegis -c` continues). */
   newSession?: boolean;
+  /** Nobody reads the questions (aegis -p): anything that must be seen by a person, like a memory note, is refused. */
+  unattended?: boolean;
   /** Images you pasted or dropped (Aegis Studio) for this one message: checked, then sent like attached images. */
   images?: ImageAttachment[];
 };
@@ -589,7 +591,7 @@ export async function runPrompt(
         checkpoint,
         readOnly,
         appendSystem:
-          [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
+          [context, memory ? `## Memory\n${MEMORY_NOTE}\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
       })
     : await runLoop({
         prompt,
@@ -620,6 +622,8 @@ export async function runPrompt(
         mcpTools,
         skills: extensions?.skills,
         agents: extensions?.agents,
+        // --yes answers every question without showing it to anyone: the same as nobody being there.
+        unattended: opts.unattended === true || opts.yes === true,
       });
   if (mentioned.records.length) receipt.tools.unshift(...mentioned.records);
   if (receipt.tokens) {

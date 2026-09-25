@@ -122,6 +122,9 @@ export function createTools(input) {
                 return "Not kept: notes are one line under 300 characters. Shorten it.";
             if (line.includes(REDACTED_MARK) || redactSecrets(line).count)
                 return "Not kept: the note looks like it holds a secret.";
+            // A note must be seen by a person; with -p or --yes nobody reads the question.
+            if (input.unattended)
+                return "Not kept: nobody is here to read the note (aegis -p or --yes). Mention it in your answer instead.";
             return gate("remember", { note: line }, async () => `Kept for later sessions: ${await addMemory(input.settingsCwd ?? input.cwd, line)}`);
         },
     });
@@ -561,6 +564,7 @@ export async function runLoop(input) {
         };
     const tools = createTools({
         cwd: input.toolsCwd ?? input.cwd,
+        unattended: input.unattended,
         agents: input.agents,
         runAgent,
         seesImages: generate !== localGenerate && modelSeesImages(route.model),

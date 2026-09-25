@@ -391,3 +391,7 @@
 - `remember` tool (auto memory, like Claude Code's): the model asks to keep one line (under 300 characters) in `.harness/memory.md`, which goes into every later prompt.
   - It is on the always-on ask floor (`remember *`), so no allow rule skips it and "always" is never offered. You see the exact note each time. In `-p` it is always a No.
   - Notes that look like secrets are refused before the question. Agents and the explore helper do not get it.
+  - Fixes from the review of `remember`:
+    - P1: `-p --yes` answered the question for you, so a note was kept that nobody saw. `remember` now refuses whenever nobody reads the questions (`-p`, `--yes`).
+    - P2: with shell on, an allowed command could write `.harness/memory.md` directly. Shell commands that name `.harness` or `.aegis` are now on the always-on ask floor.
+    - P3: memory goes into the prompt marked as approved notes that never override the lock, AGENTS.md or the current request. A note is not recorded as an irreversible change.

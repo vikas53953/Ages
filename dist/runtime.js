@@ -26,7 +26,7 @@ import { addMemory, loadMemory, memoryNotes, removeMemory } from "./memory.js";
 import { loadSkills } from "./skills.js";
 import { INIT_PROMPT, loadContext } from "./context.js";
 import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction } from "./compact.js";
-import { buildSystemPrompt } from "./system.js";
+import { buildSystemPrompt, MEMORY_NOTE } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
 import { createSession, replaceMessages, harnessRoot, sessionDir, loadMessages, messageText, loadOrCreateSession, switchSession, recentSessions, searchSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
@@ -509,7 +509,7 @@ turnOptions = {}) {
             abortSignal: opts.abortSignal,
             checkpoint,
             readOnly,
-            appendSystem: [context, memory ? `## Memory\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
+            appendSystem: [context, memory ? `## Memory\n${MEMORY_NOTE}\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
         })
         : await runLoop({
             prompt,
@@ -540,6 +540,8 @@ turnOptions = {}) {
             mcpTools,
             skills: extensions?.skills,
             agents: extensions?.agents,
+            // --yes answers every question without showing it to anyone: the same as nobody being there.
+            unattended: opts.unattended === true || opts.yes === true,
         });
     if (mentioned.records.length)
         receipt.tools.unshift(...mentioned.records);

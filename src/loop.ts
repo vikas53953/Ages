@@ -95,6 +95,8 @@ export function createTools(input: {
   runAgent?: (name: string, task: string) => Promise<string>;
   /** Only these tools (an agent's list); undefined = every tool. */
   onlyTools?: string[];
+  /** Nobody reads the questions (-p, --yes): the remember tool refuses. */
+  unattended?: boolean;
   /** Runs the read-only explore helper (absent in --local mode and inside the helper itself). */
   explore?: (task: string) => Promise<string>;
   /** The model can see images: read of a .png/.jpg/.gif/.webp returns the image itself, not only a note. */
@@ -202,6 +204,8 @@ export function createTools(input: {
       if (!line) return "Nothing to remember: the note is empty.";
       if (line.length > 300) return "Not kept: notes are one line under 300 characters. Shorten it.";
       if (line.includes(REDACTED_MARK) || redactSecrets(line).count) return "Not kept: the note looks like it holds a secret.";
+      // A note must be seen by a person; with -p or --yes nobody reads the question.
+      if (input.unattended) return "Not kept: nobody is here to read the note (aegis -p or --yes). Mention it in your answer instead.";
       return gate("remember", { note: line }, async () => `Kept for later sessions: ${await addMemory(input.settingsCwd ?? input.cwd, line)}`);
     },
   }) as (typeof mcp)[string];
@@ -557,6 +561,8 @@ export async function runLoop(input: {
   skills?: SkillEntry[];
   /** Custom agents (yours, and the project's once trusted) the model may hand tasks to. */
   agents?: AgentEntry[];
+  /** Nobody reads the questions (-p, --yes). */
+  unattended?: boolean;
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -713,6 +719,7 @@ export async function runLoop(input: {
         };
   const tools = createTools({
     cwd: input.toolsCwd ?? input.cwd,
+    unattended: input.unattended,
     agents: input.agents,
     runAgent,
     seesImages: generate !== localGenerate && modelSeesImages(route.model),

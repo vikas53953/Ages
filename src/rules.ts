@@ -92,6 +92,9 @@ export const FLOOR_ASK = [
   "edit .aegis/*",
   // A note the model wants kept goes into every later prompt: you see each one.
   "remember *",
+  // Aegis's own folders through the shell (memory, sessions, settings): always asked, whatever allows the command.
+  "shell *.harness*",
+  "shell *.aegis*",
   // Aegis's own records: restore points keep copies of files you changed, secrets files included.
   "read .harness/*",
   ...SECRET_FILES.flatMap((file) => [`read ${file}`, `grep ${file}`]),
@@ -537,7 +540,7 @@ export function matchRule(
 
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name: string) {
-  return !["read", "grep", "glob", "todo", "skill", "explore"].includes(name);
+  return !["read", "grep", "glob", "todo", "skill", "explore", "remember"].includes(name);
 }
 
 /**
