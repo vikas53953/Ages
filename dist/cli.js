@@ -52,6 +52,7 @@ export function parseArgs(argv) {
         repl: flags.has("--repl"),
         print: flags.has("-p") || flags.has("--print"),
         json: flags.has("--json"),
+        stdin: flags.has("--stdin"),
         tui: flags.has("--tui"),
         model,
         prompt: rest.join(" ").trim(),
@@ -65,7 +66,7 @@ function help() {
         "  aegis -c                   continue the last session here",
         "  aegis \"a question\"         answer once and exit",
         "  aegis ui                   open Aegis Studio in your browser (same sessions, rules and plugins)",
-        "  aegis -p \"task\"            headless: rules decide, nothing asks you; prints the answer (stdin is added)",
+        "  aegis -p \"task\"            headless: rules decide, nothing asks you; prints the answer",
         "  aegis -p --json \"task\"     one JSON object per line: every event, then the result",
         "",
         "Flags: -c, --continue   continue the last session instead of starting a new one",
@@ -73,6 +74,7 @@ function help() {
         "       --repl           plain prompt (pipes, scripts). A terminal opens the TUI",
         "       --local          no chat model: list, read and search only",
         "       -p, --print      headless (exit 0 done, 1 error, 2 a tool call was denied); --json for JSON lines",
+        "       --stdin          with -p and a task: also read stdin (without a task, stdin is the task)",
         "       --yes            with -p: approve every question (dangerous: only rules you trust should decide)",
         "       -v, --version    print the version",
         "       --port <n>       aegis ui: port to listen on (default: a free one)",
@@ -187,14 +189,10 @@ export async function main() {
         // Like Pi and Claude Code: every launch is a new session; -c continues the last one.
         newSession: !args.continue,
     };
-    if (args.prompt === "ui" || args.prompt === "studio") {
-        await runStudio({ ...opts, newSession: false }, { port: args.port, open: !args.noOpen, fresh: false });
-        return;
-    }
     if (args.print) {
         const abort = new AbortController();
         process.once("SIGINT", () => abort.abort());
-        const prompt = await headlessPrompt(args.prompt, stdin);
+        const prompt = await headlessPrompt(args.prompt, stdin, args.stdin);
         if (!prompt) {
             console.error('usage: aegis -p "task"   (or pipe the task in)');
             process.exitCode = 1;
@@ -208,6 +206,10 @@ export async function main() {
             write: (text) => stdout.write(`${text}\n`),
             abortSignal: abort.signal,
         });
+        return;
+    }
+    if (args.prompt === "ui" || args.prompt === "studio") {
+        await runStudio({ ...opts, newSession: false }, { port: args.port, open: !args.noOpen, fresh: false });
         return;
     }
     if (args.prompt) {

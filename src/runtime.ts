@@ -372,6 +372,7 @@ export async function handleLine(
     };
   }
   if (cmd.type === "new" || cmd.type === "clear") {
+    state.planMode = false;
     for (const plugin of state.plugins) await plugin.onSessionStart?.(state.cwd);
     const session = await createSession(state.cwd);
     state.session = session;
@@ -476,7 +477,12 @@ export async function handleLine(
     if (arg === "go" || arg === "approve") {
       if (!state.planMode) return { output: "plan mode is not on. /plan turns it on.", session: state.session };
       state.planMode = false;
-      return runPrompt(PLAN_GO, state, opts, confirm, onEvent);
+      try {
+        return await runPrompt(PLAN_GO, state, opts, confirm, onEvent);
+      } catch (error) {
+        state.planMode = true; // nothing was carried out: stay in plan mode
+        throw error;
+      }
     }
     if (!arg) {
       state.planMode = true;
@@ -674,12 +680,16 @@ async function rewindCommand(arg: string | undefined, what: string | undefined, 
       `Rewound to before "${point.prompt.slice(0, 60)}".`,
       done.restored.length ? `  restored  ${done.restored.map(short).join(", ")}` : "",
       done.removed.length ? `  removed   ${done.removed.map(short).join(", ")} (did not exist before)` : "",
-      done.skipped.length ? `  not kept (too large): ${done.skipped.map(short).join(", ")}` : "",
+      ...done.skipped.map((item) => `  not restored  ${short(item.file)} (${item.reason})`),
       what !== "files" ? `  conversation: ${done.messagesDropped} message(s) dropped` : "",
+      what !== "files" && state.modelMode === "pinned" && state.model === CLAUDE_CODE_MODEL
+        ? "  Claude Code starts a fresh conversation (it cannot drop only some turns)"
+        : "",
     ]
       .filter(Boolean)
       .join("\n"),
     session: state.session,
+    chat: what !== "files" ? "reload" : undefined,
   };
 }
 

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -107,9 +107,49 @@ describe("aegis -p", () => {
   });
 
   it("stdin is added to the prompt", async () => {
-    expect(await headlessPrompt("review this", Object.assign(Readable.from(["diff --git a b"]), { isTTY: false }))).toBe("review this\n\ndiff --git a b");
+    expect(await headlessPrompt("review this", Object.assign(Readable.from(["diff --git a b"]), { isTTY: false }), true)).toBe("review this\n\ndiff --git a b");
     expect(await headlessPrompt("", Object.assign(Readable.from(["only stdin"]), { isTTY: false }))).toBe("only stdin");
     expect(await headlessPrompt("arg only", Object.assign(Readable.from([]), { isTTY: true }))).toBe("arg only");
+  });
+
+  it("does not wait on an open stdin pipe when the task is an argument (CI runners leave one open)", async () => {
+    const cwd = await project();
+    const child = spawn(process.execPath, [path.resolve("dist/main.js"), "-p", "--local", "--mock-jev", "read README.md"], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, AEGIS_HOME: await mkdtemp(path.join(os.tmpdir(), "aegis-headless-home-")) },
+    });
+    let out = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    const code = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(-99);
+      }, 15_000);
+      child.on("close", (exitCode) => {
+        clearTimeout(timer);
+        resolve(exitCode);
+      });
+    });
+    expect(code).toBe(0); // stdin was never closed
+    expect(out).toContain("hello headless");
+  }, 20_000);
+
+  it("piped '!cmd' or '/command' text is a task for the model, never run as a shell line or command", async () => {
+    const cwd = await project();
+    const lines: string[] = [];
+    const code = await runHeadless({
+      prompt: "!echo INJECTED > injected.txt",
+      cwd,
+      opts: { mockJev: true, yes: false, local: true, generate: generateWith(scripted([{ text: "that looks like a shell line" }])) },
+      json: true,
+      write: (text) => lines.push(text),
+    });
+    expect(code).toBe(0);
+    expect(existsSync(path.join(cwd, "injected.txt"))).toBe(false);
+    expect((JSON.parse(lines.at(-1)!) as { answer?: string }).answer).toBe("that looks like a shell line");
+    expect(await headlessPrompt("task", Object.assign(Readable.from(["ignored"]), { isTTY: false }))).toBe("task");
+    expect(await headlessPrompt("task", Object.assign(Readable.from(["piped"]), { isTTY: false }), true)).toBe("task\n\npiped");
   });
 
   it("the built CLI: `aegis -p --json --local` prints JSON lines and exits 0", async () => {

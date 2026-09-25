@@ -240,7 +240,9 @@ export async function startStudio(input) {
                 return json(res, 404, { error: "not found" });
             if (!line || /^\/(exit|quit|q)$/i.test(line))
                 return json(res, 400, { error: "nothing to run" });
-            if (url.pathname === "/api/prompt" && !line.startsWith("/") && !line.startsWith("!")) {
+            // A model turn runs in the background (202); the page follows it on the event stream.
+            const isTurn = (!line.startsWith("/") && !line.startsWith("!")) || /^\/plan\s+(?!off\s*$)\S/i.test(line);
+            if (url.pathname === "/api/prompt" && isTurn) {
                 void run(line);
                 return json(res, 202, { ok: true, started: true });
             }

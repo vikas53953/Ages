@@ -84,6 +84,10 @@ export function hardDeny(name: string, args: Record<string, unknown>, cwd: strin
     if ((name === "write" || name === "edit") && protectedFiles.some((file) => path.resolve(file) === resolved)) {
       return "that file is part of Aegis's lock";
     }
+    // Hard, whatever your rules say (a custom deny list replaces the defaults): Aegis's own tools refuse these too.
+    if ((name === "write" || name === "edit") && /^(\.git|\.harness)([\\/]|$)/i.test(relative)) {
+      return ".git and .harness are not writable";
+    }
   }
   return undefined;
 }

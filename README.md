@@ -122,7 +122,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `/plan` · `/plan go` · `/plan off` | plan mode: read and search only, ends with a numbered plan; `go` carries it out (`/plan <task>` plans it at once) |
 | `/mcp` · `/mcp trust <name>` | MCP servers and tools (`mcp__server__tool`, gated by your rules, e.g. `ask mcp__github__*`); a project's servers start only after you trust them |
 | `/rewind` · `/rewind 1` | restore points; put files and chat back to before a turn (`files` or `chat` for one). Shell changes are not undone |
-| `aegis -p "task"` · `-p --json` | headless for scripts/CI: rules decide, nothing asks; JSON lines with `--json`; exit 2 if a call was denied |
+| `aegis -p "task"` · `-p --json` | headless for scripts/CI: rules decide, nothing asks; JSON lines with `--json`; exit 2 if a call was denied; `git diff \| aegis -p --stdin "review"` adds stdin |
 | `aegis -c` | continue the last session (every launch is otherwise new, like Pi) |
 
 ## The lock

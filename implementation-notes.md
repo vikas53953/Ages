@@ -40,3 +40,15 @@
 - Plan mode (Factory Droid's spec mode, Claude Code's and Gemini's plan mode): `/plan` makes every tool except read and grep refuse before any rule is asked (the gate's `readOnly`), and adds a plan section to the system prompt. `/plan go` leaves plan mode and sends "The plan is approved…" as the next turn. With the Claude Code engine, Claude Code also runs with `--permission-mode plan`. Plan mode is per window and not saved. Shown in the footer (PLAN ·), `/status` and a Studio chip.
 - Headless (Pi's print/JSON modes, Claude Code's `-p`): `aegis -p "task"` prints the answer, and `--json` prints one JSON object per line (events, each question and whether it was denied, then one result). Nobody can answer y/N, so questions are denied; allow rules and Jev (which can only tighten, or decide grey-zone calls when on) still apply, and deny rules win even over `--yes`. Stdin is added to the prompt, so `git diff | aegis -p "review"` works. Exit codes: 0 done, 1 error, 2 done with at least one denied call.
 - MCP (Claude Code and Codex put MCP behind their permissions; Pi leaves it out on purpose). A small stdio JSON-RPC client of our own. `@ai-sdk/mcp`'s current version targets a newer AI SDK than ours, and `@modelcontextprotocol/sdk` pulls in express and hono. Servers come from `"mcp": {"servers": {…}}` in ~/.aegis/settings.json (trusted) or the project's .aegis/settings.json. A project server starts only after `/mcp trust <name>`, and that trust is tied to the folder and the exact command, args and env (in ~/.aegis/mcp-trust.json), so a cloned repo cannot start programs just by being opened. Tools are named `mcp__<server>__<tool>`; rule tool names may use `*` (`deny mcp__github__*`). With no rule, you are asked. Plan mode refuses MCP tools. Servers start on the first turn (or /mcp) and stop on exit. HTTP transports, resources and prompts are not supported yet. The Claude Code engine keeps using Claude Code's own MCP servers (their `mcp__` calls already pass Aegis's hook).
+- Review fixes (rewind, plan, headless):
+  - Restore points are written one at a time per session, because tools in one step run in parallel and two could get the same seq.
+  - Only plain files inside the project are kept or restored: never through a symlink, never `.git` or `.harness`, and never outside, even from a tampered index.
+  - A file that can't be restored is reported and the rest still are.
+  - Turns are ordered by save order, not by the clock.
+  - `/rewind … chat` makes the TUI and Studio reload the chat.
+  - The Claude engine hard-refuses `.git`/`.harness` writes whatever the rules say.
+  - Headless reads stdin only when there is no task argument, or with `--stdin`; CI runners leave pipes open.
+  - Headless always sends text to the model: a piped `!cmd` or `/command` is never run.
+  - `-p` is checked before `ui`; `--json` results carry the notice; a startup error still gives a JSON result.
+  - `/new` leaves plan mode, and a failed `/plan go` stays in plan mode.
+  - Studio runs `/plan go` and `/plan <task>` in the background like any prompt.

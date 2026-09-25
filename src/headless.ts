@@ -6,7 +6,7 @@
  *
  * Exit codes: 0 done · 1 error · 2 done but at least one tool call was denied.
  */
-import { closeState, handleLine, startState, type RunOpts } from "./runtime.ts";
+import { closeState, runPrompt, startState, type AppState, type RunOpts } from "./runtime.ts";
 import type { ConfirmFn, TurnEvent } from "./types.ts";
 
 export type HeadlessLine =
@@ -15,6 +15,7 @@ export type HeadlessLine =
   | {
       type: "result";
       ok: boolean;
+      notice?: string;
       answer?: string;
       output?: string;
       error?: string;
@@ -39,9 +40,11 @@ export async function runHeadless(input: {
     emit({ type: "question", question, answer: approve ? "approved" : "denied" });
     return approve;
   };
-  const state = await startState(input.cwd, input.opts);
+  let state: AppState | undefined;
   try {
-    const result = await handleLine(input.prompt, state, { ...input.opts, abortSignal: input.abortSignal }, confirm, (event) =>
+    state = await startState(input.cwd, input.opts);
+    // Always a task for the model: a piped "!cmd" or "/command" is text, never run as a shell line or a command.
+    const result = await runPrompt(input.prompt, state, { ...input.opts, abortSignal: input.abortSignal }, confirm, (event) =>
       emit({ type: "event", event }),
     );
     const tools = (result.receipt?.tools ?? []).map((tool) => ({
@@ -56,6 +59,7 @@ export async function runHeadless(input: {
       emit({
         type: "result",
         ok: true,
+        notice: result.notice,
         answer: result.receipt?.answer,
         output: result.receipt ? undefined : result.output,
         model: result.receipt?.model,
@@ -72,17 +76,21 @@ export async function runHeadless(input: {
     return denied ? 2 : 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (input.json) emit({ type: "result", ok: false, error: message, session: state.session.id, tools: [], denied: 0 });
+    if (input.json) emit({ type: "result", ok: false, error: message, session: state?.session.id ?? "", tools: [], denied: 0 });
     else process.stderr.write(`${message}\n`);
     return 1;
   } finally {
-    closeState(state);
+    if (state) closeState(state);
   }
 }
 
-/** The prompt from the arguments, or from stdin when none is given (`git diff | aegis -p "review this"` joins both). */
-export async function headlessPrompt(argPrompt: string, stdin: NodeJS.ReadableStream & { isTTY?: boolean }) {
-  if (stdin.isTTY) return argPrompt;
+/**
+ * The prompt from the arguments; stdin is read only when there is no argument, or with --stdin
+ * (`git diff | aegis -p --stdin "review this"` joins both). Never waiting on stdin otherwise matters:
+ * CI runners and other programs often leave an open pipe that never ends.
+ */
+export async function headlessPrompt(argPrompt: string, stdin: NodeJS.ReadableStream & { isTTY?: boolean }, readStdin = false) {
+  if (stdin.isTTY || (argPrompt && !readStdin)) return argPrompt;
   let piped = "";
   for await (const chunk of stdin) piped += String(chunk);
   piped = piped.trim();
