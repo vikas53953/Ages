@@ -360,3 +360,7 @@
     - `printf` instead of `echo`, so an answer like `-n` is not swallowed.
     - When Aegis cannot start, the answer says why, from its stderr.
     - Tab-only rule lines are skipped. The docs say `args` is trusted and to pin the action to a SHA.
+- `websearch` with your own Brave Search API key (`BRAVE_API_KEY`), like Claude Code's WebSearch. There is no tool without a key.
+  - Each query passes the lock as `websearch <query>`. With no rule it asks, since a query can carry data out as easily as a request can. It is allowed in plan mode (it only reads).
+  - The key goes to the search service only: redirects are refused, and a timeout and a 2 MB cap apply. At most 8 results, only http(s) links, with HTML removed from snippets. They come in a random tag marked as data.
+  - Tests stub `fetch` itself, so there is no endpoint override a project could use to redirect your key.

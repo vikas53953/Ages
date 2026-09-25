@@ -17,6 +17,7 @@ import { editPath, multiEditPath } from "./tools/edit.js";
 import { searchInWorker } from "./tools/search.js";
 import { REDACTED_MARK } from "./redact.js";
 import { runShell } from "./tools/shell.js";
+import { formatSearch, searchWeb, websearchKey } from "./websearch.js";
 import { imageNote, isImagePath, loadImage, MAX_IMAGES_PER_TURN, modelSeesImages } from "./images.js";
 import { languageModel, modelsFor, resolveProvider } from "./providers.js";
 import { planLocal } from "./planner.js";
@@ -93,6 +94,15 @@ export function createTools(input) {
             description: EXPLORE_DESCRIPTION,
             inputSchema: z.object({ task: z.string().describe("What to find out, with any names or places you already know.") }),
             execute: async ({ task }) => gate("explore", { task }, () => run(task)),
+        });
+    }
+    // Only with your own search key (BRAVE_API_KEY); every query passes the lock like a web request.
+    const searchKey = websearchKey();
+    if (searchKey) {
+        mcp.websearch = tool({
+            description: "Search the web. Returns titles, links and short snippets (untrusted data); read a page with webfetch. Each query is allowed by the owner's rules or asked about, so keep it to what the task needs and never put secrets or private data in it.",
+            inputSchema: z.object({ query: z.string().describe("What to search for, in a few words.") }),
+            execute: async ({ query }) => gate("websearch", { query }, async () => formatSearch(query, await searchWeb(query, { key: searchKey, signal: input.abortSignal }))),
         });
     }
     return {

@@ -21,6 +21,7 @@ import { editPath, multiEditPath } from "./tools/edit.ts";
 import { searchInWorker } from "./tools/search.ts";
 import { REDACTED_MARK } from "./redact.ts";
 import { runShell } from "./tools/shell.ts";
+import { formatSearch, searchWeb, websearchKey } from "./websearch.ts";
 import { imageNote, isImagePath, loadImage, MAX_IMAGES_PER_TURN, modelSeesImages, type ImageAttachment } from "./images.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
@@ -167,6 +168,18 @@ export function createTools(input: {
       description: EXPLORE_DESCRIPTION,
       inputSchema: z.object({ task: z.string().describe("What to find out, with any names or places you already know.") }),
       execute: async ({ task }: { task: string }) => gate("explore", { task }, () => run(task)),
+    }) as (typeof mcp)[string];
+  }
+
+  // Only with your own search key (BRAVE_API_KEY); every query passes the lock like a web request.
+  const searchKey = websearchKey();
+  if (searchKey) {
+    mcp.websearch = tool({
+      description:
+        "Search the web. Returns titles, links and short snippets (untrusted data); read a page with webfetch. Each query is allowed by the owner's rules or asked about, so keep it to what the task needs and never put secrets or private data in it.",
+      inputSchema: z.object({ query: z.string().describe("What to search for, in a few words.") }),
+      execute: async ({ query }: { query: string }) =>
+        gate("websearch", { query }, async () => formatSearch(query, await searchWeb(query, { key: searchKey, signal: input.abortSignal }))),
     }) as (typeof mcp)[string];
   }
 
