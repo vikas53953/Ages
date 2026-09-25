@@ -174,6 +174,34 @@ describe("TUI app", () => {
     expect(restored).toContain("resumed");
   });
 
+  it("reloads a session with tool calls: shows the text, hides raw tool rows", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-tools-"));
+    const first = await createSession(cwd);
+    const at = new Date().toISOString();
+    await appendMessage(cwd, first.id, { role: "user", content: "read-the-notes", at });
+    await appendMessage(cwd, first.id, {
+      role: "assistant",
+      at,
+      content: [
+        { type: "text", text: "reading-now" },
+        { type: "tool-call", toolCallId: "c1", toolName: "read", input: { path: "n.txt" } },
+      ],
+    });
+    await appendMessage(cwd, first.id, {
+      role: "tool",
+      at,
+      content: [{ type: "tool-result", toolCallId: "c1", toolName: "read", output: { type: "text", value: "RAW-TOOL-OUTPUT" } }],
+    });
+    await appendMessage(cwd, first.id, { role: "assistant", at, content: [{ type: "text", text: "notes-summary" }] });
+    const terminal = new MemoryTerminal();
+    const app = await createTuiApp({ mockJev: true, yes: false, local: true }, { cwd, terminal });
+    apps.push(app);
+    const text = await waitFor(app, "notes-summary");
+    expect(text).toContain("read-the-notes");
+    expect(text).toContain("reading-now");
+    expect(text).not.toContain("RAW-TOOL-OUTPUT");
+  });
+
   it("cancels a pending approval on Ctrl+C without running the tool", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-cancel-"));
     const terminal = new MemoryTerminal();

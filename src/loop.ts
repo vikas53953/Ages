@@ -1,4 +1,4 @@
-import { stepCountIs, streamText, tool } from "ai";
+import { stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.ts";
 import { pickModel } from "./router.ts";
@@ -15,7 +15,7 @@ import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./
 import { planLocal } from "./planner.ts";
 import { failClosedTurn } from "./jev/evaluate.ts";
 import { loadSettingsSafe, type Settings } from "./rules.ts";
-import type { ChatMessage } from "./session.ts";
+import { messageText, repairHistory, type ChatMessage, type MessagePart } from "./session.ts";
 import type {
   ConfirmFn,
   GateConfig,
@@ -46,6 +46,8 @@ export type GenerateFn = (input: {
   finishReason?: string;
   steps?: number;
   finalStepComplete?: boolean;
+  /** What the model said this turn, tool calls and tool results included, ready to save in the session. */
+  messages?: ChatMessage[];
 }>;
 
 export function createTools(input: {
@@ -148,7 +150,8 @@ export function createTools(input: {
 const localOpts = { toolCallId: "local", messages: [], context: {} } as never;
 
 export const localGenerate: GenerateFn = async ({ tools, messages }) => {
-  const prompt = messages.at(-1)?.content ?? "";
+  const last = messages.at(-1);
+  const prompt = last ? messageText(last) : "";
   const plan = planLocal(prompt);
   if (plan.tool === "read") {
     const listing = await tools.read.execute!({ path: plan.path }, localOpts);
@@ -173,47 +176,70 @@ export const localGenerate: GenerateFn = async ({ tools, messages }) => {
   };
 };
 
-export async function defaultGenerate(input: {
-  model: string;
-  system: string;
-  messages: ChatMessage[];
-  tools: ReturnType<typeof createTools>;
-  maxSteps: number;
-  abortSignal?: AbortSignal;
-  onEvent?: (event: TurnEvent) => void;
-  shouldStop?: () => boolean;
-}) {
-  const result = streamText({
-    model: languageModel(input.model),
-    tools: input.tools,
-    stopWhen: [stepCountIs(input.maxSteps), () => Boolean(input.shouldStop?.())],
-    system: input.system,
-    abortSignal: input.abortSignal,
-    messages: input.messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-  });
-  let text = "";
-  for await (const delta of result.textStream) {
-    if (delta) {
-      text += delta;
-      input.onEvent?.({ type: "text_delta", text: delta });
+export const defaultGenerate: GenerateFn = (input) => generateWith(languageModel(input.model))(input);
+
+/** Stream one turn from a given model object. Tests pass the AI SDK mock model here. */
+export function generateWith(model: LanguageModel): GenerateFn {
+  return async (input) => {
+    const result = streamText({
+      model,
+      tools: input.tools,
+      stopWhen: [stepCountIs(input.maxSteps), () => Boolean(input.shouldStop?.())],
+      system: input.system,
+      abortSignal: input.abortSignal,
+      messages: toModelMessages(input.messages),
+    });
+    let text = "";
+    for await (const delta of result.textStream) {
+      if (delta) {
+        text += delta;
+        input.onEvent?.({ type: "text_delta", text: delta });
+      }
     }
-  }
-  const [finishReason, steps, usage] = await Promise.all([result.finishReason, result.steps, result.usage]);
-  const stepList = Array.isArray(steps) ? steps : [];
-  const last = stepList.at(-1) as { finishReason?: string; text?: string } | undefined;
-  const lastReason = last?.finishReason ?? String(finishReason);
-  const finalStepComplete = lastReason !== "tool-calls" && lastReason !== "length";
-  return {
-    text,
-    inputTokens: usage?.inputTokens ?? 0,
-    outputTokens: usage?.outputTokens ?? 0,
-    finishReason: String(finishReason),
-    steps: stepList.length,
-    finalStepComplete,
+    const [finishReason, steps, usage, response] = await Promise.all([
+      result.finishReason,
+      result.steps,
+      result.usage,
+      result.response,
+    ]);
+    const stepList = Array.isArray(steps) ? steps : [];
+    const last = stepList.at(-1) as { finishReason?: string; text?: string } | undefined;
+    const lastReason = last?.finishReason ?? String(finishReason);
+    const finalStepComplete = lastReason !== "tool-calls" && lastReason !== "length";
+    return {
+      text,
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
+      finishReason: String(finishReason),
+      steps: stepList.length,
+      finalStepComplete,
+      // Each step holds only its own messages (assistant + tool results); the turn is all of them in order.
+      messages: fromModelMessages(
+        stepList.length
+          ? stepList.flatMap((step) => (step as { response?: { messages?: ResponseMessages } }).response?.messages ?? [])
+          : (response?.messages ?? []),
+      ),
+    };
   };
+}
+
+type ResponseMessages = ReadonlyArray<{ role: string; content: unknown }>;
+
+/** Session rows → what the model API expects. Broken tool pairs are dropped first. */
+export function toModelMessages(messages: ChatMessage[]): ModelMessage[] {
+  return repairHistory(messages).map((message) => ({ role: message.role, content: message.content }) as ModelMessage);
+}
+
+/** Model API messages → session rows. JSON round-trip keeps only what can be saved to a file. */
+export function fromModelMessages(messages: ReadonlyArray<{ role: string; content: unknown }>): ChatMessage[] {
+  const at = new Date().toISOString();
+  return messages
+    .filter((message) => message.role === "assistant" || message.role === "tool")
+    .map((message) => ({
+      role: message.role as "assistant" | "tool",
+      content: JSON.parse(JSON.stringify(message.content)) as string | MessagePart[],
+      at,
+    }));
 }
 
 export function classifyTurnOutcome(input: {
@@ -377,6 +403,9 @@ export async function runLoop(input: {
     taskId: task?.agreement.id,
     taskFingerprint: task?.fingerprint,
     taskPermission: permission,
+    newMessages:
+      result.messages ??
+      (result.text.trim() ? [{ role: "assistant", content: result.text, at: new Date().toISOString() }] : []),
   };
   await writeReceipt(input.cwd, receipt);
   return receipt;

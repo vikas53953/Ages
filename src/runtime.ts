@@ -19,6 +19,8 @@ import {
   loadOrCreateSession,
   switchSession,
   appendMessage,
+  appendMessages,
+  capToolResults,
   type SessionMeta,
 } from "./session.ts";
 import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
@@ -167,11 +169,8 @@ export async function runPrompt(
     abortSignal: opts.abortSignal,
     onEvent,
   });
-  await appendMessage(state.cwd, session.id, {
-    role: "assistant",
-    content: receipt.text,
-    at: new Date().toISOString(),
-  });
+  // Save what the model really said, tool calls and results included, so the next turn remembers it.
+  await appendMessages(state.cwd, session.id, capToolResults(receipt.newMessages ?? []));
   state.jevHealth = jevHealthFromReceipt(opts.mockJev, receipt);
   state.taskPermission = receipt.taskPermission ?? (await taskPermission(state.cwd));
   return {

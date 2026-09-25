@@ -101,6 +101,7 @@ export async function writeReceipt(cwd: string, receipt: Receipt) {
   const dir = path.join(cwd, ".harness", "receipts");
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `${receipt.sessionId}.jsonl`);
-  await appendFile(file, `${JSON.stringify(receipt)}\n`, "utf8");
+  const { newMessages: _messages, ...record } = receipt;
+  await appendFile(file, `${JSON.stringify(record)}\n`, "utf8");
   return file;
 }

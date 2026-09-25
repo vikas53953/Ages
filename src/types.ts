@@ -1,3 +1,5 @@
+import type { ChatMessage } from "./session.ts";
+
 export const TURN_KINDS = ["lookup", "edit", "architecture"] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
@@ -108,4 +110,6 @@ export type Receipt = {
   taskId?: string;
   taskFingerprint?: string;
   taskPermission?: TaskPermission;
+  /** Messages this turn added to the conversation. Saved to the session, not to the receipt file. */
+  newMessages?: ChatMessage[];
 };

@@ -13,7 +13,7 @@ import { formatTurnHandoff } from "../src/receipt.ts";
 import { classifyTurnOutcome, createTools, runLoop, type TurnEvent } from "../src/loop.ts";
 import { mockJev } from "../src/jev/mock.ts";
 import { handleLine, jevHealthFromReceipt, startState } from "../src/runtime.ts";
-import { loadMessages } from "../src/session.ts";
+import { loadMessages, messageText } from "../src/session.ts";
 import { createTuiApp, type TuiApp } from "../src/tui-app.ts";
 import { MemoryTerminal } from "../src/tui-memory.ts";
 import type { Receipt } from "../src/types.ts";
@@ -359,7 +359,7 @@ describe("subnet-calculator interaction", () => {
     expect(drafted.output).toContain("Preserved active task");
     expect(drafted.output).toContain("this is not what yes confirms");
     const history = await loadMessages(cwd, state.session.id);
-    expect(history.some((row) => row.content.includes("UNIQUE_NEW_ACCEPTANCE"))).toBe(true);
+    expect(history.some((row) => messageText(row).includes("UNIQUE_NEW_ACCEPTANCE"))).toBe(true);
     await handleLine("yes", state, opts);
     const system = await formatTaskSystemPrompt(cwd);
     expect(system).toContain("UNIQUE_NEW_ACCEPTANCE");

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   loadMessages,
+  messageText,
   replaceMessages,
   sessionDir,
   type ChatMessage,
@@ -12,7 +13,7 @@ const KEEP_DEFAULT = 4;
 export function summarizeMessages(messages: ChatMessage[]) {
   return messages
     .map((message) => {
-      const oneLine = message.content.replace(/\s+/g, " ").trim().slice(0, 160);
+      const oneLine = messageText(message).replace(/\s+/g, " ").trim().slice(0, 160);
       return `- ${message.role}: ${oneLine}`;
     })
     .join("\n");

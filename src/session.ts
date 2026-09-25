@@ -1,12 +1,91 @@
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+/** One piece of a model message: text, a tool call, or a tool result. Stored as the model API sent it. */
+export type MessagePart = { type: string; [key: string]: unknown };
+
+/**
+ * One row of messages.jsonl. User rows are text. Assistant rows are text or parts (text + tool calls).
+ * Tool rows hold the results of the assistant's tool calls. Old sessions hold text only and still load.
+ */
 export type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
+  role: "user" | "assistant" | "tool";
+  content: string | MessagePart[];
   at: string;
 };
+
+/** Longest tool result kept in the session. The model saw the full text in its own turn. */
+export const TOOL_RESULT_CAP = 8_000;
+
+/** The readable text of a message: its text parts only. Tool calls and results are left out. */
+export function messageText(message: ChatMessage) {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => String(part.text))
+    .join("");
+}
+
+function capText(text: string, cap: number) {
+  if (text.length <= cap) return text;
+  return `${text.slice(0, cap)}\n[aegis: ${text.length - cap} more characters not kept in the session]`;
+}
+
+/** Shorten long tool results before they are saved, so one big read cannot flood every later turn. */
+export function capToolResults(messages: ChatMessage[], cap = TOOL_RESULT_CAP): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "tool" || typeof message.content === "string") return message;
+    return {
+      ...message,
+      content: message.content.map((part) => {
+        if (part.type !== "tool-result") return part;
+        const output = part.output as { type?: string; value?: unknown } | undefined;
+        if (!output) return part;
+        if ((output.type === "text" || output.type === "error-text") && typeof output.value === "string") {
+          return { ...part, output: { ...output, value: capText(output.value, cap) } };
+        }
+        if (output.type === "json") {
+          const text = JSON.stringify(output.value);
+          if (text.length > cap) return { ...part, output: { type: "text", value: capText(text, cap) } };
+        }
+        return part;
+      }),
+    };
+  });
+}
+
+/**
+ * Make history safe to send: every tool call needs its result and every result needs its call.
+ * A turn cancelled halfway can leave one without the other, and providers reject that.
+ */
+export function repairHistory(messages: ChatMessage[]): ChatMessage[] {
+  const calls = new Set<string>();
+  const results = new Set<string>();
+  for (const message of messages) {
+    if (typeof message.content === "string") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call") calls.add(String(part.toolCallId));
+      if (part.type === "tool-result") results.add(String(part.toolCallId));
+    }
+  }
+  const out: ChatMessage[] = [];
+  for (const message of messages) {
+    if (typeof message.content === "string") {
+      if (message.role === "tool") continue;
+      if (message.content.trim() || message.role === "user") out.push(message);
+      continue;
+    }
+    const parts = message.content.filter((part) => {
+      if (part.type === "tool-call") return results.has(String(part.toolCallId));
+      if (part.type === "tool-result") return calls.has(String(part.toolCallId));
+      if (part.type === "text") return typeof part.text === "string" && part.text.length > 0;
+      return true;
+    });
+    if (parts.length) out.push({ ...message, content: parts });
+  }
+  return out;
+}
 
 export type SessionMeta = {
   id: string;
@@ -93,6 +172,23 @@ export async function appendMessage(cwd: string, id: string, message: ChatMessag
     const metaRaw = await readFile(path.join(dir, "meta.json"), "utf8");
     const meta = JSON.parse(metaRaw) as SessionMeta;
     meta.updatedAt = message.at;
+    await writeJson(path.join(dir, "meta.json"), meta);
+  } catch {
+    // new session files may race; ignore
+  }
+}
+
+/** Add several rows at once, e.g. everything one turn produced. */
+export async function appendMessages(cwd: string, id: string, messages: ChatMessage[]) {
+  if (!messages.length) return;
+  const dir = sessionDir(cwd, id);
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, "messages.jsonl");
+  await appendFile(file, messages.map((row) => `${JSON.stringify(row)}\n`).join(""), "utf8");
+  try {
+    const metaRaw = await readFile(path.join(dir, "meta.json"), "utf8");
+    const meta = JSON.parse(metaRaw) as SessionMeta;
+    meta.updatedAt = messages.at(-1)!.at;
     await writeJson(path.join(dir, "meta.json"), meta);
   } catch {
     // new session files may race; ignore

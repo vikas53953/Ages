@@ -15,7 +15,7 @@ import {
 import { APP_DIFFERENCE, APP_NAME, APP_TAGLINE, APP_VERSION } from "./brand.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
 import { handleLine, startState, type HandleResult, type RunOpts } from "./runtime.ts";
-import { loadMessages } from "./session.ts";
+import { loadMessages, messageText } from "./session.ts";
 import { ConfirmBox } from "./tui-confirm.ts";
 import { MemoryTerminal } from "./tui-memory.ts";
 import {
@@ -165,10 +165,12 @@ export async function createTuiApp(
     log.length = 0;
     const history = await loadMessages(cwd, state.session.id);
     for (const message of history) {
-      if (/Paste OPENCODE_API_KEY|No chat key this run|Local planner only/.test(message.content)) {
+      if (message.role === "tool") continue;
+      const text = messageText(message);
+      if (/Paste OPENCODE_API_KEY|No chat key this run|Local planner only/.test(text)) {
         continue;
       }
-      add(message.role === "user" ? "user" : "assistant", message.content);
+      add(message.role === "user" ? "user" : "assistant", text);
     }
     paintTranscript();
   };
