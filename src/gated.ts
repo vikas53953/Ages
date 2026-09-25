@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { redactSecrets } from "./redact.ts";
-import { loadHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
+import { loadHooks, runPostToolHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
 import type { ToolGuard } from "./plugin-api.ts";
@@ -243,8 +243,9 @@ export async function runGatedTool(input: {
     return denied({ name: input.name, target, reason: `rule: ${rule.rule}`, source: "rule", rule: rule.rule });
   }
   // Your hooks may only tighten: deny here, or turn the call into a question below. Never allow.
+  const hookConfig = input.hooks ?? loadHooks();
   const hook = await runPreToolHooks({
-    config: input.hooks ?? loadHooks(),
+    config: hookConfig,
     name: input.name,
     args: input.args,
     cwd: input.cwd,
@@ -375,7 +376,11 @@ export async function runGatedTool(input: {
   }
 
   record.approved = true;
-  return { output: redacted(await input.execute(), record), record, decision };
+  let output = await input.execute();
+  // Your PostToolUse hooks (a linter, a secret scanner) see the result; what they report goes back with it.
+  const notes = await runPostToolHooks({ config: hookConfig, name: input.name, args: input.args, output, cwd: input.cwd, signal: input.abortSignal });
+  if (notes.length) output = `${output}\n${notes.join("\n")}`;
+  return { output: redacted(output, record), record, decision };
 }
 
 /** Tool output on its way to the model: secret-looking values are cut and the record says how many. */

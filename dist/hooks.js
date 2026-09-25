@@ -39,46 +39,54 @@ export function claudeToolName(name) {
 function hooksFile() {
     return path.join(userAegisDir(), "settings.json");
 }
-/** Parse the hooks block. Anything malformed is reported, never half-used. */
-export function parseHooks(raw) {
-    const empty = { PreToolUse: [] };
-    if (raw === undefined)
-        return empty;
-    if (!raw || typeof raw !== "object" || Array.isArray(raw))
-        return { ...empty, error: "hooks must be an object" };
-    const groups = raw.PreToolUse;
+function parseGroups(event, groups) {
     if (groups === undefined)
-        return empty;
+        return [];
     if (!Array.isArray(groups))
-        return { ...empty, error: "hooks.PreToolUse must be a list" };
+        return `hooks.${event} must be a list`;
     const out = [];
     for (const group of groups) {
         const g = group;
         const matcher = g?.matcher === undefined ? "*" : g.matcher;
         if (typeof matcher !== "string" || !Array.isArray(g?.hooks))
-            return { ...empty, error: "each PreToolUse entry needs a matcher string and a hooks list" };
+            return `each ${event} entry needs a matcher string and a hooks list`;
         try {
             if (!isPlainMatcher(matcher))
                 new RegExp(matcher);
         }
         catch {
-            return { ...empty, error: `bad matcher regex: ${matcher}` };
+            return `bad matcher regex: ${matcher}`;
         }
         const hooks = [];
         for (const hook of g.hooks) {
             const h = hook;
             if (h?.type !== "command" || typeof h.command !== "string" || !h.command.trim()) {
-                return { ...empty, error: 'each hook needs type "command" and a command' };
+                return 'each hook needs type "command" and a command';
             }
             if (h.args !== undefined && (!Array.isArray(h.args) || h.args.some((a) => typeof a !== "string"))) {
-                return { ...empty, error: "hook args must be a list of strings" };
+                return "hook args must be a list of strings";
             }
             const timeout = typeof h.timeout === "number" && h.timeout > 0 ? Math.min(h.timeout, MAX_TIMEOUT_S) : DEFAULT_TIMEOUT_S;
             hooks.push({ command: h.command, args: h.args, timeout });
         }
         out.push({ matcher, hooks });
     }
-    return { PreToolUse: out };
+    return out;
+}
+/** Parse the hooks block (PreToolUse, PostToolUse). Anything malformed is reported, never half-used. */
+export function parseHooks(raw) {
+    const empty = { PreToolUse: [], PostToolUse: [] };
+    if (raw === undefined)
+        return empty;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return { ...empty, error: "hooks must be an object" };
+    const pre = parseGroups("PreToolUse", raw.PreToolUse);
+    if (typeof pre === "string")
+        return { ...empty, error: pre };
+    const post = parseGroups("PostToolUse", raw.PostToolUse);
+    if (typeof post === "string")
+        return { ...empty, error: post };
+    return { PreToolUse: pre, PostToolUse: post };
 }
 /** Your hooks from ~/.aegis/settings.json. */
 export function loadHooks() {
@@ -225,6 +233,15 @@ function verdictOf(result, hook) {
  * Run the PreToolUse hooks that match this call, in parallel. The strictest answer wins: any deny denies;
  * otherwise any ask asks. With no hooks configured this costs nothing.
  */
+/** Claude Code's tool_input: file_path (absolute) and content next to Aegis's path and contents. */
+function claudeInput(args, cwd) {
+    const toolInput = { ...args };
+    if (typeof args.path === "string" && toolInput.file_path === undefined)
+        toolInput.file_path = path.resolve(cwd, args.path);
+    if (typeof args.contents === "string" && toolInput.content === undefined)
+        toolInput.content = args.contents;
+    return toolInput;
+}
 export async function runPreToolHooks(input) {
     if (input.config.error)
         return { action: "ask", reason: `your hooks are not valid (${input.config.error}), so Aegis asks`, hook: "settings" };
@@ -232,19 +249,62 @@ export async function runPreToolHooks(input) {
     const hooks = input.config.PreToolUse.filter((group) => matcherMatches(group.matcher, names)).flatMap((group) => group.hooks);
     if (!hooks.length)
         return undefined;
-    const toolInput = { ...input.args };
-    if (typeof input.args.path === "string" && toolInput.file_path === undefined)
-        toolInput.file_path = path.resolve(input.cwd, input.args.path);
-    if (typeof input.args.contents === "string" && toolInput.content === undefined)
-        toolInput.content = input.args.contents;
     const payload = JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd: input.cwd,
         permission_mode: input.readOnly ? "plan" : "default",
         tool_name: claudeToolName(input.name),
-        tool_input: toolInput,
+        tool_input: claudeInput(input.args, input.cwd),
         aegis_tool_name: input.name,
     });
     const results = await Promise.all(hooks.map(async (hook) => verdictOf(await spawnHook(hook, payload, input.cwd, input.signal), hook)));
     return results.find((result) => result?.action === "deny") ?? results.find((result) => result?.action === "ask");
+}
+/**
+ * PostToolUse (Claude Code's semantics): the tool already ran, so a hook cannot stop it, but what it says goes
+ * back to the model with the result. Exit 2 or {"decision":"block","reason":…} is feedback the model must act
+ * on (a linter or secret scanner that failed); hookSpecificOutput.additionalContext is added as a note. A hook
+ * that crashes or times out is reported, so a check that did not run is never mistaken for a pass.
+ */
+export async function runPostToolHooks(input) {
+    const names = [input.name, claudeToolName(input.name)];
+    const hooks = (input.config.PostToolUse ?? []).filter((group) => matcherMatches(group.matcher, names)).flatMap((group) => group.hooks);
+    if (!hooks.length)
+        return [];
+    const payload = JSON.stringify({
+        hook_event_name: "PostToolUse",
+        cwd: input.cwd,
+        tool_name: claudeToolName(input.name),
+        tool_input: claudeInput(input.args, input.cwd),
+        tool_response: input.output.slice(0, MAX_OUTPUT),
+        aegis_tool_name: input.name,
+    });
+    const notes = await Promise.all(hooks.map(async (hook) => {
+        const name = label(hook);
+        const result = await spawnHook(hook, payload, input.cwd, input.signal);
+        if (result.failed)
+            return `[hook ${name} did not run to the end (${result.failed}); its check is unknown]`;
+        if (result.code === 2)
+            return `[hook ${name} reports a problem: ${result.stderr.trim().slice(0, 2000) || "no details"}]`;
+        if (result.code !== 0)
+            return `[hook ${name} failed with exit code ${result.code}; its check is unknown]`;
+        const text = result.stdout.trim();
+        if (!text.startsWith("{"))
+            return "";
+        try {
+            const parsed = JSON.parse(text);
+            const specific = (parsed.hookSpecificOutput && typeof parsed.hookSpecificOutput === "object" ? parsed.hookSpecificOutput : {});
+            const parts = [];
+            if (String(parsed.decision ?? "").toLowerCase() === "block")
+                parts.push(`[hook ${name} reports a problem: ${String(parsed.reason ?? "no details").slice(0, 2000)}]`);
+            if (typeof specific.additionalContext === "string" && specific.additionalContext.trim()) {
+                parts.push(`[hook ${name}: ${specific.additionalContext.trim().slice(0, 2000)}]`);
+            }
+            return parts.join("\n");
+        }
+        catch {
+            return `[hook ${name} printed JSON Aegis could not read]`;
+        }
+    }));
+    return notes.filter(Boolean);
 }

@@ -224,3 +224,30 @@ describe("hooks: review fixes (never fail open)", () => {
     expect(asked).toBe(1);
   });
 });
+
+describe("PostToolUse hooks", () => {
+  const post = (hook: { command: string; args?: string[] }) =>
+    parseHooks({ PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", ...hook }] }] });
+
+  it("what a hook reports goes back to the model with the result (exit 2, block, additionalContext)", async () => {
+    const seen = path.join(dir, "post-seen.json");
+    const scan = await script(
+      "scan",
+      `import { writeFileSync } from "node:fs"; let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { writeFileSync(${JSON.stringify(seen)}, s); process.stderr.write("secret found in out.txt"); process.exit(2); });`,
+    );
+    const { run, ran } = await gate(post(scan));
+    expect(ran).toBe(true); // it already ran: a PostToolUse hook cannot stop it
+    expect(run.output).toContain("wrote");
+    expect(run.output).toContain("reports a problem: secret found in out.txt");
+    expect(JSON.parse(await readFile(seen, "utf8"))).toMatchObject({ hook_event_name: "PostToolUse", tool_name: "Write", tool_response: "wrote" });
+    const lint = await script("lint", 'process.stdout.write(JSON.stringify({decision:"block", reason:"2 lint errors", hookSpecificOutput:{additionalContext:"run npm run lint:fix"}}));');
+    const linted = await gate(post(lint));
+    expect(linted.run.output).toContain("2 lint errors");
+    expect(linted.run.output).toContain("run npm run lint:fix");
+  });
+
+  it("a hook that crashes is reported, so its check is never mistaken for a pass", async () => {
+    const crash = await script("postcrash", "throw new Error('boom');");
+    expect((await gate(post(crash))).run.output).toContain("check is unknown");
+  });
+});

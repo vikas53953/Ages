@@ -173,3 +173,8 @@
   - In a Windows (CRLF) file, the model's `\n` text is matched as `\r\n` and the replacement keeps CRLF. Before, every multi-line edit of a CRLF file failed with "not found".
   - The agent's shell keeps what a failing, timed-out or too-chatty command printed and adds how it ended (`[exit code 3]`, `[stopped: it ran longer than 30 s]`). Before, the error dropped stdout.
 - Per-run rules for headless runs (Claude Code's `--allowedTools`/`--disallowedTools`): `--allow "<rule>"` and `--deny "<rule>"` are repeatable. They are passed to settings through `AEGIS_RUN_RULES`, which is set only by the CLI; a project `.env` cannot set it. They are added to the loaded rules, never saved, and the floor asks still win. This is finer than `--yes`, which approves everything.
+- PostToolUse hooks, with Claude Code's semantics: after a call you allowed, matching hooks get `tool_response` too.
+  - Exit 2 with stderr, `decision: "block"` with a reason, or `hookSpecificOutput.additionalContext` is appended to the tool result, so the model must deal with it (a failing linter or a secret found).
+  - A crash, timeout or unreadable JSON is appended as "check is unknown", never silence.
+  - The output passes redaction after the hooks, so a hook cannot put a key back into the conversation.
+  - Only your ~/.aegis hooks, as for PreToolUse.

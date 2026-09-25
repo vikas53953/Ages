@@ -168,7 +168,7 @@ Put hooks in **your** `~/.aegis/settings.json` (never read from a project):
 { "hooks": { "PreToolUse": [ { "matcher": "Bash|Write", "hooks": [ { "type": "command", "command": "C:\\tools\\check.ps1", "timeout": 30 } ] } ] } }
 ```
 
-The hook gets Claude Code's JSON on stdin (`tool_name` like `Write`/`Bash`, `tool_input` with `file_path`), so scripts written for Claude Code work. Exit 2 (or `permissionDecision: "deny"`) blocks the call and stderr is the reason; `"ask"` makes Aegis ask you even when a rule allows it. `"allow"` is ignored: hooks can only make the lock stricter. A hook that crashes or times out (default 60 s) turns the call into a question. Shell form runs in PowerShell; use `"command": "node", "args": ["check.mjs"]` for exec form.
+`PostToolUse` hooks run after a call you allowed (a linter, `gitleaks`): they cannot undo it, but what they report (exit 2 with stderr, `{"decision":"block","reason":…}` or `additionalContext`) goes back to the model with the result, and a hook that crashes is reported as "check unknown", never as a pass. The hook gets Claude Code's JSON on stdin (`tool_name` like `Write`/`Bash`, `tool_input` with `file_path`), so scripts written for Claude Code work. Exit 2 (or `permissionDecision: "deny"`) blocks the call and stderr is the reason; `"ask"` makes Aegis ask you even when a rule allows it. `"allow"` is ignored: hooks can only make the lock stricter. A hook that crashes or times out (default 60 s) turns the call into a question. Shell form runs in PowerShell; use `"command": "node", "args": ["check.mjs"]` for exec form.
 
 ## Layers
 
