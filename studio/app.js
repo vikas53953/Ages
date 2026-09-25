@@ -408,6 +408,7 @@
       ["rules", `${s.welcome.rules.deny} deny · ${s.welcome.rules.ask} ask · ${s.welcome.rules.allow} allow`],
       ["jev", `${s.welcome.jevMode} · ${s.jev}`],
       ["plugins", s.plugins.join(", ") || "none"],
+      ["context", `${s.context ?? 0}% of the auto-compact size`],
     ];
     for (const [k, v] of rows) setup.append(el("dt", "", k), el("dd", "", v));
     const nav = $("sessions");

@@ -167,6 +167,7 @@ export async function startStudio(input: {
       plan: Boolean(state.planMode),
       todos: await currentTodos(state),
       plugins: state.plugins.map((plugin) => plugin.name),
+      context: state.contextPercent ?? 0,
       busy,
       approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),
     };
