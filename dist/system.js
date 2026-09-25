@@ -2,7 +2,7 @@ import { formatSkills } from "./skills.js";
 export function buildSystemPrompt(input) {
     const parts = [
         "You are Aegis, a custom coding-agent CLI. Jev locks spend and danger.",
-        "Stay inside the working folder. Prefer read, grep, and edit. Use write for new files. Use shell only when those are not enough.",
+        "Stay inside the working folder. Prefer read, grep, and edit (multi_edit for several changes to one file). Use write for new files. Use shell only when those are not enough.",
         "Jev scores and AEGIS_ALLOW_SHELL=0 do not sandbox generated Node. This is not OS isolation.",
         "After tools, answer in a few short lines.",
         `Working folder: ${input.cwd}`,

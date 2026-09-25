@@ -17,7 +17,7 @@ import { runGatedTool, toolTarget, type TurnStop } from "./gated.ts";
 import { scorerOf, toolGuards, type AegisPlugin, type ToolGuard, type TurnEndResult } from "./plugin-api.ts";
 import { readPath } from "./tools/read.ts";
 import { writePath } from "./tools/write.ts";
-import { editPath } from "./tools/edit.ts";
+import { editPath, multiEditPath } from "./tools/edit.ts";
 import { searchInWorker } from "./tools/search.ts";
 import { REDACTED_MARK } from "./redact.ts";
 import { runShell } from "./tools/shell.ts";
@@ -257,6 +257,31 @@ export function createTools(input: {
           await keep(filePath);
           return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
         }),
+    }),
+    multi_edit: tool({
+      description:
+        "Make several replacements in one file at once, in order (each works on the result of the one before). All or nothing: if one old_string does not match, nothing is written. Prefer this over several edit calls on the same file.",
+      inputSchema: z.object({
+        path: z.string(),
+        edits: z
+          .array(
+            z.object({
+              old_string: z.string(),
+              new_string: z.string(),
+              replace_all: z.boolean().optional(),
+            }),
+          )
+          .min(1)
+          .max(50),
+      }),
+      // Passes the lock as "edit", so your edit rules (edit scripts/*) cover it and it asks the same way.
+      execute: async ({ path: filePath, edits }) =>
+        edits.some((edit) => edit.new_string.includes(REDACTED_MARK))
+          ? PLACEHOLDER_REFUSED
+          : gate("edit", { path: filePath, edits: JSON.stringify(edits) }, async () => {
+              await keep(filePath);
+              return multiEditPath(filePath, edits, input.cwd);
+            }),
     }),
     grep: tool({
       description:

@@ -48,8 +48,10 @@ export function toAegisCall(tool: string, input: Record<string, unknown>): { nam
       return { name: "read", args: { path: file } };
     case "Write":
       return { name: "write", args: { path: file, contents: input.content } };
-    case "Edit":
     case "MultiEdit":
+      // Every change is shown in the question, not only the first.
+      return { name: "edit", args: { path: file, edits: Array.isArray(input.edits) ? input.edits : [] } };
+    case "Edit":
     case "NotebookEdit":
       return { name: "edit", args: { path: file, old_string: input.old_string, new_string: input.new_string } };
     case "Bash":

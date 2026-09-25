@@ -322,3 +322,6 @@
   - It is read from `.git/HEAD`, following a worktree's `.git` file; no git program runs, so a repo's config cannot run anything.
   - Only the characters branch names use are shown, so a crafted HEAD cannot put escape codes into the terminal. A detached HEAD shows the short commit id.
   - The TUI caches it for 2 s, since the footer repaints four times a second during a turn.
+- `multi_edit` tool, like Claude Code's MultiEdit: several replacements in one file, in order, written once, all or nothing. An error names which edit failed.
+  - It passes the lock as `edit`, so your edit rules, plan mode, hooks and restore points treat it the same way. Tool args are flat, so the edits travel as JSON text; the question and hooks parse them back.
+  - Fix: Claude Code's own MultiEdit showed an empty diff in the question (only one old_string/new_string pair was read). It now shows every change.

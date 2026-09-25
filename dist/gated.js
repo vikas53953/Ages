@@ -60,20 +60,39 @@ function existingText(cwd, file) {
         return undefined;
     }
 }
+/** multi_edit's edits (a JSON string, as tool args are flat) or Claude Code's MultiEdit list. */
+export function editList(value) {
+    let list = value;
+    if (typeof value === "string") {
+        try {
+            list = JSON.parse(value);
+        }
+        catch {
+            return undefined;
+        }
+    }
+    return Array.isArray(list) ? list : undefined;
+}
 export function formatConfirm(name, args, decision, why, existing) {
-    const details = name === "edit"
+    const edits = name === "edit" ? editList(args.edits) : undefined;
+    const details = edits
         ? [
-            `  path: ${String(args.path ?? "")}`,
-            clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
+            `  path: ${String(args.path ?? "")}  (${edits.length} edits, all or nothing)`,
+            ...edits.map((edit, index) => clipDisplay(`  edit ${index + 1}:\n${formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? ""))}`)),
         ].join("\n")
-        : name === "write" && existing !== undefined
+        : name === "edit"
             ? [
-                `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
-                clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                `  path: ${String(args.path ?? "")}`,
+                clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
             ].join("\n")
-            : Object.entries(args)
-                .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
-                .join("\n");
+            : name === "write" && existing !== undefined
+                ? [
+                    `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
+                    clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                ].join("\n")
+                : Object.entries(args)
+                    .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
+                    .join("\n");
     const score = decision
         ? `${decision.class}  data_loss=${decision.dataLoss.toFixed(2)}  via ${decision.source}`
         : "not scored by Jev";

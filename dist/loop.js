@@ -13,7 +13,7 @@ import { runGatedTool, toolTarget } from "./gated.js";
 import { scorerOf, toolGuards } from "./plugin-api.js";
 import { readPath } from "./tools/read.js";
 import { writePath } from "./tools/write.js";
-import { editPath } from "./tools/edit.js";
+import { editPath, multiEditPath } from "./tools/edit.js";
 import { searchInWorker } from "./tools/search.js";
 import { REDACTED_MARK } from "./redact.js";
 import { runShell } from "./tools/shell.js";
@@ -177,6 +177,27 @@ export function createTools(input) {
                 : gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
                     await keep(filePath);
                     return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
+                }),
+        }),
+        multi_edit: tool({
+            description: "Make several replacements in one file at once, in order (each works on the result of the one before). All or nothing: if one old_string does not match, nothing is written. Prefer this over several edit calls on the same file.",
+            inputSchema: z.object({
+                path: z.string(),
+                edits: z
+                    .array(z.object({
+                    old_string: z.string(),
+                    new_string: z.string(),
+                    replace_all: z.boolean().optional(),
+                }))
+                    .min(1)
+                    .max(50),
+            }),
+            // Passes the lock as "edit", so your edit rules (edit scripts/*) cover it and it asks the same way.
+            execute: async ({ path: filePath, edits }) => edits.some((edit) => edit.new_string.includes(REDACTED_MARK))
+                ? PLACEHOLDER_REFUSED
+                : gate("edit", { path: filePath, edits: JSON.stringify(edits) }, async () => {
+                    await keep(filePath);
+                    return multiEditPath(filePath, edits, input.cwd);
                 }),
         }),
         grep: tool({

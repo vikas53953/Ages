@@ -76,9 +76,27 @@ function existingText(cwd: string, file: unknown) {
   }
 }
 
+/** multi_edit's edits (a JSON string, as tool args are flat) or Claude Code's MultiEdit list. */
+export function editList(value: unknown): Array<{ old_string?: unknown; new_string?: unknown }> | undefined {
+  let list = value;
+  if (typeof value === "string") {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return Array.isArray(list) ? (list as Array<{ old_string?: unknown; new_string?: unknown }>) : undefined;
+}
+
 export function formatConfirm(name: string, args: JsonObject, decision?: ToolDecision, why?: string, existing?: string) {
-  const details =
-    name === "edit"
+  const edits = name === "edit" ? editList(args.edits) : undefined;
+  const details = edits
+    ? [
+        `  path: ${String(args.path ?? "")}  (${edits.length} edits, all or nothing)`,
+        ...edits.map((edit, index) => clipDisplay(`  edit ${index + 1}:\n${formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? ""))}`)),
+      ].join("\n")
+    : name === "edit"
       ? [
           `  path: ${String(args.path ?? "")}`,
           clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),

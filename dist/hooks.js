@@ -240,6 +240,15 @@ function claudeInput(args, cwd) {
         toolInput.file_path = path.resolve(cwd, args.path);
     if (typeof args.contents === "string" && toolInput.content === undefined)
         toolInput.content = args.contents;
+    // multi_edit carries its edits as JSON text: hooks get them as Claude Code's MultiEdit list.
+    if (typeof args.edits === "string") {
+        try {
+            toolInput.edits = JSON.parse(args.edits);
+        }
+        catch {
+            // leave as text
+        }
+    }
     return toolInput;
 }
 export async function runPreToolHooks(input) {
