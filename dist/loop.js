@@ -135,10 +135,11 @@ export function createTools(input) {
                 path: z.string(),
                 old_string: z.string(),
                 new_string: z.string(),
+                replace_all: z.boolean().optional().describe("Replace every match instead of exactly one."),
             }),
-            execute: async ({ path: filePath, old_string, new_string }) => gate("edit", { path: filePath, old_string, new_string }, async () => {
+            execute: async ({ path: filePath, old_string, new_string, replace_all }) => gate("edit", { path: filePath, old_string, new_string, ...(replace_all ? { replace_all } : {}) }, async () => {
                 await keep(filePath);
-                return editPath(filePath, old_string, new_string, input.cwd);
+                return editPath(filePath, old_string, new_string, input.cwd, { replaceAll: replace_all });
             }),
         }),
         grep: tool({
@@ -163,8 +164,22 @@ export function createTools(input) {
                 command: z.string(),
             }),
             execute: async ({ command }) => gate("shell", { command }, async () => {
-                const { stdout, stderr } = await runShell(command, input.cwd, input.abortSignal);
-                return [stdout, stderr].filter(Boolean).join("\n") || "(no output)";
+                try {
+                    const { stdout, stderr } = await runShell(command, input.cwd, input.abortSignal);
+                    return [stdout, stderr].filter(Boolean).join("\n") || "(no output)";
+                }
+                catch (error) {
+                    // A command that fails or times out still printed something: keep it, and say how it ended.
+                    const err = error;
+                    if (err.stdout === undefined || input.abortSignal?.aborted)
+                        throw error;
+                    const ended = err.killed
+                        ? `stopped: it ran longer than ${Math.round(input.config.shellTimeoutMs / 1000)} s`
+                        : err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+                            ? "stopped: it printed more than 2 MB"
+                            : `exit code ${err.code}`;
+                    return `${[err.stdout.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || "(no output)"}\n[${ended}]`;
+                }
             }),
         }),
     };

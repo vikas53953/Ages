@@ -168,3 +168,7 @@
   - `~/.aegis/AGENTS.md` (like `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`) goes first in every project, then the project's `AGENTS.md`, `HARNESS.md` and `AGENTS.local.md` (personal, per folder).
   - `/init` runs one turn asking the agent to write or improve AGENTS.md from what it reads. The write passes the lock like any other.
   - `/sessions` lists the 15 most recent conversations, numbered, with date and first prompt, marking the current one. `/resume` alone shows the same list, and `/resume <n>` opens by number (ids still work). This is a text list rather than an overlay, so it works the same in the TUI, the REPL and Studio.
+- Tool papercuts from the gap research:
+  - `edit` takes `replace_all`. A non-unique match says at which lines, and identical old and new text is refused.
+  - In a Windows (CRLF) file, the model's `\n` text is matched as `\r\n` and the replacement keeps CRLF. Before, every multi-line edit of a CRLF file failed with "not found".
+  - The agent's shell keeps what a failing, timed-out or too-chatty command printed and adds how it ended (`[exit code 3]`, `[stopped: it ran longer than 30 s]`). Before, the error dropped stdout.
