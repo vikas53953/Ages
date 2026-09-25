@@ -134,6 +134,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `/mcp` · `/mcp trust <name>` | MCP servers and tools (`mcp__server__tool`, gated by your rules, e.g. `ask mcp__github__*`); a project's servers start only after you trust them |
 | `/skills` · `/skill:<name>` · `/<your-command>` | skills (SKILL.md, loaded when needed) and your own commands from `~/.aegis/commands/*.md`; a project's need `/skills trust` |
 | `/review` · `/review main` · `/review commit <sha>` | a read-only review of your changes with P0–P3 findings and a verdict |
+| explore | the agent hands an open-ended search ("where is login handled?") to a read-only helper on the cheaper model with a fresh context; you get its short report, not every file it read. Each read still passes your rules; allowed by default (`explore *`), also in plan mode |
 | webfetch | the agent reads a web page when a rule allows its host: `allow webfetch learn.microsoft.com`, `allow webfetch *.github.com`; https only, public addresses only, other-site redirects checked separately; the page is marked as untrusted data |
 | `/todos` | the agent's todo list (shown above the prompt and in Studio while work is open) |
 | `/rewind` · `/rewind 1` | restore points; put files and chat back to before a turn (`files` or `chat` for one). Shell changes are not undone |

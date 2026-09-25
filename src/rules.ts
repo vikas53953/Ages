@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
       "shell Stop-Computer*",
       "shell Restart-Computer*",
     ],
-    allow: ["read *", "grep *", "skill *"],
+    allow: ["read *", "grep *", "skill *", "explore *"],
   },
   plugins: ["jev", "delivery", "receipts"],
 };
@@ -307,7 +307,7 @@ export function parseJevMode(text: string): JevMode | undefined {
 export function ruleTarget(name: string, args: Record<string, unknown>, cwd?: string) {
   if (name === "shell") return String(args.command ?? "").trim();
   if (name === "webfetch") return urlHost(args.url);
-  if (name === "websearch") return String(args.query ?? "").trim();
+  if (name === "websearch" || name === "explore") return String(args.query ?? args.task ?? "").trim();
   let raw = String(args.path ?? ".");
   if (cwd) {
     // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too.
@@ -414,7 +414,7 @@ export function matchRule(
 
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name: string) {
-  return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill";
+  return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill" && name !== "explore";
 }
 
 /**
@@ -430,6 +430,7 @@ export function suggestAllowRule(
   cwd?: string,
 ) {
   if (matched) return undefined;
+  if (name === "explore") return "explore *"; // it only reads, and each of its reads passes the lock too
   if (name === "webfetch") {
     // "Always allow" for that exact host only.
     const host = urlHost(args.url);

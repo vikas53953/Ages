@@ -121,3 +121,8 @@
   - A symlinked `.aegis` folder or file is refused through the unreadable-settings fail-safe (Jev off, no allow rules).
   - Deliberate change: a file's deny/ask lists now add to the defaults instead of replacing them, so the default asks (`git push`, deletes) can no longer be switched off by any file.
   - Tests: `tests/setup.ts` sets `AEGIS_TRUST_PROJECT=1` (older tests own their projects) and a scratch `AEGIS_HOME` so tests never touch the real `~/.aegis`; `tests/trust.test.ts` turns trust off and covers the hostile file, the floor, /trust (including a change between review and yes), the notice once, always-allow landing in your file, symlinks, and CI flags.
+- Explore helper (Claude Code's Explore subagent, OpenCode's subagents): `explore {task}` runs a fresh conversation on the cheap model with only read, grep and skill, readOnly set, and 20 steps at most. It returns a report of at most 8,000 characters.
+  - Every helper call passes the same lock and appears in the turn's receipt. The helper's tokens are added to the turn's.
+  - Text from the helper is not streamed to the screen; only its tool lines are.
+  - It is not offered in `--local` mode or inside the helper itself. It is allowed by default (`explore *`) and in plan mode, and `deny explore *` turns it off.
+  - Why: reading many files in the main conversation costs frontier tokens on every later turn; the helper's reads stay out of the history.

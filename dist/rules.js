@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS = {
             "shell Stop-Computer*",
             "shell Restart-Computer*",
         ],
-        allow: ["read *", "grep *", "skill *"],
+        allow: ["read *", "grep *", "skill *", "explore *"],
     },
     plugins: ["jev", "delivery", "receipts"],
 };
@@ -261,8 +261,8 @@ export function ruleTarget(name, args, cwd) {
         return String(args.command ?? "").trim();
     if (name === "webfetch")
         return urlHost(args.url);
-    if (name === "websearch")
-        return String(args.query ?? "").trim();
+    if (name === "websearch" || name === "explore")
+        return String(args.query ?? args.task ?? "").trim();
     let raw = String(args.path ?? ".");
     if (cwd) {
         // Resolve like the tools do, so "../proj/.git/x" and Windows "C:.git\\x" are ".git/x" too.
@@ -365,7 +365,7 @@ export function matchRule(settings, name, args, cwd) {
 }
 /** Anything that is not a plain read or search may change something (MCP and unknown tools included). */
 export function isMutation(name) {
-    return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill";
+    return name !== "read" && name !== "grep" && name !== "todo" && name !== "skill" && name !== "explore";
 }
 /**
  * The narrow allow rule an "always allow" answer saves, or undefined when it must not be offered.
@@ -376,6 +376,8 @@ export function isMutation(name) {
 export function suggestAllowRule(name, args, matched, cwd) {
     if (matched)
         return undefined;
+    if (name === "explore")
+        return "explore *"; // it only reads, and each of its reads passes the lock too
     if (name === "webfetch") {
         // "Always allow" for that exact host only.
         const host = urlHost(args.url);

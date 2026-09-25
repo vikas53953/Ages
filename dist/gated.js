@@ -63,7 +63,7 @@ function cancelled(decision, name) {
     };
 }
 /** What plan mode lets through: reading, searching, loading a skill. */
-export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill", "webfetch"]);
+export const READ_ONLY_TOOLS = new Set(["read", "grep", "skill", "webfetch", "explore"]);
 /** Tools that only touch the conversation (the todo list). */
 export const INTERNAL_TOOLS = new Set(["todo"]);
 export function toolTarget(name, args) {
@@ -75,6 +75,8 @@ export function toolTarget(name, args) {
         return String(args.url ?? "").slice(0, 200);
     if (name === "websearch")
         return String(args.query ?? "").slice(0, 120);
+    if (name === "explore")
+        return String(args.task ?? "").slice(0, 120);
     return String(args.path ?? "");
 }
 function denied(input) {
