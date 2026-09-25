@@ -69,7 +69,10 @@ Inside Aegis, once — saved to `~\.aegis\.env` for every folder:
 | `/jev off\|second\|every` | Jev mode — jev plugin |
 | `/task` | delivery card (confirm / accept are owner-only) — delivery plugin |
 | `/status` · `/login` | what is loaded · which keys are set |
-| `ctrl+c` | stop the running turn; on an empty prompt, exit |
+| `!dir` · `!!dir` | run PowerShell yourself; output joins the chat · or doesn't |
+| `esc` | stop the running turn (at a y/N prompt: no) |
+| `ctrl+c` | stop a turn / clear the prompt; twice on an empty prompt exits |
+| `aegis -c` | continue the last session (every launch is otherwise new, like Pi) |
 
 ## The lock
 

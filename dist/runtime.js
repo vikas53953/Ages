@@ -13,13 +13,14 @@ import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } fro
 import { createSession, listSessions, loadMessages, loadOrCreateSession, switchSession, recentSessions, appendMessage, appendMessages, capToolResults, } from "./session.js";
 import { loadSettingsSafe, settingsPath } from "./rules.js";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.js";
+import { runPowerShell } from "./tools/fs.js";
 import { LOGIN_KEYS, loginStatus, maskKey, writeUserKey } from "./login.js";
 import { APP_NAME, APP_VERSION, displayUser } from "./brand.js";
 import { loadConfig } from "./config.js";
 export { initialJevHealth, jevHealthFromReceipt } from "./health.js";
 import { KNOWN_PLUGINS, loadPlugins } from "./plugins/index.js";
 export async function startState(cwd, opts) {
-    const session = await loadOrCreateSession(cwd);
+    const session = opts.newSession ? await createSession(cwd) : await loadOrCreateSession(cwd);
     const provider = opts.local ? "local" : resolveProvider();
     const config = loadEnv(cwd);
     await refreshCatalog();
@@ -165,6 +166,8 @@ export async function runPrompt(prompt, state, opts, confirm, onEvent) {
 }
 export async function handleLine(line, state, opts, confirm = async () => false, onEvent) {
     const ctx = { state, opts, confirm, onEvent };
+    if (line.trim().startsWith("!"))
+        return runUserShell(line.trim(), state, opts);
     const pluginCommand = findPluginCommand(state.plugins, line);
     if (pluginCommand)
         return pluginCommand.run(pluginCommand.arg, ctx);
@@ -343,4 +346,42 @@ function findPluginCommand(plugins, line) {
             return { run, arg: rest.join(" ").trim() };
     }
     return undefined;
+}
+/**
+ * "!dir" runs a PowerShell command yourself, like Pi's and Claude Code's "!".
+ * You typed it, so no rule or Jev check applies. The output goes into the conversation so the model sees it;
+ * "!!dir" runs it without adding it. AEGIS_ALLOW_SHELL only limits the model's shell tool.
+ */
+export async function runUserShell(line, state, opts) {
+    const keep = !line.startsWith("!!");
+    const command = line.replace(/^!!?/, "").trim();
+    if (!command)
+        return { output: "usage: !<powershell command>   (!! runs it without adding the output to the chat)", session: state.session };
+    const config = loadConfig(state.cwd);
+    let output;
+    let failed = false;
+    try {
+        const { stdout, stderr } = await runPowerShell(command, state.cwd, config.shellTimeoutMs, opts.abortSignal);
+        output = [stdout, stderr].filter(Boolean).join("\n") || "(no output)";
+    }
+    catch (error) {
+        failed = true;
+        const err = error;
+        output = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || String(err.message ?? error);
+    }
+    const shown = output.length > 20_000 ? `${output.slice(0, 20_000)}\n[… ${output.length - 20_000} more characters]` : output;
+    if (keep) {
+        await appendMessage(state.cwd, state.session.id, {
+            role: "user",
+            content: `I ran this PowerShell command myself:\n> ${command}\n${failed ? "It failed:" : "Output:"}\n${capText(shown, 8_000)}`,
+            at: new Date().toISOString(),
+        });
+    }
+    return {
+        output: `${failed ? "✗" : "✓"} ${command}${keep ? "" : "  (not added to the chat)"}\n${shown}`,
+        session: state.session,
+    };
+}
+function capText(text, cap) {
+    return text.length <= cap ? text : `${text.slice(0, cap)}\n[… ${text.length - cap} more characters]`;
 }

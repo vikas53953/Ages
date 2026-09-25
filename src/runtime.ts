@@ -26,6 +26,7 @@ import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
 import { loadSettingsSafe, settingsPath } from "./rules.ts";
 import type { AegisPlugin, CommandContext } from "./plugin-api.ts";
 import { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
+import { runPowerShell } from "./tools/fs.ts";
 import { LOGIN_KEYS, loginStatus, maskKey, writeUserKey } from "./login.ts";
 import { APP_NAME, APP_VERSION, displayUser } from "./brand.ts";
 import { loadConfig } from "./config.ts";
@@ -43,6 +44,8 @@ export type RunOpts = {
   generate?: GenerateFn;
   /** Tests swap the compaction summarizer here. */
   summarize?: Summarizer;
+  /** Start a fresh session instead of continuing the last one (the CLI default; `aegis -c` continues). */
+  newSession?: boolean;
 };
 
 export type AppState = {
@@ -70,9 +73,9 @@ export type HandleResult = {
 
 export async function startState(
   cwd: string,
-  opts: { local?: boolean; model?: string; mockJev?: boolean },
+  opts: { local?: boolean; model?: string; mockJev?: boolean; newSession?: boolean },
 ): Promise<AppState> {
-  const session = await loadOrCreateSession(cwd);
+  const session = opts.newSession ? await createSession(cwd) : await loadOrCreateSession(cwd);
   const provider = opts.local ? "local" : resolveProvider();
   const config = loadEnv(cwd);
   await refreshCatalog();
@@ -230,6 +233,7 @@ export async function handleLine(
   onEvent?: (event: TurnEvent) => void,
 ): Promise<HandleResult> {
   const ctx: CommandContext = { state, opts, confirm, onEvent };
+  if (line.trim().startsWith("!")) return runUserShell(line.trim(), state, opts);
   const pluginCommand = findPluginCommand(state.plugins, line);
   if (pluginCommand) return pluginCommand.run(pluginCommand.arg, ctx);
   const cmd = parseLine(line);
@@ -400,4 +404,42 @@ function findPluginCommand(plugins: AegisPlugin[], line: string) {
     if (run) return { run, arg: rest.join(" ").trim() };
   }
   return undefined;
+}
+
+/**
+ * "!dir" runs a PowerShell command yourself, like Pi's and Claude Code's "!".
+ * You typed it, so no rule or Jev check applies. The output goes into the conversation so the model sees it;
+ * "!!dir" runs it without adding it. AEGIS_ALLOW_SHELL only limits the model's shell tool.
+ */
+export async function runUserShell(line: string, state: AppState, opts: RunOpts): Promise<HandleResult> {
+  const keep = !line.startsWith("!!");
+  const command = line.replace(/^!!?/, "").trim();
+  if (!command) return { output: "usage: !<powershell command>   (!! runs it without adding the output to the chat)", session: state.session };
+  const config = loadConfig(state.cwd);
+  let output: string;
+  let failed = false;
+  try {
+    const { stdout, stderr } = await runPowerShell(command, state.cwd, config.shellTimeoutMs, opts.abortSignal);
+    output = [stdout, stderr].filter(Boolean).join("\n") || "(no output)";
+  } catch (error) {
+    failed = true;
+    const err = error as { stdout?: string; stderr?: string; message?: string };
+    output = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n") || String(err.message ?? error);
+  }
+  const shown = output.length > 20_000 ? `${output.slice(0, 20_000)}\n[… ${output.length - 20_000} more characters]` : output;
+  if (keep) {
+    await appendMessage(state.cwd, state.session.id, {
+      role: "user",
+      content: `I ran this PowerShell command myself:\n> ${command}\n${failed ? "It failed:" : "Output:"}\n${capText(shown, 8_000)}`,
+      at: new Date().toISOString(),
+    });
+  }
+  return {
+    output: `${failed ? "✗" : "✓"} ${command}${keep ? "" : "  (not added to the chat)"}\n${shown}`,
+    session: state.session,
+  };
+}
+
+function capText(text: string, cap: number) {
+  return text.length <= cap ? text : `${text.slice(0, cap)}\n[… ${text.length - cap} more characters]`;
 }

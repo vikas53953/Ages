@@ -1,4 +1,4 @@
-import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, matchesKey, ProcessTerminal, ScrollView, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
+import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
 import { handleLine, startState, welcomeInfo } from "./runtime.js";
@@ -7,8 +7,26 @@ import { redactLogin } from "./login.js";
 import { loadMessages, messageText } from "./session.js";
 import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
-import { footerText, renderAssistantMessage, renderSystemMessage, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
+import { footerText, renderSystemMessage, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
 const dim = (text) => `\x1b[2m${text}\x1b[0m`;
+const sgr = (code) => (text) => `\x1b[${code}m${text}\x1b[0m`;
+/** How the model's Markdown answers look: Aegis teal for headings, links and code. */
+const markdownTheme = {
+    heading: sgr("1;36"),
+    link: sgr("4;36"),
+    linkUrl: dim,
+    code: sgr("36"),
+    codeBlock: (text) => text,
+    codeBlockBorder: dim,
+    quote: sgr("3"),
+    quoteBorder: dim,
+    hr: dim,
+    listBullet: sgr("36"),
+    bold: sgr("1"),
+    italic: sgr("3"),
+    strikethrough: sgr("9"),
+    underline: sgr("4"),
+};
 const editorTheme = {
     borderColor: dim,
     selectList: {
@@ -53,7 +71,9 @@ export async function createTuiApp(opts, input = {}) {
     const editor = new Editor(tui, editorTheme, { paddingX: 0 });
     // Type / for commands (core + plugins), @ for files — the same pi-tui provider Pi uses.
     editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashCommandsFromHelp([...HELP.split("\n"), ...state.plugins.flatMap((plugin) => plugin.help ?? [])]), cwd));
-    const dock = new VStack([editor, footer]);
+    // Claude-Code-style working line above the editor: spinner, what is happening, time, how to stop.
+    const status = new Text("", 0, 0);
+    const dock = new VStack([status, editor, footer]);
     const scroll = new ScrollView(new VStack([header, transcript]), {
         follow: "end",
         primary: true,
@@ -80,7 +100,24 @@ export async function createTuiApp(opts, input = {}) {
     const finished = new Promise((resolve) => {
         closed = resolve;
     });
+    const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spin = 0;
+    let exitArmedAt = 0;
+    const paintStatus = () => {
+        if (busy) {
+            const seconds = Math.max(0, Math.floor((Date.now() - turnStarted) / 1000));
+            const frame = SPINNER[spin++ % SPINNER.length];
+            status.setText(`\x1b[36m${frame}\x1b[0m ${phase}… \x1b[2m${seconds}s · esc to stop\x1b[0m`);
+        }
+        else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
+            status.setText("\x1b[2mPress ctrl+c again to exit\x1b[0m");
+        }
+        else {
+            status.setText("");
+        }
+    };
     const paintFooter = () => {
+        paintStatus();
         footer.setText(footerText({
             modelMode: state.modelMode,
             model: state.model,
@@ -102,7 +139,7 @@ export async function createTuiApp(opts, input = {}) {
             else if (item.role === "tool")
                 lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
             else if (item.role === "assistant")
-                lines.push(...renderAssistantMessage(item.text, width));
+                lines.push(...new Markdown(item.text, 2, 0, markdownTheme).render(width));
             else
                 lines.push(...renderSystemMessage(item.text, width));
             lines.push("");
@@ -363,12 +400,39 @@ export async function createTuiApp(opts, input = {}) {
     tui.addInputListener((data) => {
         if (!alive)
             return { consume: true };
-        if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
+        // esc stops a running turn (at a y/N prompt the box itself treats esc as "no").
+        if (matchesKey(data, Key.escape) && busy && !overlay) {
+            turnAbort.abort();
+            return { consume: true };
+        }
+        if (matchesKey(data, Key.ctrl("c"))) {
             if (busy || overlay) {
                 turnAbort.abort();
                 denyWaiters();
                 return { consume: true };
             }
+            // Like Pi and Claude Code: first ctrl+c clears the prompt or arms exit, a second one exits.
+            if (editor.getText().trim()) {
+                editor.setText("");
+                exitArmedAt = 0;
+            }
+            else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
+                shutdown();
+            }
+            else {
+                exitArmedAt = Date.now();
+                setTimeout(() => {
+                    if (alive) {
+                        paintStatus();
+                        tui.requestRender();
+                    }
+                }, 1600);
+            }
+            paintStatus();
+            tui.requestRender();
+            return { consume: true };
+        }
+        if (matchesKey(data, Key.ctrl("d")) && !busy && !overlay && !editor.getText().trim()) {
             shutdown();
             return { consume: true };
         }

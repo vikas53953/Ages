@@ -8,7 +8,7 @@ import { queuedLines } from "./repl.js";
 import { handleLine, startState, welcomeInfo } from "./runtime.js";
 import { welcomeLines } from "./welcome.js";
 import { runTui } from "./tui.js";
-function parseArgs(argv) {
+export function parseArgs(argv) {
     const flags = new Set();
     const rest = [];
     let model;
@@ -23,7 +23,7 @@ function parseArgs(argv) {
             model = arg.slice("--model=".length);
             continue;
         }
-        if (arg.startsWith("--"))
+        if (arg.startsWith("--") || /^-[a-z]$/i.test(arg))
             flags.add(arg);
         else
             rest.push(arg);
@@ -34,6 +34,7 @@ function parseArgs(argv) {
         local: flags.has("--local"),
         help: flags.has("--help") || flags.has("-h"),
         version: flags.has("--version") || flags.has("-v"),
+        continue: flags.has("--continue") || flags.has("-c"),
         repl: flags.has("--repl"),
         tui: flags.has("--tui"),
         model,
@@ -42,18 +43,22 @@ function parseArgs(argv) {
 }
 function help() {
     return [
-        "aegis — the agent you own. Jev locks spend and danger.",
+        `${APP_CMD} ${APP_VERSION} — the coding agent you own. Rules decide first; plugins add the rest.`,
         "",
-        "  aegis",
-        "  aegis \"what files are in this folder?\"",
+        "  aegis                      start in this folder (new session)",
+        "  aegis -c                   continue the last session here",
+        "  aegis \"a question\"         answer once and exit",
+        "",
+        "Flags: -c, --continue   continue the last session instead of starting a new one",
+        "       -m, --model <id> pin this model for the session",
+        "       --repl           plain prompt (pipes, scripts). A terminal opens the TUI",
+        "       --local          no chat model: list, read and search only",
+        "       -v, --version    print the version",
+        "       -h, --help       this help",
+        "       --yes            auto-approve y/N prompts (tests only)",
+        "       --mock-jev       fake Jev scores (tests only)",
         "",
         HELP,
-        "",
-        "Flags: --yes        auto-approve danger prompts (tests)",
-        "       --local      skip OpenCode; list/read/search only",
-        "       --model <id> pin this model for the session",
-        "       --mock-jev   tests only; without a Jev key, unmatched calls ask you",
-        "       --repl       plain prompt. TTY opens the TUI",
     ].join("\n");
 }
 export function createConfirm(input) {
@@ -138,6 +143,8 @@ export async function main() {
         yes: args.yes,
         local: args.local,
         model: args.model,
+        // Like Pi and Claude Code: every launch is a new session; -c continues the last one.
+        newSession: !args.continue,
     };
     if (args.prompt) {
         const abort = new AbortController();

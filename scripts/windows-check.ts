@@ -18,7 +18,7 @@ import { generateWith } from "../src/loop.ts";
 import { handleLine, startState, type AppState, type RunOpts } from "../src/runtime.ts";
 import { settingsPath } from "../src/rules.ts";
 import { loadMessages, messageText } from "../src/session.ts";
-import { runPowerShell } from "../src/tools/fs.ts";
+import { powershellExe, runPowerShell } from "../src/tools/fs.ts";
 
 type Outcome = { status: "pass" | "fail" | "skip"; detail: string };
 type Check = { id: string; slice: string; title: string; run: () => Promise<string> };
@@ -311,6 +311,35 @@ const checks: Check[] = [
       assert(turn.receipt?.tools[0]?.approved, "read did not run with no plugins");
       assert(!existsSync(path.join(cwd, ".harness", "receipts")), "receipts were written without the receipts plugin");
       return "jev off, /task unknown, read ran, no receipts folder";
+    },
+  },
+  {
+    id: "10",
+    slice: "UX",
+    title: "!command runs PowerShell yourself (pwsh preferred) and the output joins the chat",
+    run: async () => {
+      if (!isWindows) throw new Skip("not Windows");
+      const cwd = await folder("bang");
+      const state = await start(cwd);
+      const out = await handleLine("!Get-ChildItem -Name", state, opts());
+      assert(out.output.includes("README.md"), `output: ${short(out.output)}`);
+      const rows = await loadMessages(cwd, state.session.id);
+      assert(rows.some((row) => messageText(row).includes("I ran this PowerShell command myself")), "output not added to the chat");
+      return `${powershellExe()} ran it; output added to the chat`;
+    },
+  },
+  {
+    id: "11",
+    slice: "UX",
+    title: "Each launch is a new session; -c (no newSession) continues the last one",
+    run: async () => {
+      const cwd = await folder("launch");
+      const a = await startState(cwd, { local: true, mockJev: true, newSession: true });
+      const b = await startState(cwd, { local: true, mockJev: true, newSession: true });
+      const c = await startState(cwd, { local: true, mockJev: true });
+      assert(a.session.id !== b.session.id, "two launches shared a session");
+      assert(c.session.id === b.session.id, "continue did not pick the last session");
+      return "new, new, continued";
     },
   },
   {

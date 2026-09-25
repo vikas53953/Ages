@@ -39,7 +39,7 @@ export const SHIELD = [
     "▀▄  █  ▄▀",
     "  ▀▄█▄▀  ",
 ];
-export const KEY_HINTS = ["ctrl+c stop / exit", "/ commands", "shift+enter newline", "/login keys"];
+export const KEY_HINTS = ["esc stop", "ctrl+c twice exit", "/ commands", "! powershell", "@ files", "shift+enter newline"];
 function hintLine(width, paint) {
     const parts = [];
     for (const hint of KEY_HINTS) {
