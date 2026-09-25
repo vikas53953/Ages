@@ -41,7 +41,8 @@ describe("! runs PowerShell yourself", () => {
     expect(quiet.output).toContain("not added to the chat");
     rows = await loadMessages(cwd, state.session.id);
     expect(rows).toHaveLength(1);
-  });
+    // Two real PowerShell launches on Windows; a cold pwsh on a busy machine takes seconds, not milliseconds.
+  }, 60_000);
 });
 
 describe("sessions per launch", () => {

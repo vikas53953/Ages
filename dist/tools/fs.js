@@ -22,7 +22,10 @@ export function powershellExe() {
     return resolvedShell;
 }
 export async function runPowerShell(command, cwd, timeoutMs, signal) {
-    const { stdout, stderr } = await execFileAsync(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", command], { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 2_000_000, signal });
+    const running = execFileAsync(powershellExe(), ["-NoProfile", "-NonInteractive", "-Command", command], { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 2_000_000, signal });
+    // Nothing is ever typed into the command: close stdin so PowerShell never waits on an open pipe.
+    running.child.stdin?.end();
+    const { stdout, stderr } = await running;
     return {
         stdout: stdout.trimEnd(),
         stderr: stderr.trimEnd(),
