@@ -10,6 +10,10 @@ Other agent CLIs just run. Every Aegis tool call passes a lock first: your rules
 | --- | --- |
 | ![slash commands](docs/screens/2-slash-commands.png) | ![a turn](docs/screens/3-turn.png) |
 
+| `/model` picker |
+| --- |
+| ![model picker](docs/screens/5-model-picker.png) |
+
 Screenshots are the real `aegis` in a pseudo-terminal (`--local`, no model key).
 
 ### Aegis Studio — the same core in your browser
