@@ -13,6 +13,8 @@ import { grepPath } from "./tools/grep.ts";
 import { runShell } from "./tools/shell.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
+import { failClosedTurn } from "./jev/evaluate.ts";
+import { loadSettingsSafe, type Settings } from "./rules.ts";
 import type { ChatMessage } from "./session.ts";
 import type {
   ConfirmFn,
@@ -21,6 +23,7 @@ import type {
   JsonObject,
   Receipt,
   ToolRecord,
+  TurnDecision,
   TurnEvent,
   TurnOutcome,
 } from "./types.ts";
@@ -54,6 +57,7 @@ export function createTools(input: {
   abortSignal?: AbortSignal;
   stop?: TurnStop;
   onEvent?: (event: TurnEvent) => void;
+  settings?: Settings;
 }) {
   const confirm = serializeConfirm(input.confirm);
   const gate = (name: string, args: JsonObject, execute: () => Promise<string>) => {
@@ -75,6 +79,7 @@ export function createTools(input: {
       execute,
       stop: input.stop,
       onEvent: input.onEvent,
+      settings: input.settings,
     }).then((result) => {
       input.onTool(result.record);
       return result.output;
@@ -250,29 +255,38 @@ export async function runLoop(input: {
   const started = Date.now();
   const stop: TurnStop = {};
   input.onEvent?.({ type: "accepted" });
-  input.onEvent?.({ type: "evaluating" });
+  // Rules and Jev mode come from the project folder, even when tools run in a task work folder.
+  const settings = loadSettingsSafe(input.cwd).settings;
   if (input.abortSignal?.aborted) throw new Error("cancelled");
-  const turnResult = await raceAbort(
-    input.jev
-      .evaluateTurn(
-        {
-          prompt: input.prompt,
-          cwd: input.cwd,
-          recent_tools: [],
-          open_files: [],
-        },
-        input.abortSignal,
-      )
-      .then((turn) => ({ kind: "turn" as const, turn })),
-    input.abortSignal,
-    () => ({ kind: "abort" as const }),
-  );
-  if (turnResult.kind === "abort" || input.abortSignal?.aborted) throw new Error("cancelled");
-  const turn = turnResult.turn;
+  let turn: TurnDecision;
+  if (settings.jev.mode === "off") {
+    turn = { ...failClosedTurn(), source: "off" as const };
+  } else {
+    input.onEvent?.({ type: "evaluating" });
+    const turnResult = await raceAbort(
+      input.jev
+        .evaluateTurn(
+          {
+            prompt: input.prompt,
+            cwd: input.cwd,
+            recent_tools: [],
+            open_files: [],
+          },
+          input.abortSignal,
+        )
+        .then((turn) => ({ kind: "turn" as const, turn })),
+      input.abortSignal,
+      () => ({ kind: "abort" as const }),
+    );
+    if (turnResult.kind === "abort" || input.abortSignal?.aborted) throw new Error("cancelled");
+    turn = turnResult.turn;
+  }
   const models = modelsFor(input.provider ?? resolveProvider(), input.config);
   const route = input.model
     ? { model: input.model, reason: "selected" }
-    : pickModel(turn, {
+    : turn.source === "off"
+      ? { model: models.frontier, reason: "jev off" }
+      : pickModel(turn, {
         ...input.config,
         cheapModel: models.cheap,
         frontierModel: models.frontier,
@@ -287,6 +301,7 @@ export async function runLoop(input: {
     abortSignal: input.abortSignal,
     stop,
     onEvent: input.onEvent,
+    settings,
     onTool: (record) => {
       toolsUsed.push(record);
       input.onEvent?.({ type: "tool", record });

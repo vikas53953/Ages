@@ -202,10 +202,11 @@ describe("Jev fail-closed lock", () => {
     expect(second.record.deniedReason).toBe("cancelled");
   });
 
-  it("blocks mutations when live Jev cannot score", async () => {
+  it("asks you (default n) instead of running when live Jev cannot score a write", async () => {
     expect(failClosedTurn().source).toBe("fail_closed");
-    expect(decideToolAction(failClosedTool(), loadConfig())).toBe("deny");
+    expect(decideToolAction(failClosedTool(), loadConfig())).toBe("confirm");
     const cwd = await tmp();
+    const asked: string[] = [];
     const result = await runGatedTool({
       name: "write",
       args: { path: "x.txt", contents: "no" },
@@ -215,14 +216,20 @@ describe("Jev fail-closed lock", () => {
         evaluateTool: async () => failClosedTool(),
       },
       config: loadConfig(),
-      confirm: async () => true,
+      confirm: async (question) => {
+        asked.push(question);
+        return false;
+      },
       execute: async () => {
         throw new Error("must not run");
       },
     });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Jev could not score");
     expect(result.record.approved).toBe(false);
-    expect(result.record.action).toBe("deny");
-    expect(result.output).toContain("fail-closed");
+    expect(result.record.action).toBe("confirm");
+    expect(result.record.source).toBe("fail_closed");
+    expect(result.record.deniedReason).toBe("user declined");
   });
 
   it("queues overlapping confirms so the first waiter is not dropped", async () => {

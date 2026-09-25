@@ -19,7 +19,8 @@ TTY opens the TUI. `aegis --repl` is the plain prompt. `aegis --local --mock-jev
 | `hello` | the routed or pinned model answers |
 | `/help` | slash commands |
 | `/task` | delivery card (confirm / accept are owner-only) |
+| `/jev` | show or set the Jev mode (off / second / every) |
 | `/exit` | quit |
 
-Missing Jev keys block writes. `--mock-jev` is tests only. Shell stays off unless `AEGIS_ALLOW_SHELL=1`. Jev and shell-off do not sandbox generated Node; that is not OS isolation.
+Rules in `.aegis/settings.json` decide first (deny, then ask, then allow). Jev only scores what no rule matches, and can only make a decision stricter. `/jev off|second|every` sets the mode. With no Jev key, reads and allowed calls still run and everything else asks you (default n). `--mock-jev` is tests only. Shell stays off unless `AEGIS_ALLOW_SHELL=1`. Jev and shell-off do not sandbox generated Node; that is not OS isolation.
 

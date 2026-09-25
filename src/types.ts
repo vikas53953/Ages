@@ -32,7 +32,7 @@ export type TurnDecision = {
   needsRepoWide: number;
   confidence: number;
   probabilities: { kind: Record<TurnKind, number> };
-  source: "jev" | "mock" | "fail_closed";
+  source: "jev" | "mock" | "fail_closed" | "off";
 };
 
 export type ToolDecision = {
@@ -62,10 +62,11 @@ export type JevClient = {
 
 export type ConfirmFn = (question: string) => Promise<boolean>;
 
-export type JevHealth = "mock" | "live" | "down" | "blocked";
+export type JevHealth = "mock" | "live" | "down" | "blocked" | "off";
 export type TaskPermission = "untracked" | "proposed" | "confirmed" | "invalid";
 export type TurnOutcome = "completed" | "blocked" | "incomplete" | "cancelled";
-export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement";
+/** rule = decided by .aegis/settings.json; default = no rule and no Jev, so you were asked. */
+export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "default";
 
 export type TurnEvent =
   | { type: "accepted" }
@@ -88,6 +89,7 @@ export type ToolRecord = {
   deniedReason?: string;
   target?: string;
   source?: ToolSource;
+  rule?: string;
 };
 
 export type Receipt = {

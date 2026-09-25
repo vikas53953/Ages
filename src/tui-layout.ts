@@ -1,3 +1,5 @@
+import type { JevHealth } from "./types.ts";
+
 export const ACCENT = "\x1b[36m";
 export const MUTED = "\x1b[2m";
 export const RESET = "\x1b[0m";
@@ -65,7 +67,7 @@ export function jevStatus(mockJev: boolean, hasKey: boolean, healthy?: boolean):
 export function footerText(input: {
   modelMode: "auto" | "pinned";
   model: string;
-  jev: "mock" | "live" | "down" | "blocked";
+  jev: JevHealth;
   provider: string;
   busy?: boolean;
   phase?: string;

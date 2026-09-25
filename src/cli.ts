@@ -50,7 +50,7 @@ function help() {
     "Flags: --yes        auto-approve danger prompts (tests)",
     "       --local      skip OpenCode; list/read/search only",
     "       --model <id> pin this model for the session",
-    "       --mock-jev   tests only; otherwise missing Jev keys fail-closed",
+    "       --mock-jev   tests only; without a Jev key, unmatched calls ask you",
     "       --repl       plain prompt. TTY opens the TUI",
   ].join("\n");
 }

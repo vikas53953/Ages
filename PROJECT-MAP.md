@@ -20,12 +20,14 @@ Harness is our Pi-shaped coding-agent CLI. Jev decides. Code enforces. The model
 | `src/providers.ts` | Local / OpenCode Zen / OpenAI |
 | `src/loop.ts` | One turn: Jev → model → tools → receipt |
 | `src/router.ts` | Cheap or frontier model id |
-| `src/policy.ts` | Auto-run or ask first |
-| `src/gated.ts` | Ask Jev about one tool, then run or refuse |
+| `src/rules.ts` | Read `.aegis/settings.json`; match a tool call to deny / ask / allow |
+| `src/policy.ts` | Turn a Jev score into auto-run or ask; `stricter()` lets Jev only tighten |
+| `src/gated.ts` | The checkpoint every tool passes: agreement → rules → Jev (if on) → you → run |
 | `src/receipt.ts` | Print the stamp; save under `.harness/receipts` |
 | `src/delivery.ts` | Task agreement, evidence, delivery card |
 | `src/jev/` | Live Jev and mock Jev |
 | `src/tools/` | read, write, edit, grep, shell |
 | `AGENTS.md` | Project rules injected every turn |
 | `skills/` | Markdown skills injected every turn |
+| `.aegis/settings.json` | Your rules and Jev mode (committed) |
 | `.harness/` | Sessions, memory, receipts (not committed) |

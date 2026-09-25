@@ -41,6 +41,7 @@ import {
   writePendingDraft,
 } from "./delivery.ts";
 import { formatPlan, loadPlan, openTestedResult, runDeliveryBuild } from "./controller.ts";
+import { loadSettingsSafe, parseJevMode, saveJevMode, settingsPath, type JevMode } from "./rules.ts";
 
 export type RunOpts = {
   mockJev: boolean;
@@ -70,22 +71,18 @@ export type HandleResult = {
   chat?: "keep" | "reset" | "reload";
 };
 
-export function initialJevHealth(mockJev: boolean): JevHealth {
+export function initialJevHealth(mockJev: boolean, mode: JevMode = "second-opinion"): JevHealth {
+  if (mode === "off") return "off";
   if (mockJev) return "mock";
   return hasJevCredentials() ? "down" : "blocked";
 }
 
 export function jevHealthFromReceipt(mockJev: boolean, receipt: Receipt): JevHealth {
+  if (receipt.turn.source === "off") return "off";
   if (mockJev) return "mock";
   if (!hasJevCredentials()) return "blocked";
   if (receipt.turn.source === "fail_closed") return "down";
-  if (
-    receipt.tools.some(
-      (tool) => tool.deniedReason === "jev fail-closed" || (tool.source === "fail_closed" && tool.deniedReason === "jev fail-closed"),
-    )
-  ) {
-    return "down";
-  }
+  if (receipt.tools.some((tool) => tool.source === "fail_closed")) return "down";
   if (receipt.tools.some((tool) => tool.source === "agreement")) {
     return receipt.turn.source === "jev" ? "live" : receipt.turn.source === "mock" ? "mock" : "live";
   }
@@ -109,7 +106,7 @@ export async function startState(
     provider,
     config,
   });
-  const jevHealth = initialJevHealth(opts.mockJev === true);
+  const jevHealth = initialJevHealth(opts.mockJev === true, loadSettingsSafe(cwd).settings.jev.mode);
   await clearConversationalPending(cwd);
   const permission = await taskPermission(cwd);
   if (pinned) {
@@ -129,10 +126,14 @@ export async function runPrompt(
   const provider = opts.local ? "local" : resolveProvider();
   const useLocal = opts.local === true || provider === "local";
   const jev = opts.mockJev ? mockJev() : liveJev();
+  const loadedSettings = loadSettingsSafe(state.cwd);
   const notice = [
     useLocal ? "Chat is local (no OpenCode key). I can list, read, and search." : "",
-    !opts.mockJev && !hasJevCredentials()
-      ? "Jev has no key. Mutations are blocked. Pass --mock-jev only for tests."
+    loadedSettings.error
+      ? `Settings unreadable (${loadedSettings.error}). Jev is off and allow rules are ignored until you fix ${settingsPath(state.cwd)}.`
+      : "",
+    !opts.mockJev && !hasJevCredentials() && loadedSettings.settings.jev.mode !== "off"
+      ? "Jev has no key. Rules still apply; anything Jev would score asks you instead. /jev off hides this."
       : "",
   ]
     .filter(Boolean)
@@ -272,13 +273,35 @@ export async function handleLine(
       };
     }
   }
+  if (cmd.type === "jev") {
+    const loaded = loadSettingsSafe(state.cwd);
+    if (cmd.mode) {
+      const mode = parseJevMode(cmd.mode);
+      if (!mode) return { output: "usage: /jev off | second | every", session: state.session };
+      if (loaded.error) {
+        return { output: `Fix ${settingsPath(state.cwd)} first: ${loaded.error}`, session: state.session };
+      }
+      saveJevMode(state.cwd, mode);
+      state.jevHealth = initialJevHealth(opts.mockJev === true, mode);
+      return { output: `jev mode ${mode}  (saved to ${settingsPath(state.cwd)})`, session: state.session };
+    }
+    return {
+      output: [
+        `jev mode  ${loaded.settings.jev.mode}${loaded.error ? `  (settings unreadable: ${loaded.error})` : ""}`,
+        `jev key   ${hasJevCredentials() ? "present" : "missing"}`,
+        `settings  ${settingsPath(state.cwd)}`,
+        "modes     off · second (only calls no rule matches) · every (also every write/edit/shell)",
+      ].join("\n"),
+      session: state.session,
+    };
+  }
   if (cmd.type === "status") {
     return {
       output: [
         `session   ${state.session.id}`,
         `provider  ${state.provider}`,
         `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
-        `jev       ${state.jevHealth}`,
+        `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
         `task      ${state.taskPermission}`,
         `cwd       ${state.cwd}`,
       ].join("\n"),

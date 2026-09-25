@@ -1,0 +1,32 @@
+{
+  "jev": {
+    "mode": "second-opinion"
+  },
+  "rules": {
+    "deny": [
+      "write .git/*",
+      "edit .git/*",
+      "write .harness/*",
+      "edit .harness/*"
+    ],
+    "ask": [
+      "shell Remove-Item*",
+      "shell rm *",
+      "shell del *",
+      "shell rd *",
+      "shell rmdir*",
+      "shell git push*",
+      "shell git reset --hard*",
+      "shell git clean*",
+      "shell format *",
+      "shell netsh*",
+      "shell Set-NetFirewall*",
+      "shell Stop-Computer*",
+      "shell Restart-Computer*"
+    ],
+    "allow": [
+      "read *",
+      "grep *"
+    ]
+  }
+}
