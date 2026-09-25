@@ -194,3 +194,18 @@ describe("restore points are safe", () => {
     expect(state.planMode).toBe(false);
   });
 });
+
+describe("the project folder spelled two ways", () => {
+  it.skipIf(process.platform === "win32")("restores when cwd reaches the project through a link (like Windows short 8.3 names)", async () => {
+    const real = await mkdtemp(path.join(os.tmpdir(), "aegis-cp-real-"));
+    const alias = path.join(await mkdtemp(path.join(os.tmpdir(), "aegis-cp-alias-")), "proj");
+    await symlink(real, alias);
+    const turn = { at: "2026-09-25T11:00:00.000Z", prompt: "p" };
+    await writeFile(path.join(alias, "n.txt"), "N0");
+    await snapshotFile(alias, "s1", turn, "n.txt");
+    await writeFile(path.join(alias, "n.txt"), "N1");
+    const result = await rewindTo(alias, "s1", turn.at, { files: true, chat: false });
+    expect(result.skipped).toEqual([]);
+    expect(await readFile(path.join(real, "n.txt"), "utf8")).toBe("N0");
+  });
+});

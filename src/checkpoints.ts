@@ -76,14 +76,13 @@ async function realOrSelf(target: string) {
  * following the folders above it), must not itself be a symlink, and must not be in .git or .harness.
  */
 async function safeTarget(cwd: string, file: string): Promise<{ file: string } | { reason: string }> {
+  // Compare real paths on both sides: on Windows the same folder can be spelled short (RUNNER~1) or long.
   const root = await realOrSelf(cwd);
   const absolute = path.resolve(cwd, file);
-  const lexical = path.relative(path.resolve(cwd), absolute);
-  if (!lexical || lexical.startsWith("..") || path.isAbsolute(lexical)) return { reason: "outside the project" };
-  if (/^(\.git|\.harness)([\\/]|$)/i.test(lexical)) return { reason: "inside .git or .harness" };
   const parent = await realOrSelf(path.dirname(absolute));
-  const inParent = path.relative(root, parent);
-  if (inParent.startsWith("..") || path.isAbsolute(inParent)) return { reason: "a folder above it leads outside the project" };
+  const inside = path.relative(root, path.join(parent, path.basename(absolute)));
+  if (!inside || inside.startsWith("..") || path.isAbsolute(inside)) return { reason: "outside the project" };
+  if (/^(\.git|\.harness)([\\/]|$)/i.test(inside)) return { reason: "inside .git or .harness" };
   try {
     if ((await lstat(absolute)).isSymbolicLink()) return { reason: "it is a symlink" };
   } catch {
