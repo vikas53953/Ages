@@ -83,7 +83,10 @@ export function transcriptOf(messages: ChatMessage[]) {
   return lines.join("\n");
 }
 
-/** No-model fallback: one short line per message, the previous summary kept on top. */
+/** The fallback summary never grows past this; the oldest lines go first. */
+export const EXTRACT_MAX_CHARS = 12_000;
+
+/** No-model fallback: one short line per message, the previous summary kept on top (bounded). */
 export function extractiveSummary(messages: ChatMessage[], previous = "") {
   const lines = messages
     .map((message) => {
@@ -96,8 +99,14 @@ export function extractiveSummary(messages: ChatMessage[], previous = "") {
       return "";
     })
     .filter(Boolean);
-  return [previous.trim(), ...lines].filter(Boolean).join("\n");
+  const all = [...previous.trim().split("\n"), ...lines].filter((line) => line && line !== DROPPED);
+  let size = all.reduce((sum, line) => sum + line.length + 1, 0);
+  let cut = 0;
+  while (size > EXTRACT_MAX_CHARS && cut < all.length - 1) size -= all[cut++]!.length + 1;
+  return (cut ? [DROPPED, ...all.slice(cut)] : all).join("\n");
 }
+
+const DROPPED = "- [older notes dropped to keep the summary small]";
 
 export const SUMMARY_SYSTEM = [
   "You compact the early part of a coding-agent session so the work can continue.",

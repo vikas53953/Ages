@@ -182,6 +182,33 @@ describe("answering 'always' at the gate", () => {
     expect(settings.rules.allow).not.toContain("edit scripts/*");
   });
 
+  it("offers no 'always' when the tool runs in a /task work folder (the rule would land in the project)", async () => {
+    const project = await mkdtemp(path.join(os.tmpdir(), "aegis-project-"));
+    const work = path.join(project, ".harness", "tasks", "t1");
+    await mkdir(work, { recursive: true });
+    await mkdir(path.join(project, ".aegis"));
+    await writeFile(settingsPath(project), JSON.stringify({ jev: { mode: "off" } }));
+    const asked: Array<ConfirmOptions | undefined> = [];
+    const run = await runGatedTool({
+      name: "write",
+      args: { path: "server.mjs", contents: "x" },
+      cwd: work,
+      settingsCwd: project,
+      settings: loadSettings(project),
+      jev: noJev,
+      config: loadConfig(),
+      confirm: async (_q, options) => {
+        asked.push(options);
+        return "always";
+      },
+      execute: async () => "written",
+    });
+    expect(asked[0]?.always).toBeUndefined();
+    expect(run.record.savedRule).toBeUndefined();
+    expect(loadSettings(project).rules.allow).toEqual(DEFAULT_SETTINGS.rules.allow);
+    expect(run.output).toBe("written");
+  });
+
   it("offers no 'always' when an ask rule matched", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-noalways-"));
     const asked: Array<ConfirmOptions | undefined> = [];

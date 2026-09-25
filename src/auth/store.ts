@@ -53,7 +53,7 @@ export function saveCredential(name: string, credential: OAuthCredential | undef
 }
 
 /** Only you can read it: mode 600 on Linux/macOS; on Windows drop inherited access and grant just your account. */
-function lockToUser(file: string) {
+export function lockToUser(file: string) {
   if (process.platform !== "win32") {
     try {
       chmodSync(file, 0o600);

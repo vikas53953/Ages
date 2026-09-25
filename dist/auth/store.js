@@ -42,7 +42,7 @@ export function saveCredential(name, credential) {
     return file;
 }
 /** Only you can read it: mode 600 on Linux/macOS; on Windows drop inherited access and grant just your account. */
-function lockToUser(file) {
+export function lockToUser(file) {
     if (process.platform !== "win32") {
         try {
             chmodSync(file, 0o600);

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { decideToolAction, stricter } from "./policy.js";
 import { raceAbort, waitForAbort } from "./abort.js";
 import { isMutation, loadSettingsSafe, matchRule, saveAllowRule, suggestAllowRule } from "./rules.js";
@@ -177,7 +178,10 @@ export async function runGatedTool(input) {
     };
     if (action === "confirm") {
         input.onEvent?.({ type: "awaiting_approval", name: input.name, target });
-        const always = loaded.error ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
+        // A rule is saved in the project's settings, so only offer one when the tool runs in the project folder
+        // itself: a /task work folder's "server.mjs" is not the project's "server.mjs".
+        const sameRoot = !input.settingsCwd || path.resolve(input.settingsCwd) === path.resolve(input.cwd);
+        const always = loaded.error || !sameRoot ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
         const prompt = formatConfirm(input.name, input.args, decision, why);
         const raced = await Promise.race([
             input

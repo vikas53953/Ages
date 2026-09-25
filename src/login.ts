@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { CODEX_CREDENTIAL } from "./auth/codex.ts";
-import { loadCredential } from "./auth/store.ts";
+import { loadCredential, lockToUser } from "./auth/store.ts";
 import { userAegisDir } from "./env.ts";
 
 /** What /login can store, by the name you type. Saved to ~/.aegis/.env so every folder sees it. */
@@ -30,7 +30,9 @@ export function writeUserKey(env: string, value: string | undefined) {
   while (lines.length && lines.at(-1) === "") lines.pop();
   if (value !== undefined) lines.push(`${env}=${value}`);
   mkdirSync(path.dirname(file), { recursive: true });
+  // mode applies only to a new file: an existing .env is locked down explicitly as well.
   writeFileSync(file, lines.length ? `${lines.join("\n")}\n` : "", { encoding: "utf8", mode: 0o600 });
+  lockToUser(file);
   if (value === undefined) delete process.env[env];
   else process.env[env] = value;
   return file;

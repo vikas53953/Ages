@@ -1,7 +1,9 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeUserKey } from "../src/login.ts";
 import { handleLine, startState } from "../src/runtime.ts";
 
 const saved = { home: process.env.AEGIS_HOME, key: process.env.OPENCODE_API_KEY };
@@ -39,5 +41,15 @@ describe("/login and /logout", () => {
     expect(process.env.OPENCODE_API_KEY).toBeUndefined();
 
     expect((await handleLine("/login nope x", state, opts)).output).toContain("unknown key name 'nope'");
+  });
+
+  it.skipIf(process.platform === "win32")("locks down an existing, readable ~/.aegis/.env when a key is saved", async () => {
+    process.env.AEGIS_HOME = await mkdtemp(path.join(os.tmpdir(), "aegis-home-"));
+    await mkdir(process.env.AEGIS_HOME, { recursive: true });
+    const file = path.join(process.env.AEGIS_HOME, ".env");
+    await writeFile(file, "OTHER=1\n");
+    await chmod(file, 0o644);
+    writeUserKey("OPENCODE_API_KEY", "sk-test");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });

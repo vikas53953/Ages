@@ -5,8 +5,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import {
+  EXTRACT_MAX_CHARS,
   SUMMARY_SYSTEM,
   compactSession,
+  extractiveSummary,
   loadSummary,
   modelSummarizer,
   needsCompaction,
@@ -133,6 +135,14 @@ describe("compactSession", () => {
     expect(request).toContain("OLD-NOTES");
     expect(request).toContain("user: hi");
     expect(request).toContain(SUMMARY_SYSTEM.slice(0, 40));
+  });
+
+  it("the no-model summary stays bounded across many compactions", () => {
+    let summary = "";
+    for (let round = 0; round < 60; round++) summary = extractiveSummary(turns(20), summary);
+    expect(summary.length).toBeLessThanOrEqual(EXTRACT_MAX_CHARS + 200);
+    expect(summary.startsWith("- [older notes dropped")).toBe(true);
+    expect(summary.match(/older notes dropped/g)).toHaveLength(1);
   });
 
   it("measures history size in characters", () => {
