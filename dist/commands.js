@@ -41,6 +41,8 @@ export function parseLine(line) {
             return { type: "fork", arg: rest[0] };
         case "trust":
             return { type: "trust", action: rest[0]?.toLowerCase() };
+        case "diff":
+            return { type: "diff", arg };
         case "rules":
         case "permissions":
             return { type: "rules", arg };
@@ -119,6 +121,7 @@ export const HELP = [
     "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
     "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",
     "  /plan              plan mode: read-only until you approve; /plan go carries it out, /plan off leaves",
+    "  /diff              what the agent changed in this session (each file against how it was before); /diff stat · /diff <file>",
     "  /rewind            list restore points; /rewind 1 puts files and chat back to before that turn (add files or chat for just one)",
     "  /logout <name>     remove a saved key",
     "  /exit              quit",

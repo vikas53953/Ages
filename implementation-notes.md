@@ -295,3 +295,8 @@
   - Lists every rule in the order the lock decides (deny, ask, allow), each with its layer: built-in, always on, the project's file (or "waiting for /trust"), yours, or this run.
   - `/rules remove <n>` removes one of yours. Project, built-in and floor rules say where they live instead.
   - `/rules deny|ask <rule>` adds a stricter rule for this folder. Allow rules still come only from answering "a" at a question, so each one is a narrow rule the user saw.
+- `/diff` (like Codex's `/diff`): each file the agent changed in this session, against how it was before the session first changed it.
+  - It reads the restore points (the first kept copy of each file), not git, so it works in any folder and runs no program. After a `/rewind`, the rewound files drop out.
+  - `/diff stat` lists names with +/- counts, and `/diff <file>` shows one file. Output is capped at 300 lines per file and 2,000 in total.
+  - Binary, too-large and link targets are named, not shown. Output passes the same secret redaction as tool output.
+  - `src/diff.ts` is a small line diff (LCS on the part between the unchanged start and end; past 4M cells it shows that part as one change), so a huge file cannot make it slow.

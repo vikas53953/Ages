@@ -211,3 +211,59 @@ export async function rewindTo(
   }
   return result;
 }
+
+export type SessionChange = {
+  /** Real path of the file. */
+  file: string;
+  /** How it was before this session first changed it: text, absent (the agent created it), or not kept. */
+  before: { kind: "text"; text: string } | { kind: "absent" } | { kind: "not kept"; reason: string };
+  /** How it is now. */
+  now: { kind: "text"; text: string } | { kind: "absent" } | { kind: "not shown"; reason: string };
+};
+
+async function textOf(buf: Buffer): Promise<string | undefined> {
+  return buf.includes(0) ? undefined : buf.toString("utf8");
+}
+
+/**
+ * Every file an approved write or edit changed in this session, compared with how it was before the first such
+ * change (from the restore points, so no program runs and it works outside git). Shell changes are not tracked.
+ */
+export async function sessionChanges(cwd: string, sessionId: string): Promise<SessionChange[]> {
+  const first = new Map<string, Entry>();
+  for (const entry of [...(await readIndex(cwd, sessionId))].sort((a, b) => a.seq - b.seq)) {
+    if (!first.has(entry.file)) first.set(entry.file, entry);
+  }
+  const out: SessionChange[] = [];
+  for (const entry of first.values()) {
+    let before: SessionChange["before"];
+    if (!entry.existed) before = { kind: "absent" };
+    else if (entry.tooLarge) before = { kind: "not kept", reason: "too large to keep" };
+    else {
+      try {
+        const text = await textOf(await readFile(path.join(dir(cwd, sessionId), "blobs", String(entry.seq))));
+        before = text === undefined ? { kind: "not kept", reason: "binary file" } : { kind: "text", text };
+      } catch {
+        before = { kind: "not kept", reason: "restore point missing" };
+      }
+    }
+    let now: SessionChange["now"];
+    const target = await safeTarget(cwd, entry.file);
+    if ("reason" in target) now = { kind: "not shown", reason: target.reason };
+    else {
+      try {
+        const info = await lstat(target.file);
+        if (!info.isFile()) now = { kind: "not shown", reason: "no longer a file" };
+        else if (info.size > MAX_CHECKPOINT_BYTES) now = { kind: "not shown", reason: "too large to show" };
+        else {
+          const text = await textOf(await readFile(target.file));
+          now = text === undefined ? { kind: "not shown", reason: "binary file" } : { kind: "text", text };
+        }
+      } catch {
+        now = { kind: "absent" };
+      }
+    }
+    out.push({ file: entry.file, before, now });
+  }
+  return out;
+}

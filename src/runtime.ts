@@ -10,7 +10,8 @@ import { formatChat, formatTokenLine } from "./receipt.ts";
 import { CODEX_CREDENTIAL, loginCodexBrowser, loginCodexDevice } from "./auth/codex.ts";
 import { loadCredential, saveCredential } from "./auth/store.ts";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.ts";
-import { realOrSelf, rewindPoints, rewindTo, snapshotFile } from "./checkpoints.ts";
+import { projectPath, realOrSelf, rewindPoints, rewindTo, sessionChanges, snapshotFile } from "./checkpoints.ts";
+import { unifiedDiff } from "./diff.ts";
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer, type McpState } from "./mcp.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { copyToClipboard } from "./clipboard.ts";
@@ -159,6 +160,55 @@ function untrustedNotice(state: AppState, trust: ProjectTrust | undefined) {
 }
 
 /** /trust shows what the project's file would allow; /trust yes trusts exactly what was shown; /trust off forgets it. */
+/** Lines shown per file and in total by /diff (the rest is counted, not shown). */
+const DIFF_FILE_LINES = 300;
+const DIFF_TOTAL_LINES = 2000;
+
+/** /diff: each file the agent changed this session, against how it was before (from the restore points). */
+async function diffCommand(state: AppState, arg: string) {
+  const changes = await sessionChanges(state.cwd, state.session.id);
+  if (!changes.length) return "Nothing changed by the agent in this session yet (shell commands are not tracked).";
+  const stat = /^stat$/i.test(arg);
+  const wanted = stat ? "" : arg.replaceAll("\\", "/");
+  const out: string[] = [];
+  let total = 0;
+  let shown = 0;
+  for (const change of changes) {
+    const name = (await projectPath(state.cwd, change.file)).split(path.sep).join("/");
+    if (wanted && name !== wanted && !name.endsWith(`/${wanted}`)) continue;
+    shown += 1;
+    const oldText = change.before.kind === "text" ? change.before.text : "";
+    const newText = change.now.kind === "text" ? change.now.text : "";
+    const label =
+      change.before.kind === "absent" ? (change.now.kind === "absent" ? "created, then removed" : "created")
+      : change.now.kind === "absent" ? "removed"
+      : "changed";
+    const note =
+      change.before.kind === "not kept" ? ` (before: ${change.before.reason})` : change.now.kind === "not shown" ? ` (now: ${change.now.reason})` : "";
+    const comparable = change.before.kind !== "not kept" && change.now.kind !== "not shown";
+    const diff = comparable ? unifiedDiff(oldText, newText) : undefined;
+    const counts = diff ? ` +${diff.stat.added} -${diff.stat.removed}` : "";
+    if (stat || !diff) {
+      out.push(`${name}  ${label}${counts}${note}`);
+      continue;
+    }
+    if (!diff.lines.length) {
+      out.push(`${name}  back as it was`);
+      continue;
+    }
+    out.push(`--- ${name} (before this session)`, `+++ ${name} (now)`);
+    const room = Math.max(0, Math.min(DIFF_FILE_LINES, DIFF_TOTAL_LINES - total));
+    out.push(...diff.lines.slice(0, room));
+    total += Math.min(room, diff.lines.length);
+    if (diff.lines.length > room) out.push(`… ${diff.lines.length - room} more lines (/diff ${name} shows this file alone)`);
+    out.push("");
+  }
+  if (!shown) return `No file named ${arg} was changed by the agent in this session. /diff stat lists them.`;
+  out.push("Shell commands are not tracked. /rewind puts files back.");
+  // Your own files, but the same rule as every tool output: secret-looking values are cut.
+  return redactSecrets(out.join("\n")).text;
+}
+
 /** /rules: what the lock uses, by layer, numbered; yours can be removed, and stricter ones added. */
 function rulesCommand(state: AppState, arg: string) {
   const loaded = loadSettingsSafe(state.cwd);
@@ -782,6 +832,7 @@ async function handleLineInner(
   if (cmd.type === "init") return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
   if (cmd.type === "trust") return { output: trustCommand(state, cmd.action), session: state.session };
   if (cmd.type === "rules") return { output: rulesCommand(state, cmd.arg), session: state.session };
+  if (cmd.type === "diff") return { output: await diffCommand(state, cmd.arg), session: state.session };
   if (cmd.type === "doctor") return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
   if (cmd.type === "plan") {
     const arg = (cmd.arg ?? "").toLowerCase();
