@@ -180,23 +180,29 @@ async function scanAgents(cwd) {
                 source: root.source,
                 tools: listed.length ? [...new Set(listed)] : [...DEFAULT_AGENT_TOOLS],
                 model: /^(cheap|haiku|fast)$/i.test(String(data.model ?? "")) ? "cheap" : "inherit",
+                instructions: body.trim(),
             });
         }
     }
     return found;
 }
-/** An agent's instructions (the body of its file), read when it runs so an edit applies at once. */
+/** An agent's instructions: the text read with the file, so an edit made during a turn cannot slip in. */
 export async function agentInstructions(agent) {
-    const text = await readSmall(agent.file);
-    return text ? parseFrontmatter(text).body.trim() : "";
+    return agent.instructions;
 }
 /** The system prompt block for custom agents: names and descriptions only. */
 export function agentsPromptBlock(agents) {
     if (!agents.length)
         return "";
     const lines = ["## Agents", "Hand a task to one of these with the agent tool when it matches; it works in a fresh conversation and reports back:"];
-    for (const agent of agents.slice(0, 30))
-        lines.push(`- ${agent.name}: ${agent.description || "(no description)"} [tools: ${agent.tools.join(", ")}]`);
+    let size = lines.join("\n").length;
+    for (const agent of agents.slice(0, 30)) {
+        const line = `- ${agent.name}: ${agent.description || "(no description)"} [tools: ${agent.tools.join(", ")}]`;
+        if (size + line.length > MAX_PROMPT_BLOCK)
+            break;
+        lines.push(line);
+        size += line.length + 1;
+    }
     return lines.join("\n");
 }
 function trustFile() {
@@ -240,7 +246,9 @@ export async function loadExtensions(cwd) {
         const seen = new Set();
         return rows.filter((row) => usable(row.scope) && !seen.has(row.name) && (seen.add(row.name), true));
     };
-    return { skills: pick(skills), commands: pick(commands), agents: pick(agents), untrustedProject: trusted ? 0 : print.count };
+    // Agents: yours win a name clash, so trusting a repo never swaps the agent your "allow agent <name>" rule meant.
+    const agentsYoursFirst = [...agents.filter((row) => row.scope === "user"), ...agents.filter((row) => row.scope === "project")];
+    return { skills: pick(skills), commands: pick(commands), agents: pick(agentsYoursFirst), untrustedProject: trusted ? 0 : print.count };
 }
 /** /skills trust: trust this project's skills and commands exactly as they are now. */
 export async function trustProjectExtensions(cwd) {

@@ -102,6 +102,8 @@ export type TurnEvent =
   | { type: "outcome"; outcome: TurnOutcome };
 
 export type ToolRecord = {
+  /** Made by this custom agent (agents/<name>.md), not the main conversation. */
+  via?: string;
   name: string;
   class: ToolClass;
   dataLoss: number;

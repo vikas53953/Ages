@@ -85,21 +85,24 @@ export function formatConfirm(name, args, decision, why, existing) {
             // Each change clipped, and the whole list too, so one huge change cannot bury the others.
             clipDisplay(edits.map((edit, index) => `  edit ${index + 1}:\n${clipEdit(formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? "")))}`).join("\n")),
         ].join("\n")
-        : name === "edit" && args.edits !== undefined
-            ? `  path: ${String(args.path ?? "")}\n  edits: (unreadable; answer No)`
-            : name === "edit"
-                ? [
-                    `  path: ${String(args.path ?? "")}`,
-                    clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
-                ].join("\n")
-                : name === "write" && existing !== undefined
+        : name === "agent"
+            ? // One line each: a task the model wrote cannot draw fake lines ("  why: …") into the question.
+                `  agent: ${String(args.name ?? "")}\n  task: ${clipDisplay(String(args.task ?? "").replace(/\s+/g, " "))}`
+            : name === "edit" && args.edits !== undefined
+                ? `  path: ${String(args.path ?? "")}\n  edits: (unreadable; answer No)`
+                : name === "edit"
                     ? [
-                        `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
-                        clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                        `  path: ${String(args.path ?? "")}`,
+                        clipDisplay(formatActionDiff(String(args.old_string ?? ""), String(args.new_string ?? ""))),
                     ].join("\n")
-                    : Object.entries(args)
-                        .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
-                        .join("\n");
+                    : name === "write" && existing !== undefined
+                        ? [
+                            `  path: ${String(args.path ?? "")}  (replaces the whole file: ${existing.split("\n").length} lines now)`,
+                            clipDisplay(formatActionDiff(existing, String(args.contents ?? ""))),
+                        ].join("\n")
+                        : Object.entries(args)
+                            .map(([key, value]) => `  ${key}: ${clipDisplay(String(value ?? ""))}`)
+                            .join("\n");
     const score = decision
         ? `${decision.class}  data_loss=${decision.dataLoss.toFixed(2)}  via ${decision.source}`
         : "not scored by Jev";

@@ -375,3 +375,9 @@
   - Inside, the agent has a fresh conversation with only its own tools. Every call passes the same lock, confirm queue, restore points and plan mode. It gets no `agent` tool, so it cannot nest.
   - Its tokens count toward the turn. Its report is capped and comes back in a random tag marked as data.
   - `/agents` (and `/skills`) lists them.
+  - Fixes from the review of custom agents; it found no way around the lock:
+    - Yours win a name clash with a project's, so trusting a repo never swaps the agent an `allow agent <name>` rule meant.
+    - Instructions are the text read with the file (the bytes the trust hash covered), not re-read at run time.
+    - At most 30 steps per agent, and the prompt listing is capped.
+    - The question shows the task on one line, so it cannot draw fake lines.
+    - Each tool record an agent made carries `via: <agent>`.

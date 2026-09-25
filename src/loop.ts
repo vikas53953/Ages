@@ -373,6 +373,8 @@ export function createTools(input: {
 const localOpts = { toolCallId: "local", messages: [], context: {} } as never;
 
 const EXPLORE_MAX_STEPS = 20;
+/** Steps one custom agent may take (each is a model call); the turn's own steps bound how many agents run. */
+const AGENT_MAX_STEPS = 30;
 /** The model copied a redaction placeholder into a file: writing it would replace a real secret with the mark. */
 const PLACEHOLDER_REFUSED =
   "Not written: the text contains an Aegis [redacted:…] placeholder, which stands for a secret you were not shown. Change only the parts you need with edit, leaving the redacted lines untouched, or ask the user to fill in the value.";
@@ -663,6 +665,8 @@ export async function runLoop(input: {
             skills: input.skills,
             onlyTools: agent.tools,
             onTool: (record) => {
+              // The receipt says which agent made the call.
+              record.via = agent.name;
               toolsUsed.push(record);
               input.onEvent?.({ type: "tool", record });
             },
@@ -677,7 +681,7 @@ export async function runLoop(input: {
             ].join("\n"),
             messages: [{ role: "user", content: task, at: new Date().toISOString() }],
             tools: agentTools as never,
-            maxSteps: input.config.maxSteps,
+            maxSteps: Math.min(input.config.maxSteps, AGENT_MAX_STEPS),
             abortSignal: input.abortSignal,
             onEvent: toolEventsOnly,
             shouldStop: () => Boolean(stop.reason),

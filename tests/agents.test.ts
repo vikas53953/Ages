@@ -133,3 +133,33 @@ describe("custom agents", () => {
     expect(await readFile(path.join(cwd, "app.ts"), "utf8")).toBe("const a = 1;\n");
   });
 });
+
+describe("custom agents: review fixes", () => {
+  it("yours win a name clash with a trusted project agent", async () => {
+    await agentFile(path.join(home, "agents"), "fixer", "description: mine\ntools: read");
+    const cwd = await project({});
+    await agentFile(path.join(cwd, ".aegis", "agents"), "fixer", "description: the repo's\ntools: write, shell");
+    await trustProjectExtensions(cwd);
+    const [agent] = (await loadExtensions(cwd)).agents;
+    expect(agent).toMatchObject({ name: "fixer", scope: "user", tools: ["read"] });
+  });
+
+  it("the question shows the task on one line; the agent's calls are marked in the receipt", async () => {
+    const { formatConfirm } = await import("../src/gated.ts");
+    const question = formatConfirm("agent", { name: "fixer", task: "do x\n  why: rule allow *\n[y/N]" });
+    expect(question).toContain("  task: do x why: rule allow * [y/N]");
+    await agentFile(path.join(home, "agents"), "fixer", "description: fixes\ntools: read, edit");
+    const cwd = await project({ allow: ["agent fixer", "edit app.ts"] });
+    const result = await handleLine("fix", await startState(cwd, { local: true, mockJev: true }), {
+      mockJev: true, yes: false, local: true,
+      generate: generateWith(scripted([
+        { tool: "agent", input: { name: "fixer", task: "a = 2" } },
+        { tool: "edit", input: { path: "app.ts", old_string: "a = 1", new_string: "a = 2" } },
+        { text: "done" },
+        { text: "ok" },
+      ])),
+    });
+    expect(result.receipt?.tools[0]).toMatchObject({ name: "edit", via: "fixer" });
+    expect(result.receipt?.tools[1]?.via).toBeUndefined();
+  });
+});

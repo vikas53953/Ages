@@ -102,6 +102,9 @@ export function formatConfirm(name: string, args: JsonObject, decision?: ToolDec
         // Each change clipped, and the whole list too, so one huge change cannot bury the others.
         clipDisplay(edits.map((edit, index) => `  edit ${index + 1}:\n${clipEdit(formatActionDiff(String(edit.old_string ?? ""), String(edit.new_string ?? "")))}`).join("\n")),
       ].join("\n")
+    : name === "agent"
+      ? // One line each: a task the model wrote cannot draw fake lines ("  why: …") into the question.
+        `  agent: ${String(args.name ?? "")}\n  task: ${clipDisplay(String(args.task ?? "").replace(/\s+/g, " "))}`
     : name === "edit" && args.edits !== undefined
       ? `  path: ${String(args.path ?? "")}\n  edits: (unreadable; answer No)`
     : name === "edit"
