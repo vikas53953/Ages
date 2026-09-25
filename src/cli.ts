@@ -20,8 +20,17 @@ export function parseArgs(argv: string[]) {
   const rest: string[] = [];
   let model: string | undefined;
   let port: number | undefined;
+  const allow: string[] = [];
+  const deny: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
+    if (arg === "--allow" || arg === "--deny") {
+      const rule = argv[i + 1];
+      if (!rule) throw new Error(`${arg} needs a rule, e.g. ${arg} "shell npm test"`);
+      (arg === "--allow" ? allow : deny).push(rule);
+      i += 1;
+      continue;
+    }
     if (arg === "--model" || arg === "-m") {
       model = argv[i + 1];
       i += 1;
@@ -55,6 +64,8 @@ export function parseArgs(argv: string[]) {
     stdin: flags.has("--stdin"),
     tui: flags.has("--tui"),
     trustProject: flags.has("--trust-project"),
+    allow,
+    deny,
     model,
     prompt: rest.join(" ").trim(),
   };
@@ -78,6 +89,8 @@ function help() {
     "       --local          no chat model: list, read and search only",
     "       -p, --print      headless (exit 0 done, 1 error, 2 a tool call was denied); --json for JSON lines",
     "       --stdin          with -p and a task: also read stdin (without a task, stdin is the task)",
+    "       --allow <rule>   with -p: allow this for this run only, e.g. --allow \"shell npm test\" (repeatable)",
+    "       --deny <rule>    deny this for this run only (repeatable)",
     "       --trust-project  use this folder's .aegis/settings.json allow rules without /trust (CI you control)",
     "       --yes            with -p: approve every question (dangerous: only rules you trust should decide)",
     "       -v, --version    print the version",
@@ -177,6 +190,8 @@ export async function main() {
   }
   // Only from the command line or the real environment; a project's .env cannot set it (see env.ts).
   if (args.trustProject) process.env.AEGIS_TRUST_PROJECT = "1";
+  // Rules for this run only (like Claude Code's --allowedTools); never saved, and the floor still wins.
+  if (args.allow.length || args.deny.length) process.env.AEGIS_RUN_RULES = JSON.stringify({ allow: args.allow, deny: args.deny });
   loadEnv();
   if (args.help) {
     console.log(help());

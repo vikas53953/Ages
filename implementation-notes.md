@@ -172,3 +172,4 @@
   - `edit` takes `replace_all`. A non-unique match says at which lines, and identical old and new text is refused.
   - In a Windows (CRLF) file, the model's `\n` text is matched as `\r\n` and the replacement keeps CRLF. Before, every multi-line edit of a CRLF file failed with "not found".
   - The agent's shell keeps what a failing, timed-out or too-chatty command printed and adds how it ended (`[exit code 3]`, `[stopped: it ran longer than 30 s]`). Before, the error dropped stdout.
+- Per-run rules for headless runs (Claude Code's `--allowedTools`/`--disallowedTools`): `--allow "<rule>"` and `--deny "<rule>"` are repeatable. They are passed to settings through `AEGIS_RUN_RULES`, which is set only by the CLI; a project `.env` cannot set it. They are added to the loaded rules, never saved, and the floor asks still win. This is finer than `--yes`, which approves everything.

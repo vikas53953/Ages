@@ -159,6 +159,20 @@ function parseSettings(raw) {
     };
 }
 const unique = (items) => [...new Set(items)];
+/** --allow / --deny from the command line, for one run (set by cli.ts; a project .env cannot set it). */
+function runRules() {
+    const raw = process.env.AEGIS_RUN_RULES;
+    if (!raw)
+        return { allow: [], deny: [] };
+    try {
+        const parsed = JSON.parse(raw);
+        const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === "string") : []);
+        return { allow: list(parsed.allow), deny: list(parsed.deny) };
+    }
+    catch {
+        return { allow: [], deny: [] };
+    }
+}
 /** Trust a project file in headless runs you control (CI): the real environment only, never a project .env. */
 function trustedByEnv() {
     return process.env.AEGIS_TRUST_PROJECT === "1";
@@ -194,15 +208,16 @@ export function loadSettingsWithTrust(cwd) {
         if (p.thinking.level)
             ignored.push(`thinking ${p.thinking.level}`);
     }
+    const run = runRules();
     const settings = {
         thinking: { level: m.thinking.level ?? projectThinking.level, display: m.thinking.display ?? p.thinking.display },
         plugins: [...(m.plugins ?? (trusted ? p.plugins : undefined) ?? DEFAULT_SETTINGS.plugins)],
         jev: { mode: m.jevMode ?? projectJev ?? DEFAULT_SETTINGS.jev.mode },
         rules: {
-            deny: unique([...DEFAULT_SETTINGS.rules.deny, ...(p.deny ?? []), ...(m.deny ?? [])]),
+            deny: unique([...DEFAULT_SETTINGS.rules.deny, ...(p.deny ?? []), ...(m.deny ?? []), ...run.deny]),
             ask: unique([...DEFAULT_SETTINGS.rules.ask, ...FLOOR_ASK, ...(p.ask ?? []), ...(m.ask ?? [])]),
             // Lists add up: the default reads stay allowed (to make reads ask, add an ask rule such as "ask read *").
-            allow: unique([...DEFAULT_SETTINGS.rules.allow, ...((trusted ? p.allow : undefined) ?? []), ...(m.allow ?? [])]),
+            allow: unique([...DEFAULT_SETTINGS.rules.allow, ...((trusted ? p.allow : undefined) ?? []), ...(m.allow ?? []), ...run.allow]),
         },
     };
     return { settings, trust: { exists: Boolean(project), trusted, ignored, hash: project?.hash } };

@@ -164,3 +164,22 @@ describe("trust: review fixes", () => {
     expect(trust.ignored).toEqual(["jev every-call", "thinking high"]);
   });
 });
+
+describe("per-run rules (aegis -p --allow/--deny)", () => {
+  it("add rules for one run; the floor still asks, and a project .env cannot set them", async () => {
+    expect(parseArgs(["-p", "x", "--allow", "shell npm test", "--deny", "webfetch *", "--allow", "write src/*"])).toMatchObject({
+      allow: ["shell npm test", "write src/*"],
+      deny: ["webfetch *"],
+    });
+    expect(() => parseArgs(["--allow"])).toThrow("needs a rule");
+    const cwd = await project({});
+    await writeFile(path.join(cwd, ".env"), `AEGIS_RUN_RULES={"allow":["shell *"]}\n`);
+    loadEnv(cwd);
+    expect(process.env.AEGIS_RUN_RULES).toBeUndefined();
+    process.env.AEGIS_RUN_RULES = JSON.stringify({ allow: ["write src/*", "read *"], deny: ["webfetch *"] });
+    const settings = loadSettings(cwd);
+    expect(matchRule(settings, "write", { path: "src/a.ts" }, cwd)?.action).toBe("allow");
+    expect(matchRule(settings, "webfetch", { url: "https://example.com" }, cwd)?.action).toBe("deny");
+    expect(matchRule(settings, "read", { path: ".env" }, cwd)?.action).toBe("ask");
+  });
+});
