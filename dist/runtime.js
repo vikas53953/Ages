@@ -29,7 +29,8 @@ export async function startState(cwd, opts) {
     const session = opts.newSession ? await createSession(cwd) : await loadOrCreateSession(cwd);
     const provider = opts.local ? "local" : resolveProvider();
     const config = loadEnv(cwd);
-    await refreshCatalog();
+    // The live model list arrives in the background; startup never waits on the network (the built-in list is used until then).
+    void refreshCatalog();
     const pin = await loadPinnedModel(cwd);
     const pinned = defaultModelId({
         pin,

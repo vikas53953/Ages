@@ -148,7 +148,8 @@ describe("/login chatgpt (device code)", () => {
     } finally {
       await fake.close();
     }
-  });
+    // Two real 1-second polls, as auth.openai.com asks for.
+  }, 20_000);
 
   it("esc cancels a sign-in that is still waiting", async () => {
     const fake = await fakeOpenAI();
