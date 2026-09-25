@@ -154,6 +154,26 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `aegis --worktree=fix-login` | work in a separate git worktree (`<repo>.worktrees/fix-login`, branch `aegis/fix-login`): the agent's changes never touch your checkout until you merge the branch. The same name reuses it; `--worktree` alone picks a name |
 | `aegis -c` · `aegis -r` | continue the last session (every launch is otherwise new, like Pi) · start with your recent sessions listed, then `/resume 2` |
 
+## In GitHub Actions
+
+`action.yml` runs `aegis -p` in a workflow with the same lock: rules decide, nothing can ask (a question is a No), and shell stays off unless the job sets `AEGIS_ALLOW_SHELL=1`.
+
+```yaml
+- uses: vikas53953/Ages@main
+  id: aegis
+  with:
+    prompt: Review the changed files for secrets and risky PowerShell.
+    allow: |
+      read *
+    deny: |
+      webfetch *
+  env:
+    OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+- run: echo "${{ steps.aegis.outputs.answer }}"
+```
+
+The prompt goes in as data (an environment variable), so PR text in it cannot run as a script. Outputs are `answer`, `exit-code` (2 = a call was denied; `fail-on-denied: false` keeps going) and `log` (JSON lines). The answer also goes to the job summary.
+
 ## The lock
 
 Rules decide first (deny, then ask, then allow). Paths are matched relative to the folder, so `C:\proj\.git\x` is `.git/x`. Jev only scores what no rule matches, and can only make a decision stricter. With no Jev key, reads and allowed calls still run and everything else asks you. "Always allow" is never offered when an ask rule matched, for chained or wrapped commands (`pwsh -c`, `cmd /c`, `iex`), or for `.git`, `.harness`, `.aegis`. Shell (PowerShell) stays off unless `AEGIS_ALLOW_SHELL=1`. None of this is OS isolation: generated code runs with your rights.

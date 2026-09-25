@@ -1,0 +1,116 @@
+# Aegis as a GitHub Action: `aegis -p` in your workflow, with the same lock as on your PC.
+# Rules decide; nothing can ask (a question is a No). Shell stays off unless the job sets AEGIS_ALLOW_SHELL=1.
+#
+#   - uses: vikas53953/Ages@main
+#     id: aegis
+#     with:
+#       prompt: Review the changed files for secrets and risky PowerShell.
+#       allow: |
+#         read *
+#       deny: |
+#         webfetch *
+#     env:
+#       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+#   - run: echo "${{ steps.aegis.outputs.answer }}"
+name: Aegis
+description: Run the Aegis coding agent headless (aegis -p) behind its rules-first lock.
+author: vikas53953
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  prompt:
+    description: The task. Passed to Aegis as data (an environment variable), never pasted into a script.
+    required: true
+  allow:
+    description: Allow rules for this run, one per line (--allow), e.g. "read *" or "edit docs/*".
+    required: false
+    default: ""
+  deny:
+    description: Deny rules for this run, one per line (--deny).
+    required: false
+    default: ""
+  args:
+    description: More aegis flags, separated by spaces (e.g. "--model gpt-5.5" or "--local --mock-jev").
+    required: false
+    default: ""
+  working-directory:
+    description: The folder Aegis works in.
+    required: false
+    default: "."
+  fail-on-denied:
+    description: Fail the step when the lock denied a call (aegis exits 2). "false" keeps going.
+    required: false
+    default: "true"
+  node-version:
+    description: Node.js to set up (22.19 or newer). Empty keeps the runner's Node.
+    required: false
+    default: "22"
+
+outputs:
+  answer:
+    description: The final answer.
+    value: ${{ steps.run.outputs.answer }}
+  exit-code:
+    description: 0 done, 2 a call was denied, anything else failed.
+    value: ${{ steps.run.outputs.exit-code }}
+  log:
+    description: Path of the JSON-lines log (every event, then one result line).
+    value: ${{ steps.run.outputs.log }}
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.node-version != ''
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: Install Aegis's runtime dependencies
+      shell: bash
+      run: |
+        if [ ! -d "$GITHUB_ACTION_PATH/node_modules/ai" ]; then
+          npm ci --omit=dev --ignore-scripts --no-audit --no-fund --prefix "$GITHUB_ACTION_PATH"
+        fi
+    - id: run
+      name: aegis -p
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        AEGIS_PROMPT: ${{ inputs.prompt }}
+        AEGIS_ALLOW_RULES: ${{ inputs.allow }}
+        AEGIS_DENY_RULES: ${{ inputs.deny }}
+        AEGIS_EXTRA_ARGS: ${{ inputs.args }}
+        AEGIS_FAIL_ON_DENIED: ${{ inputs.fail-on-denied }}
+      run: |
+        set -u
+        args=(-p --json)
+        while IFS= read -r rule; do [ -n "${rule// }" ] && args+=(--allow "$rule"); done <<< "$AEGIS_ALLOW_RULES"
+        while IFS= read -r rule; do [ -n "${rule// }" ] && args+=(--deny "$rule"); done <<< "$AEGIS_DENY_RULES"
+        read -r -a extra <<< "$AEGIS_EXTRA_ARGS"
+        args+=("${extra[@]}")
+        log="$RUNNER_TEMP/aegis-$GITHUB_RUN_ID-$RANDOM.jsonl"
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/main.js" "${args[@]}" "$AEGIS_PROMPT" < /dev/null > "$log"
+        code=$?
+        set -e
+        cat "$log"
+        # The answer is in the last line (type "result"); read with Node, not the shell, so any text is safe.
+        answer=$(node -e 'const fs=require("fs");const lines=fs.readFileSync(process.argv[1],"utf8").trim().split("\n");let r={};for(const l of lines.reverse()){try{const j=JSON.parse(l);if(j.type==="result"){r=j;break}}catch{}}process.stdout.write(String(r.answer??r.output??(r.error?"Aegis error: "+r.error:"")))' "$log")
+        delimiter="AEGIS_$(node -e 'process.stdout.write(require("crypto").randomBytes(12).toString("hex"))')"
+        {
+          echo "answer<<$delimiter"
+          echo "$answer"
+          echo "$delimiter"
+          echo "exit-code=$code"
+          echo "log=$log"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "### Aegis"
+          echo
+          echo "$answer"
+          echo
+          echo "Exit code $code (0 done, 2 a call was denied)."
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$code" = "2" ] && [ "$AEGIS_FAIL_ON_DENIED" = "false" ]; then exit 0; fi
+        exit "$code"

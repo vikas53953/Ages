@@ -66,6 +66,31 @@ jobs:
           ./install.ps1
           $v = aegis --version
           if ($v -notmatch '^aegis \d') { throw "aegis --version said: $v" }
+      - name: Folder for the GitHub Action test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\aegis-action" | Out-Null
+          "hello from the aegis action" | Set-Content "$env:RUNNER_TEMP\aegis-action\README.md"
+      - name: The GitHub Action (uses ./, local planner, no key)
+        id: action
+        uses: ./
+        with:
+          prompt: read README.md
+          allow: |
+            read *
+          deny: |
+            webfetch *
+          args: --local --mock-jev
+          working-directory: ${{ runner.temp }}/aegis-action
+          node-version: ""
+      - name: The action's answer came back
+        shell: pwsh
+        env:
+          ANSWER: ${{ steps.action.outputs.answer }}
+          CODE: ${{ steps.action.outputs.exit-code }}
+        run: |
+          if ($env:CODE -ne "0") { throw "exit code $env:CODE" }
+          if ($env:ANSWER -notmatch 'hello from the aegis action') { throw "answer was: $env:ANSWER" }
       - name: Report to job summary
         if: always()
         shell: pwsh

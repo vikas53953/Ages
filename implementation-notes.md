@@ -350,3 +350,7 @@
     - A last event with no blank line after it is read.
     - An empty answer and an ended session (404 → "/mcp restart") get clear messages.
     - The branch reader opens HEAD without blocking and checks the open file, so a pipe swapped in after the check cannot hang it.
+- GitHub Action (`action.yml`, composite): `aegis -p --json` in a workflow, with `allow`/`deny` rule lists, extra `args`, `working-directory` and `fail-on-denied`.
+  - The prompt and rules go in as environment variables, never pasted into the script: a local run with `$(touch PWNED)` in the prompt created nothing.
+  - The answer is read from the JSON result by Node and written to `GITHUB_OUTPUT` with a random delimiter, and to the job summary.
+  - Our Windows CI runs it through `uses: ./` with the local planner and checks the answer.
