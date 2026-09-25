@@ -20,7 +20,7 @@ import { HELP, parseLine } from "./commands.js";
 import { addMemory, loadMemory } from "./memory.js";
 import { loadSkills } from "./skills.js";
 import { loadContext } from "./context.js";
-import { compactSession, loadSummary, modelSummarizer, needsCompaction } from "./compact.js";
+import { compactSession, historySize, loadSummary, modelSummarizer, needsCompaction } from "./compact.js";
 import { buildSystemPrompt } from "./system.js";
 import { currentCatalog, formatModelList, refreshCatalog } from "./catalog.js";
 import { clearPinnedModel, defaultModelId, loadPinnedModel, setPinnedModel } from "./model-pin.js";
@@ -179,9 +179,9 @@ export async function startState(cwd, opts) {
         unknownPlugins: unknown,
         sessionTokens: { input: 0, output: 0 },
     };
-    if (pinned)
-        return { ...base, model: pinned, modelMode: "pinned" };
-    return { ...base, model: "auto", modelMode: "auto" };
+    const state = pinned ? { ...base, model: pinned, modelMode: "pinned" } : { ...base, model: "auto", modelMode: "auto" };
+    await refreshContextUse(state);
+    return state;
 }
 async function pluginTaskPermission(plugins, cwd) {
     for (const plugin of plugins) {
@@ -404,6 +404,28 @@ turnOptions = {}) {
     };
 }
 export async function handleLine(line, state, opts, confirm = async () => false, onEvent) {
+    try {
+        return await handleLineInner(line, state, opts, confirm, onEvent);
+    }
+    finally {
+        await refreshContextUse(state);
+    }
+}
+/**
+ * How full the conversation is, as a share of the size at which Aegis compacts it automatically (like Claude
+ * Code's "context left until auto-compact"). Shown in the footer and /status.
+ */
+export async function refreshContextUse(state) {
+    try {
+        const limit = loadEnv(state.cwd).compactAtChars;
+        const size = historySize(await loadMessages(state.cwd, state.session.id));
+        state.contextPercent = limit > 0 ? Math.min(999, Math.round((size / limit) * 100)) : undefined;
+    }
+    catch {
+        // leave the last value
+    }
+}
+async function handleLineInner(line, state, opts, confirm, onEvent) {
     const ctx = { state, opts, confirm, onEvent };
     if (line.trim().startsWith("!"))
         return runUserShell(line.trim(), state, opts);
@@ -676,6 +698,7 @@ export async function handleLine(line, state, opts, confirm = async () => false,
                 `task      ${state.taskPermission}`,
                 `thinking  ${thinkingOf(loadSettingsSafe(state.cwd).settings).level} · ${thinkingOf(loadSettingsSafe(state.cwd).settings).display}`,
                 `tokens    ${formatTokenLine(state.sessionTokens) || "none yet"} this session`,
+                `context   ${state.contextPercent ?? 0}% of the size where Aegis compacts old turns automatically (/compact does it now)`,
                 `plugins   ${state.plugins.map((plugin) => plugin.name).join(", ") || "(none)"}${state.unknownPlugins.length ? `  unknown: ${state.unknownPlugins.join(", ")}` : ""}`,
                 `settings  ${settingsPath(state.cwd)}${statusTrust(state.cwd)}`,
                 `yours     ${yourSettingsPath(state.cwd)}`,

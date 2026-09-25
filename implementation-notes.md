@@ -145,3 +145,4 @@
   - `redact.ts` runs on every Aegis tool output in the gate. It cuts private-key blocks, AWS/GitHub/OpenAI/Anthropic/OpenCode/Slack/Google keys and JWTs, plus upper-case `NAME_KEY/TOKEN/SECRET/PASSWORD=value` lines (the name is kept; references like `$env:X` and `process.env.X` are left). The output then says how many were cut, and the record keeps the count.
   - Why at the gate: once a key is in the conversation it goes to the provider on every later turn and into the saved session.
   - Limit: in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot cut it.
+- Context meter (Claude Code's "context left until auto-compact", Pi's footer %, Codex's /status): `ctx N%` in the footer and a `context` line in /status. It is the conversation's size as a share of `compactAtChars`, the size where Aegis compacts old turns on its own, so the number predicts when that happens. It is refreshed after every command and turn and on start.

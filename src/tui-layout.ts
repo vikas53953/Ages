@@ -97,11 +97,13 @@ export function footerText(input: {
   tokens?: string;
   /** Plan mode is on: read-only until you approve. */
   plan?: boolean;
+  /** Conversation size as a % of the auto-compaction limit. */
+  context?: number;
 }): string {
   const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
   const task = `task ${input.task ?? "none"}`;
   const place = input.cwd ? `${input.cwd} · ` : "";
-  const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}`;
+  const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
   if (input.busy) {
     const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));
     const phase = input.phase ?? "working";
