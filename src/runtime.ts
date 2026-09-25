@@ -12,6 +12,7 @@ import { loadCredential, saveCredential } from "./auth/store.ts";
 import { CLAUDE_CODE_MODEL, CLAUDE_MISSING, findClaude, runClaudeCodeTurn } from "./engines/claude-code.ts";
 import { projectPath, realOrSelf, rewindPoints, rewindTo, sessionChanges, snapshotFile } from "./checkpoints.ts";
 import { unifiedDiff } from "./diff.ts";
+import { bellCommand } from "./bell.ts";
 import { closeMcp, describeServer, mcpServers, startMcp, trustProjectServer, type McpState } from "./mcp.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { copyToClipboard } from "./clipboard.ts";
@@ -833,6 +834,7 @@ async function handleLineInner(
   if (cmd.type === "trust") return { output: trustCommand(state, cmd.action), session: state.session };
   if (cmd.type === "rules") return { output: rulesCommand(state, cmd.arg), session: state.session };
   if (cmd.type === "diff") return { output: await diffCommand(state, cmd.arg), session: state.session };
+  if (cmd.type === "bell") return { output: bellCommand(cmd.arg), session: state.session };
   if (cmd.type === "doctor") return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
   if (cmd.type === "plan") {
     const arg = (cmd.arg ?? "").toLowerCase();

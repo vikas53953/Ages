@@ -310,6 +310,8 @@
         setWorking("Starting");
       }
       if (data.kind === "event") onEvent(data.event);
+      if (data.kind === "approval" && document.hidden) flagTitle("● Waiting for you");
+      if (data.kind === "done" && document.hidden) flagTitle("✓ Done");
       if (data.kind === "approval") {
         setWorking("Waiting for you");
         approvalCard(data.id, data.question, data.options);
@@ -586,6 +588,17 @@
     e.preventDefault();
     renderPicker();
   });
+
+  // ---------- the tab title says when Aegis needs you (the terminal rings its bell instead) ----------
+  const baseTitle = document.title;
+  function flagTitle(text) {
+    document.title = `${text} · ${baseTitle}`;
+  }
+  const clearTitle = () => {
+    if (!document.hidden) document.title = baseTitle;
+  };
+  document.addEventListener("visibilitychange", clearTitle);
+  window.addEventListener("focus", clearTitle);
 
   // ---------- pasted or dropped images: sent with the next message, checked again by the server ----------
   const MAX_IMAGES = 4;

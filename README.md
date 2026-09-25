@@ -118,6 +118,7 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
 | `/model` | model picker (type to filter, Enter picks); `/model glm-5.3` pins directly, `/model auto` lets Jev pick |
 | `/think low\|medium\|high\|off` · `/think fold\|show\|hide` | how hard the model thinks · how its reasoning appears; `ctrl+t` folds/opens it |
 | `/theme aegis\|light\|contrast` | colours, saved for every folder |
+| `/bell all\|ask\|done\|off` | the terminal bell when a question waits for your y/a/N or a turn over 5 s ends (Windows Terminal flashes the tab), so you can work in another window; saved for every folder. Studio marks its tab title instead |
 | `aegis ui` | Aegis Studio in the browser (`--port N`, `--no-open`) |
 | `/compact` | fold old turns into a summary (also automatic when history is big) |
 | `/jev off\|second\|every` | Jev mode — jev plugin |

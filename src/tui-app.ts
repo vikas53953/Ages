@@ -40,6 +40,7 @@ import {
 } from "./tui-layout.ts";
 import type { ConfirmAnswer, ConfirmFn } from "./types.ts";
 import type { TurnEvent } from "./loop.ts";
+import { loadBell, shouldRing } from "./bell.ts";
 
 const dim = (text: string) => paint("dim", text);
 /** How the model's Markdown answers look, in the current theme's colours. */
@@ -291,6 +292,11 @@ export async function createTuiApp(
     paintTranscript();
   };
 
+  // The terminal bell (/bell): read each time, so a change applies at once.
+  const ring = (moment: "ask" | "done", elapsedMs = 0) => {
+    if (alive && shouldRing(loadBell(), moment, elapsedMs)) terminal.write("\x07");
+  };
+
   const confirm: ConfirmFn = serializeConfirm(
     (question, options) =>
       new Promise<ConfirmAnswer>((resolve) => {
@@ -310,6 +316,7 @@ export async function createTuiApp(
           tui.requestRender();
         };
         pendingConfirms.push(finish);
+        ring("ask");
         editor.disableSubmit = true;
         overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows, options?.always), {
           anchor: "bottom-center",
@@ -562,6 +569,8 @@ export async function createTuiApp(
             : String(error),
       );
     } finally {
+      // Read before setBusy clears it: a long turn rings when it ends (you may be in another window).
+      if (turnStarted) ring("done", Date.now() - turnStarted);
       if (alive) setBusy(false);
       // The next queued message, if any (after this turn fully settled).
       const next = alive && !turnAbort.signal.aborted ? queued.shift() : undefined;

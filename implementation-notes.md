@@ -300,3 +300,7 @@
   - `/diff stat` lists names with +/- counts, and `/diff <file>` shows one file. Output is capped at 300 lines per file and 2,000 in total.
   - Binary, too-large and link targets are named, not shown. Output passes the same secret redaction as tool output.
   - `src/diff.ts` is a small line diff (LCS on the part between the unchanged start and end; past 4M cells it shows that part as one change), so a huge file cannot make it slow.
+- Bell (like Claude Code's and OpenCode's notifications):
+  - The TUI writes a BEL when a y/a/N question appears, and when a turn of 5 s or more ends. Quick answers do not ring.
+  - `/bell all|ask|done|off` is saved in `~/.aegis/settings.json`. It is read at each ring, so a change applies at once.
+  - `-p` and the plain REPL never ring. Studio has no sound: when its tab is in the background, the title shows "● Waiting for you" or "✓ Done" until you come back.

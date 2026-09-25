@@ -13,6 +13,7 @@ import { loadMessages, messageText } from "./session.js";
 import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
 import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
+import { loadBell, shouldRing } from "./bell.js";
 const dim = (text) => paint("dim", text);
 /** How the model's Markdown answers look, in the current theme's colours. */
 const markdownTheme = () => ({
@@ -220,6 +221,11 @@ export async function createTuiApp(opts, input = {}) {
         }
         paintTranscript();
     };
+    // The terminal bell (/bell): read each time, so a change applies at once.
+    const ring = (moment, elapsedMs = 0) => {
+        if (alive && shouldRing(loadBell(), moment, elapsedMs))
+            terminal.write("\x07");
+    };
     const confirm = serializeConfirm((question, options) => new Promise((resolve) => {
         lastConfirm = question;
         overlay?.hide();
@@ -239,6 +245,7 @@ export async function createTuiApp(opts, input = {}) {
             tui.requestRender();
         };
         pendingConfirms.push(finish);
+        ring("ask");
         editor.disableSubmit = true;
         overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows, options?.always), {
             anchor: "bottom-center",
@@ -490,6 +497,9 @@ export async function createTuiApp(opts, input = {}) {
                     : String(error));
         }
         finally {
+            // Read before setBusy clears it: a long turn rings when it ends (you may be in another window).
+            if (turnStarted)
+                ring("done", Date.now() - turnStarted);
             if (alive)
                 setBusy(false);
             // The next queued message, if any (after this turn fully settled).

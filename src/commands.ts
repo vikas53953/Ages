@@ -15,6 +15,7 @@ export type Slash =
   | { type: "trust"; action?: string }
   | { type: "rules"; arg: string }
   | { type: "diff"; arg: string }
+  | { type: "bell"; arg?: string }
   | { type: "fork"; arg?: string }
   | { type: "init" }
   | { type: "todos" }
@@ -76,6 +77,8 @@ export function parseLine(line: string): Slash {
       return { type: "trust", action: rest[0]?.toLowerCase() };
     case "diff":
       return { type: "diff", arg };
+    case "bell":
+      return { type: "bell", arg: arg || undefined };
     case "rules":
     case "permissions":
       return { type: "rules", arg };
@@ -141,6 +144,7 @@ export const HELP = [
   "  /think fold|show|hide       reasoning folded (ctrl+t opens), shown live, or hidden",
   "  /status            provider, session, cwd, task",
   "  /theme aegis|light|contrast  colours (saved for you, every folder)",
+  "  /bell all|ask|done|off  ring when a question waits or a long turn ends (saved for you)",
   "  /login             show sign-ins and keys; /login opencode <key> saves one for every folder",
   "  /login chatgpt     sign in with your ChatGPT plan (add 'browser' to use this PC's browser)",
   "  /review            review uncommitted changes (read-only); /review main · /review commit <sha> · add notes",
