@@ -1,10 +1,8 @@
 import { loadEnv, hasJevCredentials } from "./env.ts";
-import { liveJev } from "./jev/evaluate.ts";
-import { mockJev } from "./jev/mock.ts";
 import { formatReceipt, localGenerate, runLoop, type GenerateFn, type TurnEvent } from "./loop.ts";
 import { formatChat } from "./receipt.ts";
 import { modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
-import { HELP, isExactYes, parseLine } from "./commands.ts";
+import { HELP, parseLine } from "./commands.ts";
 import { addMemory, loadMemory } from "./memory.ts";
 import { loadSkills } from "./skills.ts";
 import { loadContext } from "./context.ts";
@@ -24,26 +22,12 @@ import {
   type SessionMeta,
 } from "./session.ts";
 import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
-import {
-  acceptTask,
-  agreementFromOwnerText,
-  clearConversationalPending,
-  clearPendingConfirm,
-  clearPendingDraft,
-  confirmAgreement,
-  formatTaskStatus,
-  formatTaskSystemPrompt,
-  loadTask,
-  proposeNewTask,
-  readPendingConfirm,
-  readPendingDraft,
-  renderProposalReview,
-  renderTaskCard,
-  taskPermission,
-  writePendingDraft,
-} from "./delivery.ts";
-import { formatPlan, loadPlan, openTestedResult, runDeliveryBuild } from "./controller.ts";
-import { loadSettingsSafe, parseJevMode, saveJevMode, settingsPath, type JevMode } from "./rules.ts";
+import { loadSettingsSafe, settingsPath } from "./rules.ts";
+import type { AegisPlugin, CommandContext } from "./plugin-api.ts";
+import { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
+
+export { initialJevHealth, jevHealthFromReceipt } from "./health.ts";
+import { KNOWN_PLUGINS, loadPlugins } from "./plugins/index.ts";
 
 export type RunOpts = {
   mockJev: boolean;
@@ -64,6 +48,10 @@ export type AppState = {
   modelMode: "auto" | "pinned";
   jevHealth: JevHealth;
   taskPermission: TaskPermission;
+  /** Layer-1 plugins loaded from .aegis/settings.json. */
+  plugins: AegisPlugin[];
+  /** Plugin names in settings that Aegis does not know. */
+  unknownPlugins: string[];
 };
 
 export type HandleResult = {
@@ -74,26 +62,6 @@ export type HandleResult = {
   receipt?: Receipt;
   chat?: "keep" | "reset" | "reload";
 };
-
-export function initialJevHealth(mockJev: boolean, mode: JevMode = "second-opinion"): JevHealth {
-  if (mode === "off") return "off";
-  if (mockJev) return "mock";
-  return hasJevCredentials() ? "down" : "blocked";
-}
-
-export function jevHealthFromReceipt(mockJev: boolean, receipt: Receipt): JevHealth {
-  if (receipt.turn.source === "off") return "off";
-  if (mockJev) return "mock";
-  if (!hasJevCredentials()) return "blocked";
-  if (receipt.turn.source === "fail_closed") return "down";
-  if (receipt.tools.some((tool) => tool.source === "fail_closed")) return "down";
-  if (receipt.tools.some((tool) => tool.source === "agreement")) {
-    return receipt.turn.source === "jev" ? "live" : receipt.turn.source === "mock" ? "mock" : "live";
-  }
-  if (receipt.turn.source === "jev") return "live";
-  if (receipt.turn.source === "mock") return "mock";
-  return "down";
-}
 
 export async function startState(
   cwd: string,
@@ -110,13 +78,33 @@ export async function startState(
     provider,
     config,
   });
-  const jevHealth = initialJevHealth(opts.mockJev === true, loadSettingsSafe(cwd).settings.jev.mode);
-  await clearConversationalPending(cwd);
-  const permission = await taskPermission(cwd);
-  if (pinned) {
-    return { cwd, session, provider, model: pinned, modelMode: "pinned", jevHealth, taskPermission: permission };
+  const settings = loadSettingsSafe(cwd).settings;
+  const { plugins, unknown } = loadPlugins(settings.plugins, { mockJev: opts.mockJev });
+  const jevHealth = plugins.some((plugin) => plugin.scorer)
+    ? initialJevHealth(opts.mockJev === true, settings.jev.mode)
+    : "off";
+  for (const plugin of plugins) await plugin.onSessionStart?.(cwd);
+  const permission = await pluginTaskPermission(plugins, cwd);
+  const base = { cwd, session, provider, jevHealth, taskPermission: permission, plugins, unknownPlugins: unknown };
+  if (pinned) return { ...base, model: pinned, modelMode: "pinned" };
+  return { ...base, model: "auto", modelMode: "auto" };
+}
+
+async function pluginTaskPermission(plugins: AegisPlugin[], cwd: string): Promise<TaskPermission> {
+  for (const plugin of plugins) {
+    if (plugin.taskPermission) return plugin.taskPermission(cwd);
   }
-  return { cwd, session, provider, model: "auto", modelMode: "auto", jevHealth, taskPermission: permission };
+  return "untracked";
+}
+
+/** Text every enabled plugin adds to the system prompt (context:assemble). */
+async function pluginPrompts(plugins: AegisPlugin[], cwd: string, sessionId: string) {
+  const parts: string[] = [];
+  for (const plugin of plugins) {
+    const text = await plugin.systemPrompt?.({ cwd, sessionId });
+    if (text) parts.push(text);
+  }
+  return parts;
 }
 
 /** The cheap chat model writes compaction summaries. Local mode has no model, so the extractive summary is used. */
@@ -136,15 +124,18 @@ export async function runPrompt(
   const config = loadEnv(state.cwd);
   const provider = opts.local ? "local" : resolveProvider();
   const useLocal = opts.local === true || provider === "local";
-  const jev = opts.mockJev ? mockJev() : liveJev();
   const loadedSettings = loadSettingsSafe(state.cwd);
+  const hasScorer = state.plugins.some((plugin) => plugin.scorer);
   const notice = [
     useLocal ? "Chat is local (no OpenCode key). I can list, read, and search." : "",
     loadedSettings.error
       ? `Settings unreadable (${loadedSettings.error}). Jev is off and allow rules are ignored until you fix ${settingsPath(state.cwd)}.`
       : "",
-    !opts.mockJev && !hasJevCredentials() && loadedSettings.settings.jev.mode !== "off"
+    hasScorer && !opts.mockJev && !hasJevCredentials() && loadedSettings.settings.jev.mode !== "off"
       ? "Jev has no key. Rules still apply; anything Jev would score asks you instead. /jev off hides this."
+      : "",
+    state.unknownPlugins.length
+      ? `Unknown plugins in settings: ${state.unknownPlugins.join(", ")}. Known: ${KNOWN_PLUGINS.join(", ")}.`
       : "",
   ]
     .filter(Boolean)
@@ -167,23 +158,21 @@ export async function runPrompt(
   const memory = await loadMemory(state.cwd);
   const skills = await loadSkills(state.cwd);
   const context = await loadContext(state.cwd);
-  const taskContext = await formatTaskSystemPrompt(state.cwd);
+  const extraPrompts = await pluginPrompts(state.plugins, state.cwd, session.id);
   const at = new Date().toISOString();
   await appendMessage(state.cwd, session.id, { role: "user", content: prompt, at });
   onEvent?.({ type: "accepted" });
   const receipt = await runLoop({
     prompt,
     cwd: state.cwd,
-    jev,
+    plugins: state.plugins,
     config,
     confirm,
     sessionId: session.id,
     generate: opts.generate ?? (useLocal ? localGenerate : undefined),
     system: [
       buildSystemPrompt({ cwd: state.cwd, memory, skills, context, summary }),
-      "Task records (authoritative). Chat is not a stored agreement.",
-      taskContext,
-      "Do not ask the owner to reply yes. The supported confirm action is /task confirm <id> <hash>, or yes only while a pending confirm for that exact hash is shown in this session. /task new <id> proposes a different task and does not overwrite another. Never mark owner acceptance.",
+      ...extraPrompts,
     ].join("\n\n"),
     history,
     provider,
@@ -194,7 +183,7 @@ export async function runPrompt(
   // Save what the model really said, tool calls and results included, so the next turn remembers it.
   await appendMessages(state.cwd, session.id, capToolResults(receipt.newMessages ?? []));
   state.jevHealth = jevHealthFromReceipt(opts.mockJev, receipt);
-  state.taskPermission = receipt.taskPermission ?? (await taskPermission(state.cwd));
+  state.taskPermission = receipt.taskPermission ?? (await pluginTaskPermission(state.plugins, state.cwd));
   return {
     output: formatReceipt(receipt),
     notice: [notice, compacted].filter(Boolean).join("\n") || undefined,
@@ -210,7 +199,13 @@ export async function handleLine(
   confirm: ConfirmFn = async () => false,
   onEvent?: (event: TurnEvent) => void,
 ): Promise<HandleResult> {
+  const ctx: CommandContext = { state, opts, confirm, onEvent };
+  const pluginCommand = findPluginCommand(state.plugins, line);
+  if (pluginCommand) return pluginCommand.run(pluginCommand.arg, ctx);
   const cmd = parseLine(line);
+  if (cmd.type === "unknown") {
+    return { output: `unknown command /${cmd.name}. /help lists commands.`, session: state.session };
+  }
   if (cmd.type === "empty") {
     return { output: "", session: state.session };
   }
@@ -218,10 +213,14 @@ export async function handleLine(
     return { exit: true, output: "", session: state.session };
   }
   if (cmd.type === "help") {
-    return { output: HELP, session: state.session };
+    const extra = state.plugins.flatMap((plugin) => plugin.help ?? []);
+    return {
+      output: [HELP, ...(extra.length ? ["", "Plugins:", ...extra] : [])].join("\n"),
+      session: state.session,
+    };
   }
   if (cmd.type === "new" || cmd.type === "clear") {
-    await clearConversationalPending(state.cwd);
+    for (const plugin of state.plugins) await plugin.onSessionStart?.(state.cwd);
     const session = await createSession(state.cwd);
     state.session = session;
     return { output: `new session ${session.id}`, session, chat: "reset" };
@@ -305,28 +304,6 @@ export async function handleLine(
       };
     }
   }
-  if (cmd.type === "jev") {
-    const loaded = loadSettingsSafe(state.cwd);
-    if (cmd.mode) {
-      const mode = parseJevMode(cmd.mode);
-      if (!mode) return { output: "usage: /jev off | second | every", session: state.session };
-      if (loaded.error) {
-        return { output: `Fix ${settingsPath(state.cwd)} first: ${loaded.error}`, session: state.session };
-      }
-      saveJevMode(state.cwd, mode);
-      state.jevHealth = initialJevHealth(opts.mockJev === true, mode);
-      return { output: `jev mode ${mode}  (saved to ${settingsPath(state.cwd)})`, session: state.session };
-    }
-    return {
-      output: [
-        `jev mode  ${loaded.settings.jev.mode}${loaded.error ? `  (settings unreadable: ${loaded.error})` : ""}`,
-        `jev key   ${hasJevCredentials() ? "present" : "missing"}`,
-        `settings  ${settingsPath(state.cwd)}`,
-        "modes     off · second (only calls no rule matches) · every (also every write/edit/shell)",
-      ].join("\n"),
-      session: state.session,
-    };
-  }
   if (cmd.type === "status") {
     return {
       output: [
@@ -335,152 +312,21 @@ export async function handleLine(
         `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
         `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
         `task      ${state.taskPermission}`,
+        `plugins   ${state.plugins.map((plugin) => plugin.name).join(", ") || "(none)"}${state.unknownPlugins.length ? `  unknown: ${state.unknownPlugins.join(", ")}` : ""}`,
+        `settings  ${settingsPath(state.cwd)}`,
         `cwd       ${state.cwd}`,
       ].join("\n"),
       session: state.session,
     };
   }
-  if (cmd.type === "task") {
-    try {
-      if (cmd.action === "new") {
-        if (!cmd.id) return { output: "usage: /task new <id>", session: state.session };
-        await clearPendingConfirm(state.cwd);
-        await writePendingDraft(state.cwd, {
-          id: cmd.id,
-          sessionId: state.session.id,
-          at: new Date().toISOString(),
-        });
-        state.taskPermission = await taskPermission(state.cwd);
-        return {
-          output: [
-            `Next message becomes the proposed agreement for '${cmd.id}'.`,
-            "The active task is unchanged. Existing tasks are not overwritten.",
-            await formatTaskStatus(state.cwd, state.session.id),
-          ].join("\n"),
-          session: state.session,
-        };
-      }
-      if (cmd.action === "confirm") {
-        await confirmAgreement(
-          state.cwd,
-          "owner",
-          cmd.id ? { id: cmd.id, fingerprint: cmd.fingerprint } : undefined,
-        );
-        state.taskPermission = await taskPermission(state.cwd);
-        return { output: await renderTaskCard(state.cwd, state.session.id), session: state.session };
-      }
-      if (cmd.action === "accept") {
-        await acceptTask(state.cwd, "owner");
-        state.taskPermission = await taskPermission(state.cwd);
-        return { output: await renderTaskCard(state.cwd, state.session.id), session: state.session };
-      }
-      if (cmd.action === "build") {
-        const built = await runDeliveryBuild({
-          cwd: state.cwd,
-          sessionId: state.session.id,
-          mockJev: opts.mockJev,
-          local: opts.local,
-          generate: opts.generate,
-          confirm: opts.yes ? async () => true : confirm,
-          provider: state.provider,
-          model: state.modelMode === "pinned" ? state.model : undefined,
-          abortSignal: opts.abortSignal,
-          onEvent,
-        });
-        state.taskPermission = await taskPermission(state.cwd);
-        return { output: built.output, session: state.session };
-      }
-      if (cmd.action === "open") {
-        return { output: await openTestedResult(state.cwd), session: state.session };
-      }
-      const pendingReview = await readPendingConfirm(state.cwd, state.session.id);
-      if (pendingReview) {
-        return { output: await renderProposalReview(state.cwd, pendingReview.slot), session: state.session };
-      }
-      const card = await renderTaskCard(state.cwd, state.session.id);
-      const active = await loadTask(state.cwd).catch(() => undefined);
-      const plan = active ? await loadPlan(state.cwd, active) : undefined;
-      return {
-        output: plan ? `${card}\n\n${formatPlan(plan)}` : card,
-        session: state.session,
-      };
-    } catch (error) {
-      return {
-        output: error instanceof Error ? error.message : String(error),
-        session: state.session,
-      };
-    }
-  }
   if (cmd.type !== "prompt") {
     return { output: "", session: state.session };
   }
-  const draft = await readPendingDraft(state.cwd, state.session.id);
-  if (draft) {
-    try {
-      const proposed = await proposeNewTask(
-        state.cwd,
-        agreementFromOwnerText(draft.id, cmd.text),
-        state.session.id,
-      );
-      state.taskPermission = await taskPermission(state.cwd);
-      const review = await renderProposalReview(state.cwd, proposed.slot);
-      await appendMessage(state.cwd, state.session.id, {
-        role: "user",
-        content: cmd.text,
-        at: new Date().toISOString(),
-      });
-      await appendMessage(state.cwd, state.session.id, {
-        role: "assistant",
-        content: review,
-        at: new Date().toISOString(),
-      });
-      return {
-        output: [
-          `Proposed '${proposed.agreement.id}' hash ${proposed.fingerprint}. Active task was not overwritten.`,
-          review,
-        ].join("\n"),
-        session: state.session,
-      };
-    } catch (error) {
-      return {
-        output: error instanceof Error ? error.message : String(error),
-        session: state.session,
-      };
-    }
+  for (const plugin of state.plugins) {
+    const answered = await plugin.beforePrompt?.(cmd.text, ctx);
+    if (answered) return answered;
   }
-  if (isExactYes(cmd.text)) {
-    const pending = await readPendingConfirm(state.cwd, state.session.id);
-    if (pending) {
-      try {
-        await confirmAgreement(state.cwd, "owner", {
-          id: pending.id,
-          fingerprint: pending.fingerprint,
-        });
-        state.taskPermission = await taskPermission(state.cwd);
-        return { output: await renderTaskCard(state.cwd, state.session.id), session: state.session };
-      } catch (error) {
-        return {
-          output: error instanceof Error ? error.message : String(error),
-          session: state.session,
-        };
-      }
-    }
-    const task = await loadTask(state.cwd).catch(() => undefined);
-    if (task && task.agreement.status !== "confirmed") {
-      return {
-        output: [
-          `Plain yes did not confirm '${task.agreement.id}' hash ${task.fingerprint}.`,
-          "That would enter a blocked generation loop. Confirm the displayed agreement with /task confirm, or /task new <id> for a different task.",
-          await formatTaskStatus(state.cwd, state.session.id),
-        ].join("\n"),
-        session: state.session,
-      };
-    }
-  }
-  const leftoverPending = await readPendingConfirm(state.cwd, state.session.id);
-  if (leftoverPending) await clearPendingConfirm(state.cwd);
-  const leftoverDraft = await readPendingDraft(state.cwd, state.session.id);
-  if (leftoverDraft) await clearPendingDraft(state.cwd);
+  for (const plugin of state.plugins) await plugin.beforeTurn?.(ctx);
   const ran = await runPrompt(cmd.text, state, opts, confirm, onEvent);
   state.session = ran.session;
   return {
@@ -489,4 +335,17 @@ export async function handleLine(
     session: ran.session,
     receipt: ran.receipt,
   };
+}
+
+/** "/task confirm x" → the delivery plugin's "task" handler with "confirm x". Core commands are not overridable. */
+function findPluginCommand(plugins: AegisPlugin[], line: string) {
+  const text = line.trim();
+  if (!text.startsWith("/")) return undefined;
+  const [name = "", ...rest] = text.slice(1).split(/\s+/);
+  const key = name.toLowerCase();
+  for (const plugin of plugins) {
+    const run = plugin.commands?.[key];
+    if (run) return { run, arg: rest.join(" ").trim() };
+  }
+  return undefined;
 }

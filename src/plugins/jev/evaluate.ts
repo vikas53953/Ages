@@ -1,6 +1,6 @@
 import { experimental_evaluate } from "ai";
 import { createTypeSafeAi, typeSafeAi } from "@ai-sdk/typesafe-ai";
-import { hasJevCredentials, jevApiKey } from "../env.ts";
+import { hasJevCredentials, jevApiKey } from "../../env.ts";
 import {
   DIFFICULTY_LABELS,
   TOOL_CLASSES,
@@ -13,7 +13,7 @@ import {
   type TurnDecision,
   type TurnKind,
   type TurnState,
-} from "../types.ts";
+} from "../../types.ts";
 import { TOOL_QUESTIONS, TURN_QUESTIONS } from "./questions.ts";
 
 function evaluationModel() {

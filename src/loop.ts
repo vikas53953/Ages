@@ -1,11 +1,11 @@
 import { stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
 import { z } from "zod";
 import { raceAbort } from "./abort.ts";
-import { pickModel } from "./router.ts";
-import { millicentsFromUsage, writeReceipt, formatTurnHandoff } from "./receipt.ts";
+import { pickModel, unscoredTurn } from "./router.ts";
+import { millicentsFromUsage, formatTurnHandoff } from "./receipt.ts";
 import { serializeConfirm } from "./confirm-queue.ts";
 import { runGatedTool, toolTarget, type TurnStop } from "./gated.ts";
-import { isTerminalAgreementBlock, loadTask, taskPermission } from "./delivery.ts";
+import { scorerOf, toolGuards, type AegisPlugin, type ToolGuard, type TurnEndResult } from "./plugin-api.ts";
 import { readPath } from "./tools/read.ts";
 import { writePath } from "./tools/write.ts";
 import { editPath } from "./tools/edit.ts";
@@ -13,7 +13,6 @@ import { grepPath } from "./tools/grep.ts";
 import { runShell } from "./tools/shell.ts";
 import { languageModel, modelsFor, resolveProvider, type ChatProvider } from "./providers.ts";
 import { planLocal } from "./planner.ts";
-import { failClosedTurn } from "./jev/evaluate.ts";
 import { loadSettingsSafe, type Settings } from "./rules.ts";
 import { messageText, repairHistory, type ChatMessage, type MessagePart } from "./session.ts";
 import type {
@@ -52,10 +51,11 @@ export type GenerateFn = (input: {
 
 export function createTools(input: {
   cwd: string;
-  jev: JevClient;
+  jev?: JevClient;
   config: GateConfig;
   confirm: ConfirmFn;
   onTool: (record: ToolRecord) => void;
+  guards?: ToolGuard[];
   abortSignal?: AbortSignal;
   stop?: TurnStop;
   onEvent?: (event: TurnEvent) => void;
@@ -82,6 +82,7 @@ export function createTools(input: {
       stop: input.stop,
       onEvent: input.onEvent,
       settings: input.settings,
+      guards: input.guards,
     }).then((result) => {
       input.onTool(result.record);
       return result.output;
@@ -265,7 +266,10 @@ export function classifyTurnOutcome(input: {
 export async function runLoop(input: {
   prompt: string;
   cwd: string;
-  jev: JevClient;
+  /** Scorer override (tests). Otherwise the first plugin scorer is used. */
+  jev?: JevClient;
+  /** Layer-1 plugins: guards, scorer, turn-end and receipt hooks. */
+  plugins?: AegisPlugin[];
   config: GateConfig;
   confirm: ConfirmFn;
   sessionId: string;
@@ -283,14 +287,16 @@ export async function runLoop(input: {
   input.onEvent?.({ type: "accepted" });
   // Rules and Jev mode come from the project folder, even when tools run in a task work folder.
   const settings = loadSettingsSafe(input.cwd).settings;
+  const plugins = input.plugins ?? [];
+  const scorer = input.jev ?? scorerOf(plugins);
   if (input.abortSignal?.aborted) throw new Error("cancelled");
   let turn: TurnDecision;
-  if (settings.jev.mode === "off") {
-    turn = { ...failClosedTurn(), source: "off" as const };
+  if (!scorer || settings.jev.mode === "off") {
+    turn = unscoredTurn();
   } else {
     input.onEvent?.({ type: "evaluating" });
     const turnResult = await raceAbort(
-      input.jev
+      scorer
         .evaluateTurn(
           {
             prompt: input.prompt,
@@ -321,7 +327,8 @@ export async function runLoop(input: {
   const toolsUsed: ToolRecord[] = [];
   const tools = createTools({
     cwd: input.toolsCwd ?? input.cwd,
-    jev: input.jev,
+    jev: scorer,
+    guards: toolGuards(plugins),
     config: input.config,
     confirm: input.confirm,
     abortSignal: input.abortSignal,
@@ -349,9 +356,8 @@ export async function runLoop(input: {
     onEvent: input.onEvent,
     shouldStop: () => Boolean(stop.reason),
   });
-  const task = await loadTask(input.cwd).catch(() => undefined);
-  const permission = await taskPermission(input.cwd);
-  const agreementBlock = toolsUsed.find((tool) => isTerminalAgreementBlock(tool.deniedReason))?.deniedReason
+  // A plugin guard (delivery agreement) that blocked a change stops the turn.
+  const agreementBlock = toolsUsed.find((tool) => !tool.approved && tool.source === "agreement")?.deniedReason
     ?? stop.reason;
   const outcome = classifyTurnOutcome({
     aborted: input.abortSignal?.aborted,
@@ -368,11 +374,19 @@ export async function runLoop(input: {
   const checks = toolsUsed
     .filter((tool) => tool.name === "shell" && tool.approved)
     .map((tool) => tool.target || "shell");
-  const next = agreementBlock
-    ? "Confirm the displayed agreement, or /task new <id> for a different task. Do not reply yes unless a pending confirm is shown."
-    : outcome === "incomplete"
-      ? "Ask again or inspect the receipt finish reason and step count."
-      : "Review the card with /task. Only you can /task accept.";
+  const extra: TurnEndResult = {};
+  for (const plugin of plugins) {
+    Object.assign(extra, await plugin.turnEnd?.({ cwd: input.cwd, tools: toolsUsed, stopReason: agreementBlock, outcome }));
+  }
+  const next =
+    extra.next ??
+    (agreementBlock
+      ? "A plugin blocked a change; see Blocked above."
+      : outcome === "incomplete"
+        ? "Ask again or inspect the receipt finish reason and step count."
+        : "Ask a follow-up, or /compact when the session gets long.");
+  const task = extra.taskId ? { agreement: { id: extra.taskId }, fingerprint: extra.taskFingerprint } : undefined;
+  const permission = extra.taskPermission;
   const text = formatTurnHandoff({
     modelText: result.text,
     outcome,
@@ -407,7 +421,7 @@ export async function runLoop(input: {
       result.messages ??
       (result.text.trim() ? [{ role: "assistant", content: result.text, at: new Date().toISOString() }] : []),
   };
-  await writeReceipt(input.cwd, receipt);
+  for (const plugin of plugins) await plugin.onReceipt?.(receipt, { cwd: input.cwd });
   return receipt;
 }
 

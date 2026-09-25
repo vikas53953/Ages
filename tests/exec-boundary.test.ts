@@ -4,16 +4,17 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runDeliveryBuild, emptyPlan, savePlan } from "../src/controller.ts";
+import { runDeliveryBuild, emptyPlan, savePlan } from "../src/plugins/delivery/controller.ts";
 import {
   agreementFromOwnerText,
   confirmAgreement,
   loadTask,
   proposeNewTask,
-} from "../src/delivery.ts";
+} from "../src/plugins/delivery/delivery.ts";
 import { packageRoot } from "../src/env.ts";
 import { checkProcessEnv, killProcessTree, runOwnedArgv } from "../src/exec.ts";
 import type { GenerateFn } from "../src/loop.ts";
+import { loadPlugins } from "../src/plugins/index.ts";
 
 const localOpts = { toolCallId: "t1", messages: [], context: {} } as never;
 const SENTINEL = "aegis-review-sentinel-not-a-secret";
@@ -191,7 +192,7 @@ setInterval(() => {}, 1 << 30);
       runDeliveryBuild({
         cwd,
         sessionId: "exec-boundary",
-        mockJev: true,
+        plugins: loadPlugins(["jev", "delivery", "receipts"], { mockJev: true }).plugins,
         generate,
         confirm: async () => true,
         abortSignal: abort.signal,

@@ -3,9 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { runLoop } from "../src/loop.ts";
 import { readPath } from "../src/tools/read.ts";
+import { loadPlugins } from "../src/plugins/index.ts";
+import { toolGuards } from "../src/plugin-api.ts";
+
+const shipped = () => loadPlugins(["jev", "delivery", "receipts"], { mockJev: true }).plugins;
+
 
 describe("mock-Jev loop", () => {
   it("uses real read and writes a receipt without calling OpenAI", async () => {
@@ -13,6 +18,7 @@ describe("mock-Jev loop", () => {
     await writeFile(path.join(cwd, "hello.txt"), "hi", "utf8");
 
     const receipt = await runLoop({
+      plugins: shipped(),
       prompt: "what files are in this folder?",
       cwd,
       jev: mockJev(),
@@ -58,6 +64,7 @@ describe("mock-Jev loop", () => {
   it("uses the selected model instead of Jev cheap routing", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "gate-loop-pin-"));
     const receipt = await runLoop({
+      plugins: shipped(),
       prompt: "hello",
       cwd,
       jev: mockJev(),

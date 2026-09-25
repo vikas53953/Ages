@@ -4,8 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { serializeConfirm } from "../src/confirm-queue.ts";
 import { formatConfirm, formatActionDiff, runGatedTool } from "../src/gated.ts";
-import { failClosedTool, failClosedTurn } from "../src/jev/evaluate.ts";
-import { mockTool } from "../src/jev/mock.ts";
+import { failClosedTool, failClosedTurn } from "../src/plugins/jev/evaluate.ts";
+import { mockTool } from "../src/plugins/jev/mock.ts";
 import { decideToolAction } from "../src/policy.ts";
 import { loadConfig } from "../src/config.ts";
 

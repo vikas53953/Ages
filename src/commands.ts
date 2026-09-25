@@ -10,10 +10,9 @@ export type Slash =
   | { type: "compact" }
   | { type: "clear" }
   | { type: "status" }
-  | { type: "jev"; mode?: string }
   | { type: "models" }
   | { type: "model"; id?: string }
-  | { type: "task"; action?: "confirm" | "accept" | "new" | "build" | "open"; id?: string; fingerprint?: string }
+  | { type: "unknown"; name: string }
   | { type: "prompt"; text: string };
 
 export function isExactYes(text: string) {
@@ -53,34 +52,17 @@ export function parseLine(line: string): Slash {
       return { type: "clear" };
     case "status":
       return { type: "status" };
-    case "jev":
-      return { type: "jev", mode: arg || undefined };
     case "models":
       return { type: "models" };
     case "model":
       return { type: "model", id: arg || undefined };
-    case "task":
-    case "card":
-    case "delivery":
-      if (!arg) return { type: "task" };
-      if (/^new$/i.test(arg)) return { type: "task", action: "new" };
-      if (/^new\s+/i.test(arg)) return { type: "task", action: "new", id: arg.slice(4).trim() };
-      if (/^confirm$/i.test(arg)) return { type: "task", action: "confirm" };
-      if (/^confirm\s+/i.test(arg)) {
-        const parts = arg.slice(8).trim().split(/\s+/);
-        return { type: "task", action: "confirm", id: parts[0], fingerprint: parts[1] };
-      }
-      if (/^accept$/i.test(arg)) return { type: "task", action: "accept" };
-      if (/^build$/i.test(arg)) return { type: "task", action: "build" };
-      if (/^open$/i.test(arg)) return { type: "task", action: "open" };
-      return { type: "prompt", text };
     default:
-      return { type: "prompt", text };
+      return { type: "unknown", name: cmd };
   }
 }
 
 export const HELP = [
-  "aegis — the agent you own. Jev locks spend and danger.",
+  "aegis — the agent you own. Rules decide first; plugins add the rest.",
   "",
   "  /help              this list",
   "  /new               start a new session",
@@ -96,15 +78,6 @@ export const HELP = [
   "  /model auto        Jev picks cheap vs frontier",
   "  /model <id>        pin a model (persists)",
   "  /status            provider, session, cwd, task",
-  "  /jev               show Jev mode and key",
-  "  /jev off|second|every  set Jev mode in .aegis/settings.json",
-  "  /task              active task, pending confirm, delivery card",
-  "  /task new <id>     next message proposes that task; does not overwrite others",
-  "  /task confirm      confirm the displayed pending agreement, or active if none",
-  "  /task confirm <id> <hash>  confirm that exact version only",
-  "  /task accept       owner accepts delivery (explicit)",
-  "  /task build        run the delivery loop for the confirmed inventory task",
-  "  /task open         open the tested result if evidence is still bound",
   "  /exit              quit",
   "",
   "Anything else is a prompt to the agent.",

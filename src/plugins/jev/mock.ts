@@ -7,7 +7,7 @@ import type {
   TurnDecision,
   TurnKind,
   TurnState,
-} from "../types.ts";
+} from "../../types.ts";
 
 const KIND_PROBS: Record<TurnKind, number> = {
   lookup: 0,

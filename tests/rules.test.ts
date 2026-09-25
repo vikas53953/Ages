@@ -4,8 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
 import { runGatedTool } from "../src/gated.ts";
-import { failClosedTool, failClosedTurn } from "../src/jev/evaluate.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { failClosedTool, failClosedTurn } from "../src/plugins/jev/evaluate.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { runLoop } from "../src/loop.ts";
 import {
   DEFAULT_SETTINGS,
@@ -24,7 +24,7 @@ async function tmp() {
 }
 
 function withMode(mode: Settings["jev"]["mode"], rules: Partial<Settings["rules"]> = {}): Settings {
-  return { jev: { mode }, rules: { ...DEFAULT_SETTINGS.rules, ...rules } };
+  return { jev: { mode }, rules: { ...DEFAULT_SETTINGS.rules, ...rules }, plugins: DEFAULT_SETTINGS.plugins };
 }
 
 /** A Jev that counts its calls and returns a fixed score. */
@@ -165,6 +165,13 @@ describe("settings file", () => {
     expect(loaded.settings.jev.mode).toBe("off");
     expect(loaded.settings.rules.allow).toEqual([]);
     expect(loaded.settings.rules.deny).toEqual(DEFAULT_SETTINGS.rules.deny);
+  });
+
+  it("rejects a plugins value that is not a list of names", async () => {
+    const cwd = await tmp();
+    await mkdir(path.join(cwd, ".aegis"));
+    await writeFile(settingsPath(cwd), JSON.stringify({ plugins: "jev" }));
+    expect(() => loadSettings(cwd)).toThrow(/plugins must be a list/);
   });
 
   it("rejects an unknown Jev mode", async () => {

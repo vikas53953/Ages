@@ -2,6 +2,11 @@
   "jev": {
     "mode": "second-opinion"
   },
+  "plugins": [
+    "jev",
+    "delivery",
+    "receipts"
+  ],
   "rules": {
     "deny": [
       "write .git/*",

@@ -9,6 +9,8 @@ export const JEV_MODES: JevMode[] = ["off", "second-opinion", "every-call"];
 export type Settings = {
   jev: { mode: JevMode };
   rules: Record<RuleAction, string[]>;
+  /** Layer-1 plugins to load, in order. The core runs with none. */
+  plugins: string[];
 };
 
 export type RuleMatch = { action: RuleAction; rule: string };
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ],
     allow: ["read *", "grep *"],
   },
+  plugins: ["jev", "delivery", "receipts"],
 };
 
 export function settingsPath(cwd: string) {
@@ -58,10 +61,10 @@ function readRaw(cwd: string): Record<string, unknown> | undefined {
   return parsed as Record<string, unknown>;
 }
 
-function stringList(value: unknown, fallback: string[]) {
-  if (value === undefined) return fallback;
+function stringList(value: unknown, fallback: string[], name = "rules.allow / rules.ask / rules.deny") {
+  if (value === undefined) return [...fallback];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
-    throw new Error("rules.allow / rules.ask / rules.deny must be lists of strings");
+    throw new Error(`${name} must be a list of strings`);
   }
   return value as string[];
 }
@@ -77,6 +80,7 @@ export function loadSettings(cwd: string): Settings {
   }
   const rules = (raw.rules ?? {}) as Record<string, unknown>;
   return {
+    plugins: stringList(raw.plugins, DEFAULT_SETTINGS.plugins, "plugins"),
     jev: { mode: mode as JevMode },
     rules: {
       deny: stringList(rules.deny, DEFAULT_SETTINGS.rules.deny),
@@ -92,7 +96,11 @@ export function loadSettingsSafe(cwd: string): { settings: Settings; error?: str
     return { settings: loadSettings(cwd) };
   } catch (error) {
     return {
-      settings: { jev: { mode: "off" }, rules: { ...DEFAULT_SETTINGS.rules, allow: [] } },
+      settings: {
+        jev: { mode: "off" },
+        rules: { ...DEFAULT_SETTINGS.rules, allow: [] },
+        plugins: [...DEFAULT_SETTINGS.plugins],
+      },
       error: error instanceof Error ? error.message : String(error),
     };
   }

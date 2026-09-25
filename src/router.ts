@@ -21,3 +21,16 @@ export function pickModel(
   }
   return { model: config.frontierModel, reason: "default_frontier" };
 }
+
+/** The turn record when nothing scored it (Jev off or not installed). The router is skipped; the pinned or frontier model runs. */
+export function unscoredTurn(): TurnDecision {
+  return {
+    kind: "architecture",
+    difficulty: 3,
+    difficultyLabel: "hard",
+    needsRepoWide: 1,
+    confidence: 0,
+    probabilities: { kind: { lookup: 0, edit: 0, architecture: 1 } },
+    source: "off",
+  };
+}

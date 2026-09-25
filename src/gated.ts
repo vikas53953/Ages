@@ -1,6 +1,6 @@
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
-import { deliveryMutationBlock } from "./delivery.ts";
+import type { ToolGuard } from "./plugin-api.ts";
 import { isMutation, loadSettingsSafe, matchRule, type RuleMatch, type Settings } from "./rules.ts";
 import type {
   ConfirmFn,
@@ -136,13 +136,14 @@ function decidedBy(
 
 /**
  * The checkpoint every tool call passes, in this order:
- * stop/cancel → delivery agreement → rules (deny / ask / allow) → Jev (only if wanted) → you (default n) → run.
+ * stop/cancel → plugin guards (delivery agreement) → rules (deny / ask / allow) → Jev (only if wanted) → you (default n) → run.
  */
 export async function runGatedTool(input: {
   name: string;
   args: JsonObject;
   cwd: string;
-  jev: JevClient;
+  /** The scorer (Jev) from the plugin layer. None: rules and you decide alone. */
+  jev?: JevClient;
   config: GateConfig;
   confirm: ConfirmFn;
   execute: () => Promise<string>;
@@ -150,6 +151,8 @@ export async function runGatedTool(input: {
   stop?: TurnStop;
   onEvent?: (event: TurnEvent) => void;
   settings?: Settings;
+  /** Plugin checks that run before the rules (delivery agreement). */
+  guards?: ToolGuard[];
 }): Promise<GatedRun> {
   const target = toolTarget(input.name, input.args);
   if (input.stop?.reason) {
@@ -160,8 +163,8 @@ export async function runGatedTool(input: {
   if (input.abortSignal?.aborted) {
     return cancelled(undefined, input.name);
   }
-  if (isMutation(input.name)) {
-    const block = await deliveryMutationBlock(input.cwd);
+  for (const guard of input.guards ?? []) {
+    const block = await guard({ name: input.name, args: input.args, cwd: input.cwd });
     if (block) {
       if (input.stop) input.stop.reason = block;
       return denied({ name: input.name, target, reason: block, source: "agreement" });
@@ -176,9 +179,10 @@ export async function runGatedTool(input: {
   }
 
   let decision: ToolDecision | undefined;
-  if (wantsJev(settings, input.name, rule)) {
+  if (input.jev && wantsJev(settings, input.name, rule)) {
+    const scorer = input.jev;
     const evaluation = await raceAbort(
-      input.jev
+      scorer
         .evaluateTool(
           {
             name: input.name,
@@ -210,7 +214,9 @@ export async function runGatedTool(input: {
 
   const why = [
     rule ? `rule "${rule.rule}" → ${rule.action}` : "no rule matched",
-    decision ? `Jev ${decision.source === "fail_closed" ? "could not score" : `→ ${jevAction}`}` : `Jev ${settings.jev.mode === "off" ? "off" : "not asked"}`,
+    decision
+      ? `Jev ${decision.source === "fail_closed" ? "could not score" : `→ ${jevAction}`}`
+      : `Jev ${settings.jev.mode === "off" || !input.jev ? "off" : "not asked"}`,
     loaded.error ? `settings unreadable (${loaded.error}); allow rules ignored, Jev off` : "",
   ]
     .filter(Boolean)

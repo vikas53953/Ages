@@ -8,15 +8,20 @@ import {
   loadTask,
   writeAgreement,
   type Agreement,
-} from "../src/delivery.ts";
+} from "../src/plugins/delivery/delivery.ts";
 import { formatTurnHandoff } from "../src/receipt.ts";
 import { classifyTurnOutcome, createTools, runLoop, type TurnEvent } from "../src/loop.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { handleLine, jevHealthFromReceipt, startState } from "../src/runtime.ts";
 import { loadMessages, messageText } from "../src/session.ts";
 import { createTuiApp, type TuiApp } from "../src/tui-app.ts";
 import { MemoryTerminal } from "../src/tui-memory.ts";
 import type { Receipt } from "../src/types.ts";
+import { loadPlugins } from "../src/plugins/index.ts";
+import { toolGuards } from "../src/plugin-api.ts";
+
+const shipped = () => loadPlugins(["jev", "delivery", "receipts"], { mockJev: true }).plugins;
+
 
 const localOpts = { toolCallId: "t1", messages: [], context: {} } as never;
 
@@ -100,6 +105,7 @@ describe("subnet-calculator interaction", () => {
     expect(result.receipt).toBeUndefined();
     const tools = createTools({
       cwd,
+      guards: toolGuards(shipped()),
       jev: mockJev(),
       config: loadConfig(),
       confirm: async () => true,
@@ -128,6 +134,7 @@ describe("subnet-calculator interaction", () => {
     };
     const events: TurnEvent["type"][] = [];
     const receipt = await runLoop({
+      plugins: shipped(),
       cwd,
       prompt: "yes, build the subnet calculator",
       jev: wrapped,
@@ -219,6 +226,7 @@ describe("subnet-calculator interaction", () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-subnet-empty-"));
     await writeAgreement(cwd, taskA());
     const receipt = await runLoop({
+      plugins: shipped(),
       cwd,
       prompt: "are u building or?",
       jev: mockJev(),
@@ -318,6 +326,7 @@ describe("subnet-calculator interaction", () => {
       }),
     ).toBe("incomplete");
     const receipt = await runLoop({
+      plugins: shipped(),
       cwd,
       prompt: "build it",
       jev: mockJev(),
@@ -368,6 +377,7 @@ describe("subnet-calculator interaction", () => {
     expect(system).toContain(spec.split("\n")[0]!);
     let captured = "";
     const receipt = await runLoop({
+      plugins: shipped(),
       cwd,
       prompt: "build it",
       jev: mockJev(),

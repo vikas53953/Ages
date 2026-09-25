@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { loadConfig } from "./config.ts";
+import { loadConfig } from "../../config.ts";
 import {
   INVENTORY_ACCEPTANCE,
   INVENTORY_TASK_ID,
@@ -16,12 +16,11 @@ import {
   writeSlotJson,
   type TaskRecord,
 } from "./delivery.ts";
-import { packageRoot } from "./env.ts";
-import { liveJev } from "./jev/evaluate.ts";
-import { mockJev } from "./jev/mock.ts";
-import { runLoop, type GenerateFn, type TurnEvent } from "./loop.ts";
-import type { ChatProvider } from "./providers.ts";
-import type { ConfirmFn, GateConfig, JevClient } from "./types.ts";
+import { packageRoot } from "../../env.ts";
+import type { AegisPlugin } from "../../plugin-api.ts";
+import { runLoop, type GenerateFn, type TurnEvent } from "../../loop.ts";
+import type { ChatProvider } from "../../providers.ts";
+import type { ConfirmFn, GateConfig } from "../../types.ts";
 
 export type NodeId = "persist" | "http" | "ui" | "restart";
 export type NodeState = "pending" | "running" | "checking" | "passed" | "failed" | "blocked" | "cancelled";
@@ -202,7 +201,7 @@ async function buildNode(input: {
   task: TaskRecord;
   node: PlanNode;
   sessionId: string;
-  jev: JevClient;
+  plugins: AegisPlugin[];
   config: GateConfig;
   confirm: ConfirmFn;
   generate?: GenerateFn;
@@ -224,7 +223,7 @@ async function buildNode(input: {
     prompt: `Implement node '${input.node.id}' (${input.node.title}) for the confirmed agreement. Stop after that node.`,
     cwd: input.cwd,
     toolsCwd: input.task.targetDir,
-    jev: input.jev,
+    plugins: input.plugins,
     config: input.config,
     confirm: input.confirm,
     sessionId: input.sessionId,
@@ -240,7 +239,8 @@ async function buildNode(input: {
 export async function runDeliveryBuild(input: {
   cwd: string;
   sessionId: string;
-  mockJev?: boolean;
+  /** The enabled plugins: the builder's turns get the same scorer, guards and receipts as chat turns. */
+  plugins: AegisPlugin[];
   local?: boolean;
   generate?: GenerateFn;
   confirm: ConfirmFn;
@@ -266,7 +266,6 @@ export async function runDeliveryBuild(input: {
   if (input.local && !input.generate) {
     throw new Error("Local planner cannot implement this app. Use a chat model, or an injected builder in tests.");
   }
-  const jev = input.mockJev ? mockJev() : liveJev();
   const config = loadConfig(input.cwd);
   let plan = await reconcile(await loadOrCreatePlan(input.cwd, task));
   await savePlan(input.cwd, task, plan);
@@ -301,7 +300,7 @@ export async function runDeliveryBuild(input: {
         task,
         node,
         sessionId: input.sessionId,
-        jev,
+        plugins: input.plugins,
         config,
         confirm: input.confirm,
         generate: input.generate,

@@ -1,5 +1,3 @@
-import { mkdir, appendFile } from "node:fs/promises";
-import path from "node:path";
 import type { Receipt, ToolRecord, TurnOutcome } from "./types.ts";
 
 export function millicentsFromUsage(_inputTokens: number, _outputTokens: number) {
@@ -95,13 +93,4 @@ export function formatChat(receipt: Receipt) {
     taskFingerprint: receipt.taskFingerprint,
   });
   return [...(tools.length ? [...tools, ""] : []), body].join("\n");
-}
-
-export async function writeReceipt(cwd: string, receipt: Receipt) {
-  const dir = path.join(cwd, ".harness", "receipts");
-  await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${receipt.sessionId}.jsonl`);
-  const { newMessages: _messages, ...record } = receipt;
-  await appendFile(file, `${JSON.stringify(record)}\n`, "utf8");
-  return file;
 }

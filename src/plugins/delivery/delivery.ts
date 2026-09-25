@@ -2,11 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir, stat, rename, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { APP_VERSION } from "./brand.ts";
-import { packageRoot } from "./env.ts";
-import { runOwnedArgv } from "./exec.ts";
-import { harnessRoot } from "./session.ts";
-import type { TaskPermission } from "./types.ts";
+import { APP_VERSION } from "../../brand.ts";
+import { packageRoot } from "../../env.ts";
+import { runOwnedArgv } from "../../exec.ts";
+import { harnessRoot } from "../../session.ts";
+import type { TaskPermission } from "../../types.ts";
 
 export type CriterionStatus = "passed" | "failed" | "blocked" | "not_run" | "reported";
 export type CheckKind = "run" | "reported" | "file";
