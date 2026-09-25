@@ -381,3 +381,4 @@
     - At most 30 steps per agent, and the prompt listing is capped.
     - The question shows the task on one line, so it cannot draw fake lines.
     - Each tool record an agent made carries `via: <agent>`.
+- Test timeouts on Windows are 30 s (vitest.config.ts). The Windows runners start git, PowerShell and node slowly, and the files run in parallel: `/review`, worktree and headless tests that take 0.3 s on Linux have each passed 5 s there once under load. A real hang is still caught. Linux keeps 5 s.
