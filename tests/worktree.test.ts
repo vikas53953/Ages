@@ -1,3 +1,4 @@
+// Every test runs several git commands; on Windows runners each one can take seconds to start.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -20,7 +21,7 @@ async function repo() {
   return cwd;
 }
 
-describe("--worktree", () => {
+describe("--worktree", { timeout: 60_000 }, () => {
   it("creates <repo>.worktrees/<name> on branch aegis/<name>, and reuses it next time", async () => {
     const cwd = await repo();
     const first = await openWorktree(cwd, "fix-login");
@@ -66,7 +67,7 @@ describe("--worktree", () => {
   });
 });
 
-describe("--worktree: review fixes", () => {
+describe("--worktree: review fixes", { timeout: 60_000 }, () => {
   it("a worktree shares its project's trust and your saved rules", async () => {
     const { loadSettingsWithTrust, saveAllowRule, setProjectTrust, loadSettings, matchRule } = await import("../src/rules.ts");
     const saved = { ...process.env };
@@ -122,7 +123,7 @@ describe("--worktree: review fixes", () => {
   });
 });
 
-describe("--worktree: review fixes (6e05349)", () => {
+describe("--worktree: review fixes (6e05349)", { timeout: 60_000 }, () => {
   it("a hand-made .git file naming another project does not borrow its trust, rules or .env", async () => {
     const { mainCheckoutOf } = await import("../src/env.ts");
     const { projectKey } = await import("../src/rules.ts");
