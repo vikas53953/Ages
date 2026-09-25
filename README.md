@@ -169,10 +169,12 @@ Aegis never signs in to Claude.ai or Google itself: Anthropic and Google don't a
       webfetch *
   env:
     OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-- run: echo "${{ steps.aegis.outputs.answer }}"
+- env:
+    ANSWER: ${{ steps.aegis.outputs.answer }}   # model output: pass it as data, never paste it into a script
+  run: printf '%s\n' "$ANSWER"
 ```
 
-The prompt goes in as data (an environment variable), so PR text in it cannot run as a script. Outputs are `answer`, `exit-code` (2 = a call was denied; `fail-on-denied: false` keeps going) and `log` (JSON lines). The answer also goes to the job summary.
+The prompt goes in as data (an environment variable), so PR text in it cannot run as a script. `args` is trusted as written: never put event data (PR titles, comments) there. Pin the action to a commit SHA rather than `@main` for anything that matters. Outputs are `answer`, `exit-code` (2 = a call was denied; `fail-on-denied: false` keeps going) and `log` (JSON lines). The answer also goes to the job summary.
 
 ## The lock
 

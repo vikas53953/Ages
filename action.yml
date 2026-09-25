@@ -11,7 +11,9 @@
 #         webfetch *
 #     env:
 #       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-#   - run: echo "${{ steps.aegis.outputs.answer }}"
+#   - env:
+#       ANSWER: ${{ steps.aegis.outputs.answer }}   # model output: pass it as data, never paste it into a script
+#     run: printf '%s\n' "$ANSWER"
 name: Aegis
 description: Run the Aegis coding agent headless (aegis -p) behind its rules-first lock.
 author: vikas53953
@@ -32,7 +34,7 @@ inputs:
     required: false
     default: ""
   args:
-    description: More aegis flags, separated by spaces (e.g. "--model gpt-5.5" or "--local --mock-jev").
+    description: More aegis flags, separated by spaces (e.g. "--model gpt-5.5"). Trusted as written; never put event data (PR titles, comments) here.
     required: false
     default: ""
   working-directory:
@@ -85,22 +87,27 @@ runs:
       run: |
         set -u
         args=(-p --json)
-        while IFS= read -r rule; do [ -n "${rule// }" ] && args+=(--allow "$rule"); done <<< "$AEGIS_ALLOW_RULES"
-        while IFS= read -r rule; do [ -n "${rule// }" ] && args+=(--deny "$rule"); done <<< "$AEGIS_DENY_RULES"
+        while IFS= read -r rule; do [ -n "${rule//[[:space:]]}" ] && args+=(--allow "$rule"); done <<< "$AEGIS_ALLOW_RULES"
+        while IFS= read -r rule; do [ -n "${rule//[[:space:]]}" ] && args+=(--deny "$rule"); done <<< "$AEGIS_DENY_RULES"
         read -r -a extra <<< "$AEGIS_EXTRA_ARGS"
         args+=("${extra[@]}")
         log="$RUNNER_TEMP/aegis-$GITHUB_RUN_ID-$RANDOM.jsonl"
         set +e
-        node "$GITHUB_ACTION_PATH/dist/main.js" "${args[@]}" "$AEGIS_PROMPT" < /dev/null > "$log"
+        node "$GITHUB_ACTION_PATH/dist/main.js" "${args[@]}" "$AEGIS_PROMPT" < /dev/null > "$log" 2> "$log.err"
         code=$?
         set -e
-        cat "$log"
+        delimiter="AEGIS_$(node -e 'process.stdout.write(require("crypto").randomBytes(12).toString("hex"))')"
+        # Printed with workflow commands switched off, so nothing in the log can act as one.
+        echo "::stop-commands::$delimiter"
+        cat "$log" "$log.err"
+        echo "::$delimiter::"
         # The answer is in the last line (type "result"); read with Node, not the shell, so any text is safe.
         answer=$(node -e 'const fs=require("fs");const lines=fs.readFileSync(process.argv[1],"utf8").trim().split("\n");let r={};for(const l of lines.reverse()){try{const j=JSON.parse(l);if(j.type==="result"){r=j;break}}catch{}}process.stdout.write(String(r.answer??r.output??(r.error?"Aegis error: "+r.error:"")))' "$log")
-        delimiter="AEGIS_$(node -e 'process.stdout.write(require("crypto").randomBytes(12).toString("hex"))')"
+        # No result line (Aegis could not start): say why, from what it printed on stderr.
+        if [ -z "$answer" ] && [ "$code" != "0" ]; then answer="Aegis failed (exit $code): $(tail -c 2000 "$log.err")"; fi
         {
           echo "answer<<$delimiter"
-          echo "$answer"
+          printf '%s\n' "$answer"
           echo "$delimiter"
           echo "exit-code=$code"
           echo "log=$log"
@@ -108,7 +115,7 @@ runs:
         {
           echo "### Aegis"
           echo
-          echo "$answer"
+          printf '%s\n' "$answer"
           echo
           echo "Exit code $code (0 done, 2 a call was denied)."
         } >> "$GITHUB_STEP_SUMMARY"

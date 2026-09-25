@@ -354,3 +354,9 @@
   - The prompt and rules go in as environment variables, never pasted into the script: a local run with `$(touch PWNED)` in the prompt created nothing.
   - The answer is read from the JSON result by Node and written to `GITHUB_OUTPUT` with a random delimiter, and to the job summary.
   - Our Windows CI runs it through `uses: ./` with the local planner and checks the answer.
+  - Fixes from the review of the action (it found no way to inject a script):
+    - The README example pasted the answer (model output) into a `run:` script. It now passes the answer through `env`.
+    - The log is printed inside `::stop-commands::`, so nothing in it can act as a workflow command.
+    - `printf` instead of `echo`, so an answer like `-n` is not swallowed.
+    - When Aegis cannot start, the answer says why, from its stderr.
+    - Tab-only rule lines are skipped. The docs say `args` is trusted and to pin the action to a SHA.
