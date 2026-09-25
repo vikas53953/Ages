@@ -137,3 +137,8 @@ button { cursor: pointer; }
 @media (max-width: 1100px) { .app { grid-template-columns: 200px minmax(0, 1fr); } .lock { display: none; } }
 @media (max-width: 720px) { .app { grid-template-columns: 1fr; } .side { display: none; } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+.attachments[hidden] { display: none; }
+.attach { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font-size: 12px; max-width: 100%; }
+.attach img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
+.attach span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }

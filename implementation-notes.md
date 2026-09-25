@@ -271,7 +271,6 @@
   - A pasted path is turned into a path relative to the folder, so a rule like `deny read shots/*` matches it the same way it matches an `@mention`.
   - A model that cannot see images (DeepSeek chat, Jev, the local planner) gets only the note, and a notice tells you to switch with `/model`.
   - The Claude Code engine is sent text, and Claude opens the image with its own Read (which passes the hook lock). Sending image blocks through `--input-format stream-json` needs a live `claude` to test, so it is left for later.
-  - Not done yet: paste or drop in Studio.
   - Fixes from the review of images (`cf729bb`); it found no way around the rules:
     - The file is opened once, and at most 5 MB + 1 byte is read from that handle, so a file that grows after the size check cannot slip through.
     - A named file that turns out not to be an image is still an allowed read, so it keeps its receipt record.
@@ -282,3 +281,7 @@
 - The agent's `read` of a `.png`/`.jpg`/`.gif`/`.webp` returns the image to a model that can see images (`toModelOutput` with an `image-data` part), after the same lock and the same one-handle capped read.
   - Saved history keeps only the note: `capToolResults` turns a tool result's content parts into their text before saving, so later turns replay the note.
   - A model without vision gets the note and "this model cannot see images". The explore helper always gets only the note.
+- Aegis Studio: paste (ctrl+v) or drop up to 4 screenshots into the message box. They show as chips with a remove button and go with the next message.
+  - The server checks them again: a list of at most 4, base64, 5 MB each, type from the first bytes. Anything else is a 400. Only `/api/prompt` accepts a larger body (about 28 MB); every other route stays at 1 MB.
+  - Pasted images are passed in as `RunOpts.images`. They skip the lock because you supplied them yourself, like typed text; no file is read. The saved chat keeps the note `pasted 1 (shot.png)`.
+  - The Claude Code engine cannot take them: there is no file for its Read tool to open. A notice says to save the image in the folder and @mention it.

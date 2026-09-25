@@ -16,6 +16,34 @@ import { loadSettingsSafe, thinkingOf } from "./rules.js";
 import { closeState, currentTodos, handleLine, modelChoices, startState, welcomeInfo, } from "./runtime.js";
 import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
+import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage } from "./images.js";
+/** 4 images of 5 MB as base64, plus the text. */
+const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) + 1_000_000;
+/**
+ * Images pasted or dropped on the page: at most 4, each checked by its first bytes and size. Anything else is
+ * refused with a 400, so a page bug cannot send the model a file it did not mean to.
+ */
+export function pastedImages(value) {
+    if (value === undefined || value === null)
+        return undefined;
+    if (!Array.isArray(value))
+        throw new BadRequest("images must be a list");
+    if (value.length > MAX_IMAGES_PER_TURN)
+        throw new BadRequest(`at most ${MAX_IMAGES_PER_TURN} images per message`);
+    return value.map((item, index) => {
+        const entry = (item ?? {});
+        if (typeof entry.data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.data))
+            throw new BadRequest("an image is not base64");
+        const buf = Buffer.from(entry.data, "base64");
+        if (buf.length > MAX_IMAGE_BYTES)
+            throw new BadRequest("an image is over 5 MB");
+        const mediaType = sniffImage(buf);
+        if (!mediaType)
+            throw new BadRequest("only PNG, JPEG, GIF and WebP images can be pasted");
+        const name = typeof entry.name === "string" ? entry.name.replace(/[^\w.-]+/g, "_").slice(0, 60) : "";
+        return { path: `pasted ${index + 1}${name ? ` (${name})` : ""}`, mediaType, bytes: buf.length, data: buf.toString("base64") };
+    });
+}
 class BadRequest extends Error {
 }
 const STATIC = {
@@ -84,12 +112,12 @@ export async function startStudio(input) {
         turnAbort?.signal.addEventListener("abort", () => finish(false), { once: true });
         send({ kind: "approval", id, question, options });
     });
-    const run = async (text) => {
+    const run = async (text, images) => {
         busy = true;
         turnAbort = new AbortController();
         send({ kind: "started", text });
         try {
-            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal }, confirm, (event) => send({ kind: "event", event }));
+            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images }, confirm, (event) => send({ kind: "event", event }));
             const receipt = result.receipt;
             send({
                 kind: "done",
@@ -132,13 +160,13 @@ export async function startStudio(input) {
             approvals: [...pending.entries()].map(([id, entry]) => ({ id, question: entry.question, options: entry.options })),
         };
     };
-    const readBody = async (req) => {
+    const readBody = async (req, limit = 1_000_000) => {
         // Decode as one UTF-8 stream so a character split across chunks is not mangled.
         req.setEncoding("utf8");
         let body = "";
         for await (const chunk of req) {
             body += chunk;
-            if (body.length > 1_000_000)
+            if (body.length > limit)
                 throw new BadRequest("request too large");
         }
         if (!body)
@@ -212,7 +240,8 @@ export async function startStudio(input) {
             }
             if (req.method !== "POST")
                 return json(res, 405, { error: "method not allowed" });
-            const body = await readBody(req);
+            // A prompt may carry pasted images (4 × 5 MB, as base64); everything else stays small.
+            const body = await readBody(req, url.pathname === "/api/prompt" ? PROMPT_BODY_LIMIT : undefined);
             if (url.pathname === "/api/approve") {
                 const entry = pending.get(Number(body.id));
                 if (!entry)
@@ -246,7 +275,7 @@ export async function startStudio(input) {
             // A model turn runs in the background (202); the page follows it on the event stream.
             const isTurn = (!line.startsWith("/") && !line.startsWith("!")) || /^\/plan\s+(?!off\s*$)\S/i.test(line);
             if (url.pathname === "/api/prompt" && isTurn) {
-                void run(line);
+                void run(line, pastedImages(body.images));
                 return json(res, 202, { ok: true, started: true });
             }
             const result = await run(line);

@@ -271,3 +271,50 @@ describe("displayMessages", () => {
     ]);
   });
 });
+
+describe("Studio: pasted images", () => {
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "base64",
+  ).toString("base64");
+
+  it("a pasted image goes to the model with the message; the saved chat keeps only a note", async () => {
+    const prompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "a red dot" },
+              { type: "text-end", id: "t" },
+              { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+            ] as never[],
+          }),
+        };
+      },
+    });
+    const { cwd, server, base, api } = await studio(generateWith(model));
+    await writeFile(path.join(cwd, "gate.config.json"), JSON.stringify({ frontierModel: "claude-sonnet-5", cheapModel: "claude-sonnet-5" }));
+    const done = events(base, server.token, (e) => e.kind === "done" || e.kind === "error");
+    const sent = await api("/api/prompt", { text: "what is this?", images: [{ name: "shot.png", data: PNG }] });
+    expect(sent.status).toBe(202);
+    await done;
+    expect(prompts[0]).toContain(PNG);
+    expect(prompts[0]).toContain("pasted 1 (shot.png)");
+    const saved = await readFile(path.join(cwd, ".harness", "sessions", server.state.session.id, "messages.jsonl"), "utf8");
+    expect(saved).toContain("pasted 1 (shot.png)");
+    expect(saved).not.toContain(PNG);
+  });
+
+  it("refuses what is not an image, too many, or not base64", async () => {
+    const { api } = await studio();
+    const text = Buffer.from("<svg/>").toString("base64");
+    expect((await api("/api/prompt", { text: "x", images: [{ data: text }] })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "x", images: [{ data: "not base64!" }] })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "x", images: Array(5).fill({ data: PNG }) })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "x", images: "nope" })).status).toBe(400);
+  });
+});

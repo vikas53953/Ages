@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const chat = $("chat");
   const input = $("input");
-  const state = { busy: false, model: "auto", thinking: { level: "low", display: "fold" }, models: [], turnFiles: new Set() };
+  const state = { busy: false, model: "auto", thinking: { level: "low", display: "fold" }, models: [], turnFiles: new Set(), images: [] };
   let current = { ai: null, think: null, thinkStart: 0, tools: [] };
 
   if (!token) {
@@ -364,12 +364,19 @@
   }
 
   async function submit(text) {
-    const value = String(text ?? input.value).trim();
+    const images = text === undefined ? state.images.filter((image) => image.data) : [];
+    const value = String(text ?? input.value).trim() || (images.length ? "Look at the attached image(s)." : "");
     if (!value || state.busy) return;
+    if (images.length && (value.startsWith("/") || value.startsWith("!"))) {
+      addNote("⚠ Images go with a message, not a command.");
+      return;
+    }
     input.value = "";
     autosize();
+    state.images = [];
+    renderImages();
     if (!value.startsWith("/") && !value.startsWith("!")) {
-      addUser(value);
+      addUser(images.length ? `${value}\n📎 ${images.map((image) => image.name).join(", ")}` : value);
       $("steps").textContent = "";
       state.turnFiles.clear();
       renderFiles();
@@ -377,7 +384,7 @@
     setBusy(true);
     setWorking("Starting");
     try {
-      await api("/api/prompt", { text: value });
+      await api("/api/prompt", images.length ? { text: value, images: images.map(({ name, data }) => ({ name, data })) } : { text: value });
     } catch (error) {
       showError(error);
     }
@@ -575,6 +582,67 @@
     } else return;
     e.preventDefault();
     renderPicker();
+  });
+
+  // ---------- pasted or dropped images: sent with the next message, checked again by the server ----------
+  const MAX_IMAGES = 4;
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  function renderImages() {
+    const box = $("attachments");
+    box.textContent = "";
+    box.hidden = !state.images.length;
+    state.images.forEach((image, index) => {
+      const chip = el("span", "attach");
+      const img = el("img");
+      img.src = `data:${image.type};base64,${image.data}`;
+      img.alt = image.name;
+      const remove = el("button", "linkbtn", "×");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${image.name}`);
+      remove.addEventListener("click", () => {
+        state.images.splice(index, 1);
+        renderImages();
+      });
+      chip.append(img, el("span", "", image.name), remove);
+      box.append(chip);
+    });
+  }
+  function addImages(files) {
+    for (const file of files) {
+      if (!IMAGE_TYPES.includes(file.type)) continue;
+      if (state.images.length >= MAX_IMAGES) {
+        addNote(`⚠ At most ${MAX_IMAGES} images per message.`);
+        break;
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        addNote(`⚠ ${file.name || "The image"} is over 5 MB.`);
+        continue;
+      }
+      const entry = { name: file.name || `pasted-${state.images.length + 1}.${file.type.split("/")[1]}`, type: file.type, data: "" };
+      state.images.push(entry);
+      const reader = new FileReader();
+      reader.onload = () => {
+        entry.data = String(reader.result).replace(/^data:[^,]*,/, "");
+        renderImages();
+      };
+      reader.onerror = () => {
+        state.images.splice(state.images.indexOf(entry), 1);
+        renderImages();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+  input.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files ?? [])].filter((file) => IMAGE_TYPES.includes(file.type));
+    if (!files.length) return;
+    e.preventDefault();
+    addImages(files);
+  });
+  $("composer").addEventListener("dragover", (e) => e.preventDefault());
+  $("composer").addEventListener("drop", (e) => {
+    e.preventDefault();
+    addImages([...(e.dataTransfer?.files ?? [])]);
   });
 
   function autosize() {
