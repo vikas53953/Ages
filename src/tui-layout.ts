@@ -66,7 +66,7 @@ export function renderToolLine(item: { text: string; status: ToolStatus; detail?
     index === 0 ? `${DOT[item.status]} ${line}` : `  ${line}`,
   );
   if (!detail) return lines.length ? lines : [head];
-  return [...lines, ...wrapLine(item.detail!, Math.max(8, cols - 6)).map((line) => `  ${MUTED}⎿ ${line}${RESET}`)];
+  return [...lines, ...wrapLine(item.detail!, Math.max(8, cols - 6)).map((line) => `  ${MUTED}└ ${line}${RESET}`)];
 }
 
 export function renderAssistantMessage(text: string, cols: number): string[] {

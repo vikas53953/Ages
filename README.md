@@ -4,6 +4,14 @@ The coding agent you own. Rules decide first; plugins add the rest.
 
 Other agent CLIs just run. Every Aegis tool call passes a lock first: your rules in `.aegis/settings.json`, then (optionally) Jev's spend/danger score, then you — default **n**.
 
+![Aegis welcome screen](docs/screens/1-welcome.png)
+
+| `/` commands | A turn: each tool shows what decided it |
+| --- | --- |
+| ![slash commands](docs/screens/2-slash-commands.png) | ![a turn](docs/screens/3-turn.png) |
+
+Screenshots are the real `aegis` in a pseudo-terminal (`--local`, no model key).
+
 ## 1. Install
 
 Windows PowerShell (needs Node.js 22.19+):

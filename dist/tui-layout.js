@@ -49,7 +49,7 @@ export function renderToolLine(item, cols) {
     const lines = wrapLine(item.text, Math.max(8, cols - 4)).map((line, index) => index === 0 ? `${DOT[item.status]} ${line}` : `  ${line}`);
     if (!detail)
         return lines.length ? lines : [head];
-    return [...lines, ...wrapLine(item.detail, Math.max(8, cols - 6)).map((line) => `  ${MUTED}⎿ ${line}${RESET}`)];
+    return [...lines, ...wrapLine(item.detail, Math.max(8, cols - 6)).map((line) => `  ${MUTED}└ ${line}${RESET}`)];
 }
 export function renderAssistantMessage(text, cols) {
     return wrapLine(text, Math.max(1, cols - 3)).map((line) => `  ${line}`);
