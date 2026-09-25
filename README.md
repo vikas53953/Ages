@@ -6,7 +6,7 @@ Other agent CLIs just run. Every Aegis tool call passes a lock first: your rules
 
 ## 1. Install
 
-Windows PowerShell (needs Node.js 22.19+ and git):
+Windows PowerShell (needs Node.js 22.19+):
 
 ```powershell
 irm https://raw.githubusercontent.com/vikas53953/Ages/main/install.ps1 | iex
@@ -18,13 +18,19 @@ Linux, macOS, or a cloud container:
 curl -fsSL https://raw.githubusercontent.com/vikas53953/Ages/main/install.sh | sh
 ```
 
-Or straight from npm's git support:
+Or with npm directly (any branch, tag or commit in place of `main`):
 
 ```bash
-npm install -g github:vikas53953/Ages
+npm install -g https://github.com/vikas53953/Ages/archive/main.tar.gz
 ```
 
-Until the work branch is merged, install it instead with `$env:AEGIS_REF = "claude/quirky-ramanujan-6bpqc3"` (PowerShell) or `AEGIS_REF=claude/quirky-ramanujan-6bpqc3` (sh) before the installer, or `npm install -g "github:vikas53953/Ages#claude/quirky-ramanujan-6bpqc3"`.
+Until the work branch is merged, install it instead:
+
+```powershell
+npm install -g https://github.com/vikas53953/Ages/archive/claude/quirky-ramanujan-6bpqc3.tar.gz
+```
+
+(Not `github:vikas53953/Ages` — npm 10 links git installs to a temporary clone it deletes afterwards.)
 
 Check it:
 

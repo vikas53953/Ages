@@ -53,6 +53,14 @@ jobs:
           Write-Output $out
           if ($out -notmatch 'hello from the installed aegis') { throw "installed aegis did not read README.md" }
           if ($out -notmatch 'Welcome back') { throw "welcome screen missing" }
+      - name: Install from GitHub with install.ps1 (the one-line user path)
+        shell: pwsh
+        run: |
+          npm uninstall -g aegis
+          $env:AEGIS_REF = "${{ github.sha }}"
+          ./install.ps1
+          $v = aegis --version
+          if ($v -notmatch '^aegis \d') { throw "aegis --version said: $v" }
       - name: Report to job summary
         if: always()
         shell: pwsh
