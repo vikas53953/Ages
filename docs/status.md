@@ -11,4 +11,4 @@ Automated (MemoryTerminal + Vitest): input, paste, Enter, resize, confirm overla
 
 Not run: live interactive Windows Terminal. That is still the owner UX gate. Automated checks are not product acceptance.
 
-Jev scores are not OS isolation or spending limits.
+Jev scores are not OS isolation or spending limits. Shell-off does not sandbox generated Node.

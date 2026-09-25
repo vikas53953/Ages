@@ -177,13 +177,14 @@ function parseOpen(output: string, targetDir: string) {
   };
 }
 
-async function runNodeCheck(cwd: string, task: TaskRecord, node: PlanNode) {
+async function runNodeCheck(cwd: string, task: TaskRecord, node: PlanNode, abortSignal?: AbortSignal) {
   const script = checkScriptPath();
   return runCheck(cwd, {
     criterionId: node.criterionId,
     argv: [process.execPath, script, node.mode],
     workdir: task.targetDir,
     timeoutMs: 30_000,
+    abortSignal,
   });
 }
 
@@ -217,10 +218,12 @@ async function buildNode(input: {
     `Work only under ${input.task.targetDir} (relative work/${input.task.agreement.id}/).`,
     "App contract: server.mjs listens on 127.0.0.1 port 0, writes .listen.json {pid,port,url}.",
     "POST /devices JSON {id,name} persists to data/devices.json. GET /devices?q= searches it. GET / is one HTML page titled Device inventory.",
+    "Jev and shell-off do not sandbox generated Node. This is not OS isolation.",
   ].join("\n");
   return runLoop({
     prompt: `Implement node '${input.node.id}' (${input.node.title}) for the confirmed agreement. Stop after that node.`,
     cwd: input.cwd,
+    toolsCwd: input.task.targetDir,
     jev: input.jev,
     config: input.config,
     confirm: input.confirm,
@@ -315,7 +318,15 @@ export async function runDeliveryBuild(input: {
       }
       node.state = "checking";
       await savePlan(input.cwd, task, plan);
-      const check = await runNodeCheck(input.cwd, task, node);
+      const check = await runNodeCheck(input.cwd, task, node, input.abortSignal);
+      if (input.abortSignal?.aborted) {
+        node.state = "cancelled";
+        node.lastError = "check cancelled";
+        plan.readyForReview = false;
+        await savePlan(input.cwd, task, plan);
+        await setDeliveryFlags(input.cwd, { implemented: false, readyForReview: false });
+        throw new Error("cancelled");
+      }
       if (check.status === "passed" && check.executed) {
         node.state = "passed";
         node.lastError = undefined;
@@ -362,7 +373,14 @@ export async function runDeliveryBuild(input: {
   }
 
   for (const node of plan.nodes) {
-    const check = await runNodeCheck(input.cwd, task, node);
+    const check = await runNodeCheck(input.cwd, task, node, input.abortSignal);
+    if (input.abortSignal?.aborted) {
+      node.state = "cancelled";
+      plan.readyForReview = false;
+      await savePlan(input.cwd, task, plan);
+      await setDeliveryFlags(input.cwd, { implemented: false, readyForReview: false });
+      throw new Error("cancelled");
+    }
     if (check.status !== "passed" || !check.executed) {
       node.state = "failed";
       node.lastError = "final candidate check failed";

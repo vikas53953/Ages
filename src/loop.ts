@@ -245,6 +245,7 @@ export async function runLoop(input: {
   model?: string;
   abortSignal?: AbortSignal;
   onEvent?: (event: TurnEvent) => void;
+  toolsCwd?: string;
 }): Promise<Receipt> {
   const started = Date.now();
   const stop: TurnStop = {};
@@ -279,7 +280,7 @@ export async function runLoop(input: {
   input.onEvent?.({ type: "route", model: route.model, reason: route.reason });
   const toolsUsed: ToolRecord[] = [];
   const tools = createTools({
-    cwd: input.cwd,
+    cwd: input.toolsCwd ?? input.cwd,
     jev: input.jev,
     config: input.config,
     confirm: input.confirm,

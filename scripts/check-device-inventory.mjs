@@ -3,11 +3,13 @@
  * Spawned by Aegis runCheck. cwd must be the app workdir (work/<id>).
  * Modes: add | search | ui | restart
  * Does not mark owner acceptance. Exit 0 = that mode passed.
+ * Generated Node is cwd-guarded; this is not OS isolation.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEVICE = { id: "probe-host-1", name: "lab-switch" };
 const MODE = process.argv[2] ?? "add";
@@ -15,6 +17,57 @@ const CWD = process.cwd();
 const SERVER = path.join(CWD, "server.mjs");
 const STORE = path.join(CWD, "data", "devices.json");
 const LISTEN = path.join(CWD, ".listen.json");
+const GUARD = path.join(path.dirname(fileURLToPath(import.meta.url)), "app-cwd-guard.cjs");
+
+function inheritEnv() {
+  const keys =
+    process.platform === "win32"
+      ? [
+          "PATH",
+          "Path",
+          "PATHEXT",
+          "SYSTEMROOT",
+          "SystemRoot",
+          "WINDIR",
+          "windir",
+          "COMSPEC",
+          "ComSpec",
+          "TEMP",
+          "TMP",
+          "USERPROFILE",
+          "HOMEDRIVE",
+          "HOMEPATH",
+          "USERNAME",
+          "APPDATA",
+          "LOCALAPPDATA",
+          "ProgramFiles",
+          "ProgramW6432",
+          "SystemDrive",
+          "NUMBER_OF_PROCESSORS",
+          "PROCESSOR_ARCHITECTURE",
+          "OS",
+        ]
+      : ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL", "TERM"];
+  const out = {};
+  for (const key of keys) {
+    if (process.env[key] !== undefined) out[key] = process.env[key];
+  }
+  out.AEGIS_APP_ROOT = CWD;
+  return out;
+}
+
+function killTree(pid) {
+  if (!pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    return;
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // already gone
+  }
+}
 
 function fail(message, code = 1) {
   const error = new Error(message);
@@ -49,9 +102,9 @@ async function startServer() {
   } catch {
     // none
   }
-  const child = spawn(process.execPath, [SERVER], {
+  const child = spawn(process.execPath, ["--require", GUARD, SERVER], {
     cwd: CWD,
-    env: process.env,
+    env: inheritEnv(),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -64,7 +117,7 @@ async function startServer() {
   });
   const listen = await waitForListen();
   if (!listen) {
-    child.kill();
+    killTree(child.pid);
     fail(`server did not bind\n${output.slice(0, 2000)}`, 2);
   }
   return { child, listen, output };
@@ -72,14 +125,19 @@ async function startServer() {
 
 async function stopServer(child) {
   if (!child.pid) return;
-  child.kill();
-  await new Promise((resolve) => {
+  const exited = new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(resolve, 2000);
     child.once("exit", () => {
       clearTimeout(timer);
       resolve();
     });
   });
+  killTree(child.pid);
+  await exited;
   try {
     await unlink(LISTEN);
   } catch {

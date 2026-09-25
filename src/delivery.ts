@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir, stat, rename, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_VERSION } from "./brand.ts";
 import { packageRoot } from "./env.ts";
+import { runOwnedArgv } from "./exec.ts";
 import { harnessRoot } from "./session.ts";
 import type { TaskPermission } from "./types.ts";
 
@@ -113,6 +113,7 @@ const DISCLAIMERS = [
   "Screenshots do not prove functionality.",
   "Tests passing is not product acceptance.",
   "Jev scores are not OS isolation or spending limits.",
+  "Shell-off and Jev do not sandbox generated Node.",
   "Reported notes are not verification.",
 ];
 
@@ -748,53 +749,18 @@ async function criterionFor(cwd: string, criterionId: string) {
   return { task, criterion, hash: task.fingerprint, identity: await captureIdentity(cwd, task.targetDir) };
 }
 
-function runArgv(argv: string[], cwd: string, timeoutMs: number) {
-  return new Promise<{ exitCode: number; output: string; executed: boolean }>((resolve) => {
-    const [command, ...args] = argv;
-    if (!command) {
-      resolve({ exitCode: 1, output: "empty argv", executed: false });
-      return;
-    }
-    let started = false;
-    let spawnFailed = false;
-    let output = "";
-    const child = spawn(command, args, {
-      cwd,
-      env: process.env,
-      windowsHide: true,
-    });
-    const timer = setTimeout(() => {
-      child.kill();
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk) => {
-      output += String(chunk);
-    });
-    child.stderr?.on("data", (chunk) => {
-      output += String(chunk);
-    });
-    child.on("spawn", () => {
-      started = true;
-    });
-    child.on("error", (error) => {
-      spawnFailed = true;
-      clearTimeout(timer);
-      resolve({ exitCode: 1, output: `${output}\n${error.message}`.trim(), executed: false });
-    });
-    child.on("close", (code) => {
-      if (spawnFailed) return;
-      clearTimeout(timer);
-      resolve({
-        exitCode: code ?? 1,
-        output: output.slice(0, 8000),
-        executed: started || code !== null,
-      });
-    });
-  });
+function runArgv(
+  argv: string[],
+  cwd: string,
+  timeoutMs: number,
+  abortSignal?: AbortSignal,
+) {
+  return runOwnedArgv(argv, cwd, { timeoutMs, abortSignal });
 }
 
 export async function runCheck(
   cwd: string,
-  input: { criterionId: string; argv: string[]; workdir?: string; timeoutMs?: number },
+  input: { criterionId: string; argv: string[]; workdir?: string; timeoutMs?: number; abortSignal?: AbortSignal },
 ) {
   const { task, criterion, hash, identity } = await criterionFor(cwd, input.criterionId);
   const workdir = canonicalDir(input.workdir ?? task.targetDir);
@@ -803,7 +769,7 @@ export async function runCheck(
       `Check workdir must be the agreed task directory (${task.targetDir}); got ${workdir}. A zero exit from another project is not this project's evidence.`,
     );
   }
-  const result = await runArgv(input.argv, workdir, input.timeoutMs ?? 120_000);
+  const result = await runArgv(input.argv, workdir, input.timeoutMs ?? 120_000, input.abortSignal);
   let status: CriterionStatus = "failed";
   if (!result.executed) status = "blocked";
   else if (result.exitCode === 0) status = "passed";

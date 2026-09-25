@@ -81,11 +81,49 @@ export function lexicalInsideCwd(target: string, cwd: string) {
   return resolved;
 }
 
+export function checkerScriptPath() {
+  return path.join(packageRoot(), "scripts", "check-device-inventory.mjs");
+}
+
+function checkerPaths(cwd: string) {
+  return [checkerScriptPath(), path.join(path.resolve(cwd), "scripts", "check-device-inventory.mjs")];
+}
+
+function isInsideDir(root: string, candidate: string) {
+  const rel = path.relative(path.resolve(root), path.resolve(candidate));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function isCheckerPath(resolvedPath: string, cwd: string) {
+  return checkerPaths(cwd).some((file) => isInsideDir(file, resolvedPath) && isInsideDir(resolvedPath, file));
+}
+
 export function assertNotDeliveryRecord(relativePath: string, cwd: string) {
   const intended = lexicalInsideCwd(relativePath, cwd);
   const rel = path.relative(path.resolve(cwd), intended);
   const top = rel.split(/[/\\]/)[0]?.toLowerCase();
   if (top === ".harness" || top === ".git") {
+    throw new Error("Delivery records are not writable by tools.");
+  }
+  if (isCheckerPath(intended, cwd)) {
+    throw new Error("Checker script is not writable by tools.");
+  }
+}
+
+async function assertResolvedNotProtected(resolvedPath: string, cwd: string) {
+  const dest = path.resolve(resolvedPath);
+  if (isCheckerPath(dest, cwd)) {
+    throw new Error("Checker script is not writable by tools.");
+  }
+  const root = await realpathOrSelf(path.resolve(cwd));
+  const harness = await realpathOrSelf(path.join(root, ".harness"));
+  const git = await realpathOrSelf(path.join(root, ".git"));
+  if (isInsideDir(harness, dest) || isInsideDir(git, dest)) {
+    throw new Error("Delivery records are not writable by tools.");
+  }
+  const rel = path.relative(root, dest);
+  const parts = rel.split(/[/\\]/).map((part) => part.toLowerCase());
+  if (parts.includes(".harness") || parts.includes(".git")) {
     throw new Error("Delivery records are not writable by tools.");
   }
 }
@@ -188,13 +226,17 @@ export async function writeFileInsideCwd(relativePath: string, contents: string,
     ? path.join(located.real, ...located.rest)
     : located.real;
   assertRelInside(root, destParent, relativePath);
+  await assertResolvedNotProtected(destParent, cwd);
+  await assertResolvedNotProtected(located.real, cwd);
   if (located.rest.length) {
     await mkdir(destParent, { recursive: true });
   }
   const parentReal = await realpath(destParent);
   assertRelInside(root, parentReal, relativePath);
+  await assertResolvedNotProtected(parentReal, cwd);
   const dest = path.join(parentReal, path.basename(intended));
   assertRelInside(root, dest, relativePath);
+  await assertResolvedNotProtected(dest, cwd);
   const tmp = path.join(parentReal, `.aegis-tmp-${randomUUID()}`);
   try {
     await writeFile(tmp, contents, { encoding: "utf8", flag: "wx" });
@@ -203,6 +245,7 @@ export async function writeFileInsideCwd(relativePath: string, contents: string,
       throw new Error(`Path is outside the working folder: ${relativePath}`);
     }
     assertRelInside(root, parentNow, relativePath);
+    await assertResolvedNotProtected(parentNow, cwd);
     if (await isLink(dest)) await unlink(dest);
     await rename(tmp, dest);
   } catch (error) {
@@ -215,6 +258,7 @@ export async function writeFileInsideCwd(relativePath: string, contents: string,
   }
   const real = await realpath(dest);
   assertRelInside(root, real, relativePath);
+  await assertResolvedNotProtected(real, cwd);
   return real;
 }
 
@@ -227,6 +271,7 @@ export async function assertWrittenInsideCwd(target: string, cwd: string) {
   try {
     const real = await realpath(target);
     assertRelInside(root, real, target);
+    await assertResolvedNotProtected(real, cwd);
   } catch {
     try {
       await unlink(target);

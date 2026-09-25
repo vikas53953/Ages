@@ -134,7 +134,7 @@ function builder(writes: string[]): GenerateFn {
     const contents = writes[Math.min(index, writes.length - 1)] ?? PERSIST_SERVER;
     index += 1;
     await tools.write.execute!(
-      { path: "work/device-inventory/server.mjs", contents },
+      { path: "server.mjs", contents },
       localOpts,
     );
     return {
