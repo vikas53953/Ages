@@ -80,7 +80,7 @@ git clone https://github.com/vikas53953/Ages; cd Ages; npm install
 npm start              # run from source (tsx)
 npm test               # Vitest
 npm run check:windows  # end-to-end checks (real PowerShell on Windows)
-npm run build          # compile to dist/ (what the installed `aegis` runs)
+npm run build          # compile to dist/ — commit dist/ with your change (installs run it; CI checks it is fresh)
 ```
 
 Every push runs typecheck, Vitest, the end-to-end check and an install test on a Windows runner (`.github/workflows/windows-check.yml`).

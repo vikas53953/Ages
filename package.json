@@ -31,8 +31,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:windows": "tsx scripts/windows-check.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "npm run build"
+    "build": "tsc -p tsconfig.build.json"
   },
   "engines": {
     "node": ">=22.19.0"
