@@ -20,6 +20,7 @@ const PATTERNS: Pattern[] = [
   { kind: "api-key", re: /\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|oc_sk_[A-Za-z0-9_-]{16,})/g },
   { kind: "slack-token", re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
   { kind: "google-key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  { kind: "brave-key", re: /\bBSA[A-Za-z0-9_-]{25,}\b/g },
   { kind: "jwt", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
 ];
 

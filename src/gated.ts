@@ -169,7 +169,6 @@ export function toolTarget(name: string, args: JsonObject) {
   if (name === "grep" || name === "glob") return `"${String(args.pattern ?? "")}" in ${String(args.path ?? ".")}`;
   if (name === "webfetch") return String(args.url ?? "").slice(0, 200);
   if (name === "websearch") return `"${String(args.query ?? "").slice(0, 120)}"`;
-  if (name === "websearch") return String(args.query ?? "").slice(0, 120);
   if (name === "explore") return String(args.task ?? "").slice(0, 120);
   return String(args.path ?? "");
 }

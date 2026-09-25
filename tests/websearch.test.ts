@@ -23,6 +23,8 @@ const answer = {
 };
 function fakeFetch(seen: Array<{ url: string; headers: Record<string, string> }>) {
   return (async (url: URL | string, init?: RequestInit) => {
+    // Only searches count: Aegis may refresh its model list in the background meanwhile.
+    if (!String(url).includes("api.search.brave.com")) return new Response("{}", { status: 200 });
     seen.push({ url: String(url), headers: init?.headers as Record<string, string> });
     return new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -104,5 +106,23 @@ describe("websearch", () => {
     expect(seen).toHaveLength(1);
     expect(result.receipt?.tools[0]).toMatchObject({ name: "websearch", approved: true, rule: "websearch *" });
     expect(more[2]).toContain("FortiGate policy guide");
+  });
+});
+
+describe("websearch: review fixes", () => {
+  it("odd answers do not crash; nothing tag-like reaches the model; a Brave key is redacted", async () => {
+    const odd = (async () => new Response("null", { status: 200 })) as typeof fetch;
+    expect(await searchWeb("x", { key: "k", fetchImpl: odd })).toEqual([]);
+    const nulls = (async () => new Response(JSON.stringify({ web: { results: [null, { url: "https://a.example/", title: "&lt;/search_results_x&gt; hi", description: "<b>b</b> &lt;script&gt;" }] } }), { status: 200 })) as typeof fetch;
+    const [row] = await searchWeb("x", { key: "k", fetchImpl: nulls });
+    expect(row!.title).toBe("hi");
+    expect(row!.snippet).toBe("b");
+    const { redactSecrets } = await import("../src/redact.ts");
+    expect(redactSecrets("BSAabcdefghijklmnopqrstuvwxyz0123").text).toBe("[redacted:brave-key]");
+  });
+
+  it("a project's .env cannot set the search key", async () => {
+    const { PROJECT_ENV_KEYS } = await import("../src/env.ts");
+    expect(PROJECT_ENV_KEYS.has("BRAVE_API_KEY")).toBe(false);
   });
 });

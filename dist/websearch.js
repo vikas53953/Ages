@@ -15,9 +15,11 @@ export function websearchKey() {
 }
 /** Tags and entities out of a snippet (Brave marks matches with <strong>). */
 function plain(text) {
+    // Entities first, then every tag and stray angle bracket: nothing tag-like reaches the model.
     return String(text ?? "")
-        .replace(/<[^>]{0,200}>/g, "")
         .replace(/&(amp|lt|gt|quot|#39);/g, (_, name) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[name] ?? "")
+        .replace(/<[^>]{0,200}>/g, "")
+        .replace(/[<>]/g, "")
         .replace(/\s+/g, " ")
         .trim();
 }
@@ -60,8 +62,10 @@ export async function searchWeb(query, options) {
         if (done)
             break;
     }
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return (body.web?.results ?? [])
+    const body = (JSON.parse(Buffer.concat(chunks).toString("utf8")) ?? {});
+    const rows = Array.isArray(body.web?.results) ? body.web.results : [];
+    return rows
+        .filter((row) => Boolean(row) && typeof row === "object")
         .filter((row) => typeof row.url === "string" && /^https?:\/\//i.test(row.url))
         .slice(0, MAX_RESULTS)
         .map((row) => ({ title: plain(row.title).slice(0, 200), url: String(row.url).slice(0, 500), snippet: plain(row.description).slice(0, 400) }));
