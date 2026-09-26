@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
-import { decideToolAction } from "../src/policy.ts";
+import { decideToolAction, stricter } from "../src/policy.ts";
 import type { ToolDecision } from "../src/types.ts";
 
 const config = loadConfig();
@@ -50,12 +50,19 @@ describe("decideToolAction", () => {
     ).toBe("confirm");
   });
 
-  it("denies when Jev fail-closed", () => {
+  it("asks you when Jev could not score (Jev never denies on its own)", () => {
     expect(
       decideToolAction(
         tool({ source: "fail_closed", class: "irreversible", dataLoss: 1, confidence: 0 }),
         config,
       ),
-    ).toBe("deny");
+    ).toBe("confirm");
+  });
+
+  it("stricter() keeps the tighter action, so Jev can only tighten a rule", () => {
+    expect(stricter("auto", "confirm")).toBe("confirm");
+    expect(stricter("confirm", "auto")).toBe("confirm");
+    expect(stricter("confirm", "deny")).toBe("deny");
+    expect(stricter("auto", "auto")).toBe("auto");
   });
 });

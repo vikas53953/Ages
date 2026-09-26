@@ -74,7 +74,7 @@ describe("TUI app", () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(submitted).toEqual([]);
     expect(app.editor.getExpandedText()).toMatch(/hello/);
-    expect(app.lines().join("\n")).not.toContain("you  hello");
+    expect(app.lines().join("\n")).not.toContain("› hello");
   });
 
   it("submits on Enter and shows the reply", async () => {
@@ -95,7 +95,8 @@ describe("TUI app", () => {
     for (const ch of "ping") app.feed(ch);
     app.feed("\r");
     const text = await waitFor(app, "echo:ping");
-    expect(text).toContain("you  ping");
+    expect(text).toContain("echo:ping");
+    expect(app.messages()).toContain("ping");
     expect(app.messages().join("\n")).toContain("echo:ping");
   });
 
@@ -110,14 +111,14 @@ describe("TUI app", () => {
     terminal.resize(100, 30);
     app.tui.requestRender(true);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const matches = app.lines().join("\n").match(/Aegis  v/g) ?? [];
+    const matches = app.lines().join("\n").match(/Aegis v\d/g) ?? [];
     expect(matches.length).toBe(1);
   });
 
   it("queues confirms, shows the action, and defaults Enter to No", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-ask-"));
     const terminal = new MemoryTerminal();
-    const answers: boolean[] = [];
+    const answers: Array<boolean | "always"> = [];
     const app = await createTuiApp(
       { mockJev: true, yes: false, local: true },
       {
@@ -169,9 +170,39 @@ describe("TUI app", () => {
     expect(cleared).not.toContain("old-turn");
     for (const ch of `/resume ${first.id}`) app.feed(ch);
     app.feed("\r");
-    const restored = await waitFor(app, "old-reply");
+    // Wait for the command's own line: the reloaded transcript can be drawn a frame before it (seen on Windows CI).
+    const restored = await waitFor(app, "resumed");
     expect(restored).toContain("old-turn");
-    expect(restored).toContain("resumed");
+    expect(restored).toContain("old-reply");
+    // Three screen waits of up to 4 s each: more than Vitest's 5 s default on a busy machine.
+  }, 20_000);
+
+  it("reloads a session with tool calls: shows the text, hides raw tool rows", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-tools-"));
+    const first = await createSession(cwd);
+    const at = new Date().toISOString();
+    await appendMessage(cwd, first.id, { role: "user", content: "read-the-notes", at });
+    await appendMessage(cwd, first.id, {
+      role: "assistant",
+      at,
+      content: [
+        { type: "text", text: "reading-now" },
+        { type: "tool-call", toolCallId: "c1", toolName: "read", input: { path: "n.txt" } },
+      ],
+    });
+    await appendMessage(cwd, first.id, {
+      role: "tool",
+      at,
+      content: [{ type: "tool-result", toolCallId: "c1", toolName: "read", output: { type: "text", value: "RAW-TOOL-OUTPUT" } }],
+    });
+    await appendMessage(cwd, first.id, { role: "assistant", at, content: [{ type: "text", text: "notes-summary" }] });
+    const terminal = new MemoryTerminal();
+    const app = await createTuiApp({ mockJev: true, yes: false, local: true }, { cwd, terminal });
+    apps.push(app);
+    const text = await waitFor(app, "notes-summary");
+    expect(text).toContain("read-the-notes");
+    expect(text).toContain("reading-now");
+    expect(text).not.toContain("RAW-TOOL-OUTPUT");
   });
 
   it("cancels a pending approval on Ctrl+C without running the tool", async () => {
@@ -219,7 +250,7 @@ describe("TUI app", () => {
 
 describe("ConfirmBox", () => {
   it("ignores pasted blobs and treats Enter as No", () => {
-    const seen: boolean[] = [];
+    const seen: Array<boolean | "always"> = [];
     const box = new ConfirmBox("Aegis: write\n  path: x", (ok) => seen.push(ok));
     box.handleInput("\x1b[200~y\ny\x1b[201~");
     expect(seen).toEqual([]);
@@ -278,6 +309,33 @@ describe("runtime chat flags", () => {
       if (previous.typesafe !== undefined) process.env.TYPESAFE_API_KEY = previous.typesafe;
       if (previous.typesafeAi !== undefined) process.env.TYPESAFE_AI_API_KEY = previous.typesafeAi;
       if (previous.gateway !== undefined) process.env.AI_GATEWAY_API_KEY = previous.gateway;
+    }
+  });
+});
+
+describe("aegis -r", () => {
+  it("starts with /sessions listed", async () => {
+    const { parseArgs } = await import("../src/cli.ts");
+    expect(parseArgs(["-r"]).resume).toBe(true);
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-resume-"));
+    const seen: string[] = [];
+    const app = await createTuiApp(
+      { mockJev: true, yes: false, local: true },
+      {
+        cwd,
+        terminal: new MemoryTerminal(),
+        firstLine: "/sessions",
+        handleLine: async (line, state) => {
+          seen.push(line);
+          return { output: "1  first prompt", session: state.session };
+        },
+      },
+    );
+    try {
+      await waitFor(app, "1  first prompt");
+      expect(seen).toEqual(["/sessions"]);
+    } finally {
+      app.shutdown();
     }
   });
 });

@@ -1,0 +1,188 @@
+import { spawn, spawnSync } from "node:child_process";
+import { programPath, system32 } from "./which.js";
+const WIN_ENV = [
+    "ALLUSERSPROFILE",
+    "APPDATA",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "ComSpec",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LOCALAPPDATA",
+    "NUMBER_OF_PROCESSORS",
+    "OS",
+    "PATHEXT",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "ProgramData",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "PUBLIC",
+    "SystemDrive",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERDOMAIN",
+    "USERNAME",
+    "USERPROFILE",
+    "WINDIR",
+    "PATH",
+    "Path",
+    "windir",
+];
+const POSIX_ENV = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL", "TERM"];
+/** Platform process env only. No secrets, no AEGIS_*, no NODE_OPTIONS. Not OS isolation. */
+export function checkProcessEnv(extra) {
+    const keys = process.platform === "win32" ? WIN_ENV : POSIX_ENV;
+    const out = {};
+    for (const key of keys) {
+        const value = process.env[key];
+        if (value !== undefined)
+            out[key] = value;
+    }
+    if (process.env.PATH && !out.PATH)
+        out.PATH = process.env.PATH;
+    if (extra) {
+        for (const [key, value] of Object.entries(extra)) {
+            if (value !== undefined)
+                out[key] = value;
+        }
+    }
+    return out;
+}
+/**
+ * Process groups Aegis started (POSIX, detached): a detached group does not get the terminal's Ctrl+C or hang-up,
+ * so they are killed when Aegis exits, however it exits, instead of lingering as orphans.
+ */
+const ownedGroups = new Set();
+let exitHook = false;
+export function ownGroup(pid) {
+    if (!pid || process.platform === "win32")
+        return;
+    ownedGroups.add(pid);
+    if (exitHook)
+        return;
+    exitHook = true;
+    process.on("exit", () => {
+        for (const group of ownedGroups) {
+            try {
+                process.kill(-group, "SIGKILL");
+            }
+            catch {
+                // gone
+            }
+        }
+    });
+    // Killed by a signal, Node skips "exit" handlers: turn TERM/HUP into a normal exit (the default would end the
+    // process anyway). Ctrl+C is left alone: the TUI reads it as a key and headless runs stop gracefully on it.
+    for (const signal of ["SIGTERM", "SIGHUP"]) {
+        if (process.listenerCount(signal) === 0)
+            process.once(signal, () => process.exit(143));
+    }
+}
+export function releaseGroup(pid) {
+    if (pid)
+        ownedGroups.delete(pid);
+}
+/** Kill the spawned process and its children. Windows uses taskkill /T, not POSIX killpg. */
+export function killProcessTree(pid) {
+    if (!pid)
+        return;
+    if (process.platform === "win32") {
+        spawnSync(system32("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
+            windowsHide: true,
+            stdio: "ignore",
+        });
+        return;
+    }
+    // POSIX: a process started as a group leader (detached) takes its whole group with it; otherwise just itself.
+    try {
+        process.kill(-pid, "SIGKILL");
+        return;
+    }
+    catch {
+        // not a group leader, or already gone
+    }
+    try {
+        process.kill(pid, "SIGKILL");
+    }
+    catch {
+        // already gone
+    }
+}
+export function runOwnedArgv(argv, cwd, opts) {
+    return new Promise((resolve) => {
+        const [command, ...args] = argv;
+        if (!command) {
+            resolve({ exitCode: 1, output: "empty argv", executed: false });
+            return;
+        }
+        let started = false;
+        let spawnFailed = false;
+        let settled = false;
+        let output = "";
+        let program;
+        try {
+            program = programPath(command);
+        }
+        catch (error) {
+            resolve({ exitCode: 127, output: error instanceof Error ? error.message : String(error), executed: false });
+            return;
+        }
+        const child = spawn(program, args, {
+            cwd,
+            env: checkProcessEnv(opts.env),
+            windowsHide: true,
+            // POSIX: its own process group, so stopping it also stops what it started (Windows uses taskkill /T).
+            detached: process.platform !== "win32",
+        });
+        ownGroup(child.pid);
+        const finish = (result) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            opts.abortSignal?.removeEventListener("abort", onAbort);
+            resolve(result);
+        };
+        const stop = () => {
+            if (child.pid)
+                killProcessTree(child.pid);
+        };
+        const onAbort = () => stop();
+        const timer = setTimeout(stop, opts.timeoutMs);
+        if (opts.abortSignal?.aborted) {
+            stop();
+        }
+        else {
+            opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
+        }
+        child.stdout?.on("data", (chunk) => {
+            output += String(chunk);
+        });
+        child.stderr?.on("data", (chunk) => {
+            output += String(chunk);
+        });
+        child.on("spawn", () => {
+            started = true;
+            if (opts.abortSignal?.aborted)
+                stop();
+        });
+        child.on("error", (error) => {
+            spawnFailed = true;
+            finish({ exitCode: 1, output: `${output}\n${error.message}`.trim(), executed: false });
+        });
+        child.on("close", (code) => {
+            releaseGroup(child.pid);
+            if (spawnFailed)
+                return;
+            const aborted = Boolean(opts.abortSignal?.aborted);
+            finish({
+                exitCode: aborted ? 1 : (code ?? 1),
+                output: (aborted ? `${output}\ncancelled`.trim() : output).slice(0, 8000),
+                executed: aborted ? false : started || code !== null,
+            });
+        });
+    });
+}

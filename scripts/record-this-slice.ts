@@ -6,7 +6,7 @@ import {
   renderTaskCard,
   runCheck,
   writeAgreement,
-} from "../src/delivery.ts";
+} from "../src/plugins/delivery/delivery.ts";
 
 const cwd = process.cwd();
 const vitest = path.join(packageRoot(), "node_modules", "vitest", "vitest.mjs");

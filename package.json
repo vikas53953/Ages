@@ -1,19 +1,39 @@
 {
   "name": "aegis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Aegis — the agent you own. Jev locks spend and danger.",
-  "bin": {
-    "aegis": "./bin/aegis.mjs",
-    "harness": "./bin/harness.mjs"
+  "description": "Aegis — the coding agent you own. Rules decide first; plugins add the rest.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vikas53953/Ages.git"
   },
+  "license": "UNLICENSED",
+  "bin": {
+    "aegis": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts/check-device-inventory.mjs",
+    "scripts/app-cwd-guard.cjs",
+    "scripts/claude-hook.mjs",
+    "skills",
+    "gate.config.json",
+    "README.md",
+    "AGENTS.md",
+    "install.ps1",
+    "install.sh",
+    "studio"
+  ],
   "scripts": {
     "aegis": "tsx src/cli.ts",
     "harness": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:windows": "tsx scripts/windows-check.ts",
+    "build": "tsc -p tsconfig.build.json"
   },
   "engines": {
     "node": ">=22.19.0"

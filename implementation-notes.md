@@ -6,3 +6,407 @@
 - Default OpenCode models: cheap `glm-5.3-flash`, frontier `glm-5.3` (chat-completions compatible). Override with GATE_CHEAP_MODEL / GATE_FRONTIER_MODEL.
 - Pi-shaped V1.1: edit tool, /compact /clear /status, AGENTS.md context. No TUI, no session tree, no extension SDK — those stay later. Jev stays the lock.
 - TUI V1: ANSI alternate screen, header, log, harness> input, y/N in the TUI. `--repl` keeps the plain prompt. No themes/extensions.
+- Slice 1 (25 Sep 2026): rules before Jev. Order: agreement block → deny/ask/allow rules → Jev (off / second-opinion / every-call) → you (default n). Jev failing now means "ask", not "deny".
+- Deviation from the agreed defaults: write, edit and ordinary shell have no default *ask* rule. They are "grey zone": Jev decides when it is on (today's behaviour with a key), otherwise you are asked. An explicit ask rule for them would make second-opinion mode do nothing by default. Dangerous shell (Remove-Item, git push, …) does have ask rules.
+- Shell allow rules never match a chained or redirected command (; & | ` > < $( ); deny/ask rules match any piece of a chain.
+- Unreadable settings: Jev off, allow rules ignored, deny/ask kept; a notice says so.
+- Slice 2: the session now stores the model's real messages (assistant text + tool calls, then tool results), not the receipt card. Tool results are capped at 8,000 characters when saved. Old text-only sessions still load.
+- AI SDK v7 detail: `result.response.messages` holds only the last step; the turn's messages are collected from every step (`steps[].response.messages`).
+- Slice 3: compaction is core. Before a turn, if saved history is over `compactAtChars` (120,000 chars, about 30k tokens) the old turns are summarized by the cheap model into `.harness/sessions/<id>/summary.md`; the last `compactKeepTurns` (3) user turns stay word for word. The summary goes into the system prompt, not a fake message. The cut is always at a user turn so tool call/result pairs stay together. No model (local) or model error: the line-by-line summary is used and the notice says so.
+- Slice 4: plugin layer. `src/plugin-api.ts` is the contract. Jev, delivery (with the device-inventory builder) and receipts moved to `src/plugins/`; `loop.ts` and `gated.ts` no longer import them. `runtime.ts` is the only core file that loads plugins (from `"plugins"` in settings; default jev, delivery, receipts). With no plugins the core still runs: rules + you decide, no receipts, no /task, no /jev.
+- Behaviour changes in slice 4: an unknown slash command now says "unknown command" instead of going to the model; `/task <unknown words>` says so too. Default "next" line without delivery is "Ask a follow-up, or /compact…".
+- Tests that call `runLoop` / `createTools` directly now pass the plugins they rely on (delivery guard, receipts), because the core no longer adds them implicitly.
+- Install like Pi (25 Sep 2026): `npm run build` compiles `src/` to `dist/` (tsc with rewriteRelativeImportExtensions); `bin.aegis` = `dist/main.js`; `prepare` builds on git installs, so `npm install -g github:vikas53953/Ages` works without tsx. One-line installers: `install.ps1`, `install.sh`. Keys: `/login opencode <key>` saves to `~/.aegis/.env` (project `.env` still wins).
+- Welcome screen: layout taken from Claude Code's welcome box (title in border, welcome + mascot left, tips + recent activity right) and Pi's key-hint line (`packages/coding-agent/src/modes/interactive/interactive-mode.ts`). Aegis content: shield mascot (full/half blocks only, so the classic Windows console draws it), "The lock" panel. Falls back to one column under 78 cols and to Pi size under 44.
+- TUI transcript: status steps (accepted, evaluating, waiting) moved to the footer; one line per tool with what decided it; the full handoff card stays in the REPL and receipts, the TUI shows one status line. `/` autocompletes commands (pi-tui CombinedAutocompleteProvider, same as Pi), built from the /help text.
+- `dist/` is committed (deviation from the first install plan). npm runs a git dependency's `prepare` build in global mode during `npm install -g github:…`, so dev dependencies never land and tsc fails (`Cannot find type definition file for 'node'`, seen in npm's debug log: the inner install reified `/opt/node22/lib/node_modules/aegis`). Pi avoids this the same way — it ships built JS and needs no lifecycle scripts. CI rebuilds and fails if `dist/` differs from `src/`.
+- Installs use GitHub's tarball URL (`https://github.com/vikas53953/Ages/archive/<ref>.tar.gz`), not `github:…`: npm 10.9 installed `github:` globally as a symlink into its temporary clone folder, which it then deleted (seen with `npm ls -g`). The tarball route installs a real folder and needs no git on the user's machine.
+- Pi/Claude Code keys and habits: esc stops a turn; ctrl+c clears, twice exits; ctrl+d exits on an empty prompt; `!cmd` / `!!cmd` run PowerShell yourself (Pi's `!`/`!!`), no gate because you typed it; every launch is a new session, `-c` continues (both references do this). PowerShell 7 (`pwsh`) preferred, Windows PowerShell 5.1 fallback, `AEGIS_POWERSHELL` overrides (Pi's order). Assistant answers render as Markdown with pi-tui's Markdown component (what Pi uses). A spinner line above the editor shows the phase, seconds and "esc to stop".
+- Experience Phase 1 (25 Sep 2026): model picker overlay on `/model` (`/models` still prints the list); thinking levels sent as AI SDK `reasoning` plus provider options (OpenAI `reasoningEffort` + `reasoningSummary: auto`, OpenCode `reasoningEffort`, Google `includeThoughts`). Reasoning streams live, folded by default, and is never saved to the session. Spend is shown in tokens like Pi (`↑ in ↓ out · N thinking`), not money.
+- Phase 2: "always allow" saves a narrow allow rule: a folder and everything under it for write/edit, the exact command for shell. Themes are per user (`~/.aegis/settings.json`, `AEGIS_HOME` overrides the folder).
+- Phase 3: Aegis Studio (`aegis ui`), the browser face on the same `handleLine`. No build step and no CDN: vanilla JS/CSS, Windows system fonts. Security: 127.0.0.1 only, random key in the URL fragment (never sent in Referer), Host header must be 127.0.0.1/localhost (stops DNS rebinding), no CORS, strict CSP, model text is escaped before the small Markdown pass. Approvals wait for the page; Stop or the turn ending answers No.
+- Review fixes (independent review of Phases 1–2): rule targets are now relative to the working folder, so an absolute path (`C:\proj\.git\config`) meets the same deny rules and `.aegis` is never offered for "always"; "always" is refused for `..`, `.`, outside paths and wrapped commands (`pwsh -c`, `cmd /c`, `iex`, `Start-Process`); unreadable settings offer no "always"; a failed save still runs the call once; `ctrl+t` no longer un-hides reasoning that `/think hide` hid.
+- Studio bug found by the browser test: `display: flex` overrode the `hidden` attribute, so the model picker and the working line never hid. Fixed with `[hidden] { display: none !important; }`.
+- Second review (Phase 3): rule targets now always resolve like the tools do, so `../proj/.git/x` and Windows drive-relative `C:.git\x` meet deny rules too; "always" refused for more wrappers (Start-Job, Invoke-Command, node/python/php, `.ps1` scripts, dot-sourcing, `start`). Studio: UTF-8 bodies decoded as one stream (a split `€` was mangled), close() with a waiting card no longer crashes (write-after-end), bad JSON is 400, `?t=` only on the event stream, constant-time key compare, `--port` validated, a second tab follows a turn started elsewhere. A failed "always" save now says "rule not saved" on the tool line. The Studio header comment now matches behaviour: a waiting card stays until answered or stopped.
+- Subscription login (25 Sep 2026): `/login chatgpt` signs in with a ChatGPT plan: a device code by default, browser PKCE on localhost:1455 with `browser`. Same client id and endpoints as the Codex CLI, Pi and OpenCode; requests go to `chatgpt.com/backend-api/codex/responses` with `originator: aegis`. It uses the AI SDK OpenAI Responses adapter with a custom fetch: system text goes into `instructions`, `store: false`, always streaming, fields Codex rejects are dropped, and a 401 triggers one forced refresh. Sign-ins are kept in `~/.aegis/auth.json` (atomic write; `icacls` limits it to your account on Windows, mode 600 elsewhere); API keys stay in `.env`. Windows Credential Manager is not used yet: it caps a secret at about 2.5 KB and ChatGPT tokens are larger.
+- Deviation: Claude Pro/Max and Gemini plan sign-in were not built, although asked for. Anthropic's terms forbid third-party apps from using Claude.ai sign-in, and it only works by posing as Claude Code. Google bans accounts that use Gemini CLI sign-in elsewhere. Claude stays available by API key, and next by running the real Claude Code as an engine.
+- Compaction now streams (`streamText`), because the Codex endpoint only answers streaming requests.
+- Opening links on Windows now uses `rundll32 url.dll,FileProtocolHandler`, not `cmd /c start`, which cut sign-in URLs at every `&`.
+- Claude Code engine: `/model claude-code` runs turns in the user's own, unmodified Claude Code (`claude -p --output-format stream-json --verbose --settings <file> [--resume <id>]`, prompt on stdin). Anthropic's legal page allows an end user to sign in to the unmodified Claude Code binary with their own plan. The settings file adds a PreToolUse hook (exec form, no shell) that runs `scripts/claude-hook.mjs`. The hook posts each tool call to a one-turn 127.0.0.1 server with a random token, and `runGatedTool` decides with the same rules, Jev, plugins' guards and y/a/N as Aegis's own tools. The hook blocks (exit 2) on any error, so the lock fails closed; the hook timeout is 3600 s so a waiting approval is not skipped. Claude Code tool names map to Aegis rule names (Write → write, Edit → edit, Bash/PowerShell → shell, Grep/Glob → grep, WebFetch → webfetch <url>, anything else → its own name, which asks). TodoWrite and Task* bookkeeping are allowed without asking. AGENTS.md, memory and plugin prompts go in through `--append-system-prompt-file`. Claude Code keeps and compacts its own conversation, one per Aegis session (`claude-session` file).
+- Deviation: without `--bare`, Claude Code also loads your own `~/.claude` settings, hooks and MCP servers. `--bare` would skip the subscription login.
+- Engine review fixes: Claude Code's tools run in Claude Code, so Aegis's tool-level limits are now enforced in the hook before any rule. File tools must stay inside the project (`read *` no longer reaches `~/.ssh`), shell needs `AEGIS_ALLOW_SHELL=1`, and writes to the hook script and the per-turn settings are refused. The generated settings set `disableAllHooks: false` and `permissions.defaultMode: "default"`, so your own `~/.claude` settings cannot turn the lock off. The hook timeout is 24 h, and an unanswered question becomes No 10 minutes earlier, because a timed-out hook does not block. The hook body is capped at 2 MB. Not fixed: shell commands are not confined to the folder (true for Aegis's own shell too), and cmd expands `%NAME%` inside a quoted path when npm's `claude.cmd` shim is used.
+- Sign-in review fixes: the temp file is locked before tokens are written and always removed; a refresh re-reads the file first (another window may have renewed it); a declined device code fails at once; the rejected 401 response is drained before the retry.
+- Undo / rewind (from the harness research: Cline and Gemini CLI do this): before a write or edit you allowed changes a file, the file is kept in `.harness/sessions/<id>/checkpoints/` (blobs and index.jsonl). Only the first change per file per turn is kept, because that is the state to undo to. `/rewind` lists turns; `/rewind <n> [files|chat]` restores files (a file that did not exist is removed) and/or drops the conversation from that turn on (Claude Code's conversation starts fresh too). Shell commands are not tracked, as in Claude Code's own rewind. Files over 5 MB are not kept, and the rewind says so. No git is needed, since many Windows users have none.
+- Plan mode (Factory Droid's spec mode, Claude Code's and Gemini's plan mode): `/plan` makes every tool except read and grep refuse before any rule is asked (the gate's `readOnly`), and adds a plan section to the system prompt. `/plan go` leaves plan mode and sends "The plan is approved…" as the next turn. With the Claude Code engine, Claude Code also runs with `--permission-mode plan`. Plan mode is per window and not saved. Shown in the footer (PLAN ·), `/status` and a Studio chip.
+- Headless (Pi's print/JSON modes, Claude Code's `-p`): `aegis -p "task"` prints the answer, and `--json` prints one JSON object per line (events, each question and whether it was denied, then one result). Nobody can answer y/N, so questions are denied; allow rules and Jev (which can only tighten, or decide grey-zone calls when on) still apply, and deny rules win even over `--yes`. Stdin is added to the prompt, so `git diff | aegis -p "review"` works. Exit codes: 0 done, 1 error, 2 done with at least one denied call.
+- MCP (Claude Code and Codex put MCP behind their permissions; Pi leaves it out on purpose). A small stdio JSON-RPC client of our own. `@ai-sdk/mcp`'s current version targets a newer AI SDK than ours, and `@modelcontextprotocol/sdk` pulls in express and hono. Servers come from `"mcp": {"servers": {…}}` in ~/.aegis/settings.json (trusted) or the project's .aegis/settings.json. A project server starts only after `/mcp trust <name>`, and that trust is tied to the folder and the exact command, args and env (in ~/.aegis/mcp-trust.json), so a cloned repo cannot start programs just by being opened. Tools are named `mcp__<server>__<tool>`; rule tool names may use `*` (`deny mcp__github__*`). With no rule, you are asked. Plan mode refuses MCP tools. Servers start on the first turn (or /mcp) and stop on exit. HTTP transports, resources and prompts are not supported yet. The Claude Code engine keeps using Claude Code's own MCP servers (their `mcp__` calls already pass Aegis's hook).
+- Review fixes (rewind, plan, headless):
+  - Restore points are written one at a time per session, because tools in one step run in parallel and two could get the same seq.
+  - Only plain files inside the project are kept or restored: never through a symlink, never `.git` or `.harness`, and never outside, even from a tampered index.
+  - A file that can't be restored is reported and the rest still are.
+  - Turns are ordered by save order, not by the clock.
+  - `/rewind … chat` makes the TUI and Studio reload the chat.
+  - The Claude engine hard-refuses `.git`/`.harness` writes whatever the rules say.
+  - Headless reads stdin only when there is no task argument, or with `--stdin`; CI runners leave pipes open.
+  - Headless always sends text to the model: a piped `!cmd` or `/command` is never run.
+  - `-p` is checked before `ui`; `--json` results carry the notice; a startup error still gives a JSON result.
+  - `/new` leaves plan mode, and a failed `/plan go` stays in plan mode.
+  - Studio runs `/plan go` and `/plan <task>` in the background like any prompt.
+- `aegis doctor` / `/doctor` (the brainstorm's top pick: make the first run on the owner's PC smooth before adding features). It reads and asks for versions only, and pings the active chat endpoint.
+- Hardening from the MCP review: a project's `.env` may only set API keys and model names. It used to be able to set `AEGIS_ALLOW_SHELL`, `AEGIS_CLAUDE_BIN`, `AEGIS_POWERSHELL`, `AEGIS_CODEX_BASE_URL` and `AEGIS_HOME`. `AEGIS_HOME` then made a repo's own settings "yours", so its MCP servers started without trust. `AEGIS_HOME` now comes only from the real environment and is made absolute. A project's `gate.config.json` may tune models and limits, never Jev's thresholds.
+  - MCP servers start once even when two callers race.
+  - A pending answer is read before the server is treated as gone ("close", not "exit").
+  - The whole process tree is killed on close (Windows cmd wrappers).
+  - `/mcp` shows the command before you trust it; the working folder is part of the trust.
+  - Tool names over 64 characters and non-object schemas are skipped, and duplicate names are dropped.
+  - `*` in a rule's tool name only globs `mcp__…` names, so `allow *` is not "every tool".
+  - Anything that is not read or grep counts as a possible change (MCP and unknown tools), so Jev scores it and it is never shown as read-only.
+- Todo tool (Claude Code's TodoWrite, OpenCode's todowrite, Codex's update_plan):
+  - `todo {todos}` replaces the whole list. It is an internal tool: deny rules apply, but there is no question and no Jev, because it touches only the chat. It is allowed in plan mode.
+  - It is capped at 30 items of 200 characters, with control and escape characters stripped. Studio renders it as text only.
+  - The list lives in the conversation (the last todo call), so /rewind and /resume show the right one.
+  - The Claude Code engine's own TodoWrite feeds the same view.
+- Windows CI found two more path-spelling cases. A new file in a folder that did not exist yet was not kept, because the realpath of a missing short-spelled folder fell back to the short form. Rewind now resolves the nearest existing folder and adds the rest back, and shows paths relative to the real project root.
+- Skills and custom commands (agentskills.io SKILL.md, as in Claude Code, Codex, OpenCode and Pi; commands like Pi's prompts):
+  - Only the name and description go in the prompt. The `skill` tool loads the body and passes the lock like a read (default `allow skill *`); plan mode allows it.
+  - Yours are in ~/.aegis, ~/.agents and ~/.claude. A project's (.aegis/.agents/.claude in the folder) are used only after `/skills trust`, and that trust is tied to a hash of every file, so a change asks again (as with MCP trust).
+  - `allowed-tools` and similar keys are ignored, so rules decide. Skill files stay inside the skill folder (no `..`, absolute or UNC paths; realpath checked).
+  - Commands use Pi's `$1`/`${1:-x}`/`$ARGUMENTS`, and the text is appended when there is no placeholder. A `!cmd` line is kept as text and never run. A built-in or plugin command name cannot be taken over.
+  - The old `skills/*.md` files are still loaded every turn.
+- TUI polish (Claude Code and Pi habits):
+  - Enter while a turn runs queues the message (shown dimmed above the prompt), and queued messages go one by one after the turn. Esc stops the turn and puts queued text back in the editor instead of running it (Pi's choice).
+  - Shift+Tab toggles plan mode.
+  - `/export [md|jsonl]` writes to `.harness/exports/<session>.<ext>`.
+  - `/copy` uses PowerShell `Set-Clipboard` with UTF-8 stdin on Windows (clip.exe mangles non-ASCII), pbcopy on macOS, and wl-copy/xclip on Linux.
+- `/review` (Codex's /review and rubric):
+  - Aegis collects the diff itself: uncommitted changes plus new files' names, a branch since it split, or one commit. It then runs one read-only turn (the plan-mode refusals, without plan-mode instructions) with P0–P3 findings and a verdict. The diff is wrapped as `<untrusted_diff>`.
+  - git is hardened because a repo's `.git/config` can start programs. On the command line: `core.fsmonitor=false`, `hooksPath` set to NUL, `pager=cat`, `diff.external=` empty, no sshCommand or credential helper, `--no-ext-diff`, `--no-textconv`. `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL=NUL` also apply.
+  - Refs are checked with a pattern and `--end-of-options`, so `--output=…` is never passed to git as an option.
+  - A test repo whose config sets fsmonitor, diff.external and textconv to a script proves none of them runs. Plain `git diff` in the same repo does run it.
+- webfetch (Claude Code's WebFetch, OpenCode's webfetch), gated by host rules (`allow webfetch docs.example.com`, `*.x.com` = subdomains only):
+  - SSRF-safe: https only (http upgraded), no user:pass URLs, bare IPs and local names refused. The host is resolved once, every address must be public (loopback, RFC1918, link-local/metadata, CGNAT, multicast, ULA, NAT64 and IPv4-mapped all refused), and the socket connects to exactly that address (TLS still checks the name), so DNS cannot change between check and connect.
+  - Same-host redirects are followed (5 max); another host is handed back to the model as a new, separately gated call.
+  - 5 MB cap counted after decompression (gzip bombs), 30 s, HTML reduced to text, 50,000 characters, wrapped as `<untrusted_web_content>`.
+  - No websearch yet: it needs a paid search API key; left for later.
+- Fixes from the doctor/todo/skills review:
+  - The doctor's `.env` permission check reads the ACL with Get-Acl and compares SIDs (Everyone, Users, Authenticated Users, Anonymous, Interactive), so it works on non-English Windows; if it cannot read the ACL it warns instead of passing.
+  - Todos are also saved to `<session>/todos.json`, because compaction drops the old todo call from the messages.
+  - Claude Code's `Skill` tool maps to Aegis's `skill` rule; `deny webfetch *` now also covers non-http URLs; IDN hosts match in either spelling.
+  - Project skill trust hashes every file in the skill folder, and symlinked skill folders are skipped. Frontmatter accepts an empty block and trailing spaces; skill names are lower-cased.
+- Hooks (Claude Code's `hooks.PreToolUse` format; research: settings shape, exit 2 blocks, `hookSpecificOutput.permissionDecision`):
+  - Read only from your `~/.aegis/settings.json`; a project cannot add hooks (they run programs).
+  - Tighten-only: deny (exit 2, `deny`/`block`, `continue:false`) or ask; `allow` is ignored so rules stay the only way to skip a question. An asked-by-hook call never offers "always".
+  - Fail toward asking: a crash, non-zero exit, timeout (default 60 s, max 600), missing program or malformed hooks block makes the call a question (headless: denied). Claude Code treats such errors as non-blocking; Aegis is stricter on purpose.
+  - Runs after deny rules and before Jev, for Aegis's tools and Claude Code engine calls alike. Matching hooks run in parallel; the strictest answer wins.
+  - Only PreToolUse for now. PostToolUse / UserPromptSubmit / Stop can come later.
+- `/copy` no longer blocks the screen: the clipboard program runs async. The Windows CI timeout on the /export test was PowerShell's start-up inside the same test; /copy now has its own test with a longer limit.
+- Fixes from the independent review of TUI, /review and webfetch:
+  - P0: `/review` ran a repo's `filter.<name>.clean`/`process` program (from `.gitattributes` + `.git/config`) when diffing the working tree. Aegis now lists the repo's filter drivers (reading config runs nothing) and blanks each one's clean/smudge/process for its git calls. The test includes a control showing plain `git diff` does run the filter.
+  - P1: `/review commit` ran `gpg.program` when `log.showSignature` was set; now `--no-show-signature` and `-c log.showSignature=false`, with a control test.
+  - P1: on Windows, programs started by bare name are searched in the child's working folder first, so a repo shipping `git.exe` or `pwsh.exe` would run. New `src/which.ts` resolves from absolute PATH entries only, and Windows tools (taskkill, icacls, rundll32, Windows PowerShell) come from System32 by full path. This applies to git, PowerShell, hooks, MCP servers, delivery checks, the clipboard, the browser opener and `claude`. cmd.exe shims also get `NoDefaultCurrentDirectoryInExePath=1`.
+  - P2: page text or a diff could close the `<untrusted_…>` wrapper; the tag name now has a random suffix per call.
+  - P3: a same-host redirect adding `user:pass@` is refused; `isPublicAddress` parses every IPv6 spelling and blocks IPv4-compatible, 6to4, Teredo, site-local, NAT64 /48 and the documentation ranges; `/resume` accepts only session ids; queued `/login` keys are hidden in the queue box.
+- Project settings trust. Design from a brainstorm with a planning agent, which changed my draft in three places:
+  - The problem: `.aegis/settings.json` was the only rules file. A cloned repo could ship `deny: []`, `allow: ["write *", "webfetch *"]` and `plugins: []`, and a prompt injection could then write `.git/hooks` or the settings file without asking.
+  - Layers:
+    - The floor (default deny + ask, plus `ask write/edit .aegis/*`) is always unioned in.
+    - The project file's deny/ask rules, Jev mode and thinking settings always apply.
+    - Its `allow` list and `plugins` apply only when `/trust` recorded the sha256 of its exact bytes (`~/.aegis/trusted-settings.json`, keyed by real path, lower-cased on Windows).
+    - Yours (`~/.aegis/projects/<id>/settings.json`) is always trusted.
+  - Where the brainstorm changed the draft:
+    - Aegis's own writes go to your file, not the repo. This removed the "re-record the hash after our own write" logic and the symlink-write risk.
+    - Jev off is not loosening, because with Jev off unscored calls ask you. So the project's jev.mode applies.
+    - The hash covers the whole file, so future loosening fields fail safe.
+  - One read gives the bytes that are both hashed and parsed. `/trust yes` only trusts the hash `/trust` showed, and a changed file is refused.
+  - A symlinked `.aegis` folder or file is refused through the unreadable-settings fail-safe (Jev off, no allow rules).
+  - Deliberate change: a file's deny/ask lists now add to the defaults instead of replacing them, so the default asks (`git push`, deletes) can no longer be switched off by any file.
+  - Tests: `tests/setup.ts` sets `AEGIS_TRUST_PROJECT=1` (older tests own their projects) and a scratch `AEGIS_HOME` so tests never touch the real `~/.aegis`; `tests/trust.test.ts` turns trust off and covers the hostile file, the floor, /trust (including a change between review and yes), the notice once, always-allow landing in your file, symlinks, and CI flags.
+- Explore helper (Claude Code's Explore subagent, OpenCode's subagents): `explore {task}` runs a fresh conversation on the cheap model with only read, grep and skill, readOnly set, and 20 steps at most. It returns a report of at most 8,000 characters.
+  - Every helper call passes the same lock and appears in the turn's receipt. The helper's tokens are added to the turn's.
+  - Text from the helper is not streamed to the screen; only its tool lines are.
+  - It is not offered in `--local` mode or inside the helper itself. It is allowed by default (`explore *`) and in plan mode, and `deny explore *` turns it off.
+  - Why: reading many files in the main conversation costs frontier tokens on every later turn; the helper's reads stay out of the history.
+- `/fork [n]` (Pi's /fork, Claude Code's `--fork-session`): a new session with the conversation, minus your last n turns. The summary goes along, because it covers older turns; the todo list goes along only for a full copy. The original is untouched and can be resumed. `/branch` is an alias.
+- Fixes from the review of hooks, trust and which.ts:
+  - P1: hooks no longer fail open on JSON Aegis cannot parse (trailing debug text), on output over the 64 KB cap, or on a decision given at the top level. The first two ask; a top-level `permissionDecision` is honoured.
+  - P2: a hooks settings file that exists but cannot be read (locked by an editor, a folder, no access) now asks instead of silently dropping every hook. Only a missing file means "no hooks".
+  - P2: rules resolve paths through real paths on both sides, so a link or junction to `.aegis`, or a Windows 8.3 short name (`AEGIS~1`), still meets the floor `ask write .aegis/*`. This also hardens the `.git` deny rules. The test fails with real paths switched off.
+  - P2: `programPath` throws when a program is not on PATH instead of returning the bare name, which Windows would look up in the project folder first. Quoted PATH entries are read. A bare `AEGIS_POWERSHELL`/`AEGIS_CLAUDE_BIN` is looked up on PATH.
+  - P3:
+    - A hook's "ask" on the todo list goes to you, never to Jev.
+    - `/jev` names the file it really saves to.
+    - An untrusted project file's thinking level and a busier Jev mode wait for /trust (both cost your tokens). "jev off" still applies because it is stricter.
+    - Allow lists add up with the defaults, like deny and ask. A trusted `allow: ["write src/*"]` no longer makes every read ask.
+  - Documented: Claude Code engine's bookkeeping tools (TodoWrite, Task*, ExitPlanMode) do not reach Aegis's gate, so Aegis hooks do not see them there.
+- `@path` mentions (Claude Code, Pi): every `@path` that exists inside the folder (10 at most) is read through the lock and attached as `<attached path="…">`. A refused one is noted in the prompt, and emails or outside paths stay plain text. The reads appear first in the turn's receipt. Mentions are skipped in `--local` mode, where the planner reads the prompt itself.
+- Diffs on the approval question (Claude Code and Codex show one for every change): `formatActionDiff` now trims the unchanged start and end to two lines of context, with an `@@ line N @@` marker, instead of printing all the old lines and then all the new ones. A `write` over an existing file (inside the folder, under 2 MB) shows its diff against the file on disk and says it replaces the whole file.
+- Secrets (from the gap research; no reference tool does this by default, and it fits "rules decide, tighten only"):
+  - The floor now asks before reading `.env*`, `*.pem`, `*.key`, `*.pfx`, `*.p12`, `*.kdbx`, SSH keys, `.ssh/*` and `.aws/credentials`. Ask beats allow, so `allow read *` does not skip it, and "always" is never offered.
+  - `redact.ts` runs on every Aegis tool output in the gate. It cuts private-key blocks, AWS/GitHub/OpenAI/Anthropic/OpenCode/Slack/Google keys and JWTs, plus upper-case `NAME_KEY/TOKEN/SECRET/PASSWORD=value` lines (the name is kept; references like `$env:X` and `process.env.X` are left). The output then says how many were cut, and the record keeps the count.
+  - Why at the gate: once a key is in the conversation it goes to the provider on every later turn and into the saved session.
+  - Limit: in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot cut it.
+- Context meter (Claude Code's "context left until auto-compact", Pi's footer %, Codex's /status): `ctx N%` in the footer and a `context` line in /status. It is the conversation's size as a share of `compactAtChars`, the size where Aegis compacts old turns on its own, so the number predicts when that happens. It is refreshed after every command and turn and on start.
+- Fixes from the review of explore, /fork and @mentions:
+  - P2 @mentions:
+    - Attachments get a random tag per turn, so a file cannot close its block, plus a note that they are data.
+    - A link that leads out of the folder, or anything other than a file or folder (a named pipe would block forever), is not a mention.
+    - A read that fails becomes "(not attached: …)" instead of aborting the turn.
+    - Attachments are capped at 60,000 characters in total, since they stay in history.
+    - Jev and the receipt get the prompt you typed, not the attached files.
+  - P3:
+    - The explore report is wrapped in a random tag and marked as data built from project files.
+    - Approval questions are serialized once per turn, so the explore helper's questions and the main turn's never overlap (the REPL opened two prompts).
+    - An untrusted project's Jev mode is ignored entirely. Even "off" routes every turn to the frontier model, which a cloned repo must not decide.
+    - `/fork` copies restore points so `/rewind` works in the fork. With Claude Code, the conversation id is copied with a mark, and the fork's first turn runs `--resume <id> --fork-session`, so the two Aegis sessions never write into one Claude conversation. A partial fork says Claude Code starts fresh.
+    - Studio reloads the chat when a command changes it (`/fork`, `/rewind chat`, `/new`).
+- Search and read tools (Claude Code's Read/Grep/Glob, from the gap research):
+  - `read` takes `offset` and `limit` and returns numbered lines. A cut whole-file read says how many lines there are and how to read on. Folders mark subfolders with `/`.
+  - `grep` walks with the folder's `.gitignore` (plain and glob patterns, `dir/`, `!` re-include, and "/" anchoring) plus the fixed skip list. It skips binary (NUL in the first 8 KB) and >2 MB files. It takes `glob`, `caseSensitive` (default stays insensitive) and `context` (0–5), reports a bad regex, shows 100 hits, and says how many more there were.
+  - New `glob` tool: paths newest first, 200 at most, ignore-aware. It is allowed by default and in plan mode, and the explore helper gets it. Claude Code's Glob now maps to `glob`, not `grep`.
+  - Default step budget raised from 8 to 25: medium tasks stalled at 8. Claude Code has no cap; the explore helper keeps 20.
+- Standing instructions and sessions:
+  - `~/.aegis/AGENTS.md` (like `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`) goes first in every project, then the project's `AGENTS.md`, `HARNESS.md` and `AGENTS.local.md` (personal, per folder).
+  - `/init` runs one turn asking the agent to write or improve AGENTS.md from what it reads. The write passes the lock like any other.
+  - `/sessions` lists the 15 most recent conversations, numbered, with date and first prompt, marking the current one. `/resume` alone shows the same list, and `/resume <n>` opens by number (ids still work). This is a text list rather than an overlay, so it works the same in the TUI, the REPL and Studio.
+- Tool papercuts from the gap research:
+  - `edit` takes `replace_all`. A non-unique match says at which lines, and identical old and new text is refused.
+  - In a Windows (CRLF) file, the model's `\n` text is matched as `\r\n` and the replacement keeps CRLF. Before, every multi-line edit of a CRLF file failed with "not found".
+  - The agent's shell keeps what a failing, timed-out or too-chatty command printed and adds how it ended (`[exit code 3]`, `[stopped: it ran longer than 30 s]`). Before, the error dropped stdout.
+- Per-run rules for headless runs (Claude Code's `--allowedTools`/`--disallowedTools`): `--allow "<rule>"` and `--deny "<rule>"` are repeatable. They are passed to settings through `AEGIS_RUN_RULES`, which is set only by the CLI; a project `.env` cannot set it. They are added to the loaded rules, never saved, and the floor asks still win. This is finer than `--yes`, which approves everything.
+- PostToolUse hooks, with Claude Code's semantics: after a call you allowed, matching hooks get `tool_response` too.
+  - Exit 2 with stderr, `decision: "block"` with a reason, or `hookSpecificOutput.additionalContext` is appended to the tool result, so the model must deal with it (a failing linter or a secret found).
+  - A crash, timeout or unreadable JSON is appended as "check is unknown", never silence.
+  - The output passes redaction after the hooks, so a hook cannot put a key back into the conversation.
+  - Only your ~/.aegis hooks, as for PreToolUse.
+- Windows CI: grep and glob showed `../../../../runneradmin/…` paths when the working folder was spelled short (`C:\Users\RUNNER~1\…`), because walked files are real paths and were made relative to the short spelling. Paths are now made relative to the real folder. A Linux test reaches the project through a link, fails on the old code, and passes now. (A run on `aef4155` where nine unrelated tests each hit 5 s at once on one Node leg was a stalled runner; the next commit passed with the same code.)
+- Fixes from the review of the secrets, search and session batch:
+  - P1 hangs:
+    - grep and glob run in a worker thread (`search-worker.ts`, loaded directly as TypeScript through Node's type stripping, or as the compiled .js from dist). They are terminated after 20 s or when you stop the turn. A regular expression cannot be interrupted on its own thread, so a model's `(a+)+$`, a slow glob, or a cloned repo's `.gitignore` line could freeze Aegis for good.
+    - The walker keeps a set of real folders and files already seen, so a link back to a parent (`self -> .`) no longer loops.
+  - P1 secrets:
+    - `grep` on a secrets file is asked about like `read`, and grep over a folder skips secrets files and says how many it skipped.
+    - The list is shared (`SECRET_FILES`) and grew: `.envrc`, `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `credentials.json`, `*.p8`, `*.ppk`.
+  - P1/P2 redaction:
+    - The NAME=value rule only started at column 0, so grep hits and numbered reads went through in the clear. A look-behind lets a name start at any word start, which also makes it linear: blank-line input was quadratic, and 80K newlines took 16 s.
+    - Names must contain a secret word between underscores (so MONKEY, KEYBOARD and MAX_TOKENS are not caught; PWD dropped, PUBLIC skipped), and numbers, URLs, paths and references are not values.
+    - A private-key header without END no longer eats the rest of the file; a cut key's base64 body still is cut.
+  - P2:
+    - `write`/`edit` text that carries a `[redacted:` placeholder is refused, so a secret on disk is never replaced by the mark.
+    - Offset/limit reads are capped at 80,000 characters.
+    - `AGENTS.md`/`AGENTS.local.md` linked out of the project are not loaded, and loaded text is redacted.
+  - P3:
+    - `!cmd` output is redacted before it joins the chat.
+    - The overwrite diff uses real paths.
+    - `/resume <n>` uses the list `/sessions` showed.
+  - Still true (documented): in the Claude Code engine, Claude Code produces the tool output, so Aegis cannot redact it. (Nested `.gitignore` files are now read too; see below.)
+- Nested `.gitignore` files: every folder's `.gitignore` applies below that folder, after its parents' rules, so it can re-include with `!`. Anchored patterns (`/local.txt`, `gen/x`) are relative to their own folder, as in git. `.git/info/exclude` and `core.excludesFile` are still not read.
+- Process trees on Linux and macOS: the long-standing Linux-only failure ("kills the owned process tree…") was a real bug. On POSIX, stopping a check, an MCP server or a Claude Code run sent SIGKILL to the one child only, so what it had started (npx → node server, a test's dev server) kept running.
+  - These now start as their own process group (`detached` on POSIX), and `killProcessTree` kills the group.
+  - A detached group no longer gets the terminal's hang-up, so Aegis kills the groups still running when it exits, and turns SIGTERM/SIGHUP into a normal exit so that runs. Ctrl+C handling is unchanged.
+  - Windows is unchanged (`taskkill /T`). The whole suite now passes on Linux too.
+- Windows CI: `walkFiles` returned nothing when started from an 8.3 short folder name (the tests call it with a temp dir directly). Every real file path then looked "outside" the short-spelled root. The root is now resolved to its real path first. A Linux test through a link fails on the old code.
+- Fixes from the review of the worker, redaction and process-group batch:
+  - P1 main-thread hangs outside the worker:
+    - Rule matching built a RegExp from each glob, so a cloned repo's ask rule such as `read *a*a*a…b`, against a long path, command or host, backtracked for seconds to hours on every tool call. Rules now use `globMatch`, a two-pointer wildcard walk (at most pattern × text steps). Host rules match label by label.
+    - The private-key pattern scanned 20,000 characters for every BEGIN line without an END; its body now may not contain another BEGIN (5.6 MB now takes milliseconds).
+  - P2:
+    - grep shows at most 300 characters of a line, around the match, and 200,000 characters in total. A folder of minified files returned 190 MB.
+    - Redaction now also catches `"API_KEY": "…"`, lower-case and camelCase names (`password:`, `"apiKey":`, `client_secret=`), `Bearer` tokens, `scheme://user:PASS@`, `;`-separated connection strings and `*_PWD`. In code, a lower-case name whose value is a variable (`token: userToken,`) is left alone. Values are bounded at 4 KB, and any failure withholds the output instead of passing it through.
+    - `AGENTS.md`-type files that are links, or resolve to a secrets file, are not loaded.
+    - The Claude Code engine's folder check covers `glob` and compares real paths, so a link inside the project that leads out is outside.
+    - A path tool's allow rule (`read *`) never matches an absolute or `..` target.
+    - A second Ctrl+C in a headless run exits through `process.exit`, so the process groups are killed. They are detached and no longer get the terminal's Ctrl+C.
+  - P3:
+    - `read .harness/*` is asked about, since restore points keep copies of changed files, secrets included.
+    - `.gitignore` character classes (`[ab]`, `[!ab]`, `[0-9]`).
+    - The agent's shell and hooks run as their own process group on POSIX, and a timeout or stop kills the whole tree (taskkill /T on Windows).
+- Fixes from the review of the previous batch:
+  - P1: the shell tool's "own process group" never took effect. `execFile` does not pass `detached` on to spawn, so a timed-out or stopped command still left its children running. `runPowerShell` is now built on `spawn` directly: detached on POSIX, its own timeout, stop and 2 MB cap, `killProcessTree` on any of them, and the same `{stdout, stderr}` / error-with-stdout shape its callers expect. A Linux test checks that a timed-out command's grandchild is gone.
+  - P2 redaction false positives in code, which then also blocked placeholder-guarded writes:
+    - For a lower-case or camelCase name, an unquoted bare identifier or type (`AccessToken`, `Promise<string>`, `API_TOKEN`, `password=password`) is a reference. A lower-case word with a digit (`hunter2hunter2`) still counts as a value, and a quoted value is always a value.
+    - Values containing `[]<>{}` are skipped.
+    - Name words that describe a secret rather than hold one (name, ref, path, lifetime, length, list, …) are skipped: `secretName`, `tokenLifetime`, `passwordMinLength`.
+    - Values end before `,` `;` `` ` `` `)` `]` `}`, so punctuation survives.
+  - P3:
+    - Dotted keys (`spring.datasource.password=`, `this.password =`), `:=` / `=>`, and URLs with an empty user (`redis://:pw@`) are caught.
+    - Rules longer than 512 characters make the settings file unreadable (fail safe), and a target over 32 KB is never allowed, since matching costs rule × text.
+    - Known false positive kept: a quoted lower-case value with a digit under a secret-sounding name (`Token = 'tokenkind1'`).
+- Fixes from the review of the shell rewrite:
+  - P1: a command whose detached helper kept stdout open never finished. Nothing closed the pipe, since killing the tree cannot reach it. Now a stop, timeout or overflow also destroys the pipes, and once PowerShell has exited and no output has arrived for 500 ms the run settles anyway. Output still flowing keeps it waiting, so large outputs are not cut.
+  - P1: "always allow" on a very long command could save a rule over the 512-character limit, making your own settings file unreadable. Such a rule is not offered, and `saveAllowRule` refuses one.
+  - P2:
+    - Output is decoded per stream (`setEncoding`), so a multi-byte character split across chunks is no longer garbled. The 2 MB cap counts bytes.
+    - Kills are guarded: once only, and never after the process has exited, since Windows recycles PIDs.
+    - A death by signal or a missing PowerShell reports its real message.
+  - Redaction:
+    - Code context decides: a bare word before `,` `;` `)` is a variable, while outside code (YAML, .properties, .env) a plain word is a value, unless it is a PascalCase type, a CONST_NAME or a camelCase word. `api-key:`, `password: correcthorsebatterystaple`, `secretKey: Sup3rS3cret9` and `apiKey: SUPERSECRETVALUE` are caught again.
+    - New: quoted values with spaces or `#`, `Basic` auth, and PowerShell `$password = "…"`.
+    - Left alone: `session?.token`, Windows and `~` paths, YAML aliases and tags, versions, IPs, and `.env.example` placeholders (`changeme`, `your-…`, `replace-me`).
+- `aegis --worktree[=name]` (Claude Code's `--worktree`): a separate git worktree at `<repo>.worktrees/<name>` on branch `aegis/<name>`, reused when the name comes again. Aegis `chdir`s into it before anything else, so tools, rules, sessions and restore points all live there, and your checkout is untouched until you merge.
+  - The checkout uses the hardened git from `/review`, with the repo's filter drivers blanked and hooks off, so a cloned repo's smudge filter or post-checkout hook cannot run. The test includes a control where plain `git worktree add` does run it. The trade-off is that Git LFS files stay pointers; `git lfs pull` fetches them.
+  - Names are limited to letters, digits and `._-`, and cannot start with `-` or contain `..`.
+- Fixes from the review of the worktree, shell v2 and headless batch:
+  - P1 redaction misses in common Windows/.NET and npm files:
+    - Pairs are now walked one by one, and a non-secret match gives its value back, so the `Password=` inside a quoted connection string (appsettings.json) is found.
+    - Names may start with `_` (`.npmrc` `_authToken=`, `_password=`, `_auth=`).
+    - A `;` after an `=` pair counts as code only at the end of the line; a connection string continues with more pairs.
+  - P2 worktree:
+    - A linked worktree is the same project as its main checkout (`mainCheckoutOf` reads the `.git` file). Trust, your saved rules, plugins, Jev mode and the project `.env` are shared; before, every `--worktree` run started untrusted with no rules.
+    - Checkout gets 30 minutes instead of git's 30-second default here, and a failure removes the half-made folder and the new branch, then reports git's own message.
+  - P3:
+    - Worktree: a reused folder must be a worktree of this repository and reports its real branch; a hand-deleted folder is pruned; a worktree started from inside another goes next to the main checkout; "no commits" and bare repositories get clear messages; names ending in `.` / `.lock` and Windows-reserved names are refused; `--worktree=` picks a name; `--help` no longer creates one.
+    - Shell: a stop or timeout that lands after a clean exit, while only a helper holds the pipe, is a success.
+    - Headless: each denied call shows the lock's own reason (rule, hook, plan mode, guard, stop).
+    - Redaction in code: the same word (`password: password`), snake_case variables, keywords, `??`/`||` and `}` contexts, and fetch's `credentials: 'same-origin'` are left alone. `{password: hunter2hunter2, …}` is caught.
+- Fixes from the review of `6e05349`:
+  - P1 trust hijack: a hand-made `.git` file ("gitdir: <trusted>/.git/worktrees/x") made any folder count as that project, borrowing its trust, your saved rules and its `.env`. Now the main checkout's own record (`<gitdir>/gitdir`) must point back at this folder.
+  - P1 redaction time: each pair looked to the end of its line, so a one-line file with many pairs was quadratic (8.6 MB took 46 s). It now looks at most 64 characters ahead and 256 behind.
+  - P2 redaction misses: the last pair of a connection string (`Server=x;Password=Secret1;`) and a bare `NAME=value;` line are values. `name = value;` with spaces, alone on its line, is still code. `.npmrc` `_auth*` values are never read as variable names.
+  - P3:
+    - Shell: output over 2 MB that arrives after the exit is now an error, not a silently cut success.
+    - Worktree: a file in the way gets the clear message; a failed checkout shows git's `fatal:` line, not its progress line; a reused worktree on a detached HEAD says so.
+- Images in a prompt (`@shot.png`, or a pasted path such as Explorer's quoted "Copy as path"):
+  - Each image is a `read` through the lock, so rules, hooks and the secrets floor apply as for any file. The type comes from the first bytes (PNG, JPEG, GIF, WebP), never the name, and the 5 MB cap is checked before reading. At most 4 per message.
+  - The model gets the image only in the turn it is attached. The saved chat keeps a one-line note (`[image: shots/err.png, image/png, 12 KB …]`), not the base64. So sessions stay small, compaction and `/fork` are unchanged, and a later deny rule is respected the next time the image is attached. Codex treats pasted images between turns the same way.
+  - A pasted path is turned into a path relative to the folder, so a rule like `deny read shots/*` matches it the same way it matches an `@mention`.
+  - A model that cannot see images (DeepSeek chat, Jev, the local planner) gets only the note, and a notice tells you to switch with `/model`.
+  - The Claude Code engine is sent text, and Claude opens the image with its own Read (which passes the hook lock). Sending image blocks through `--input-format stream-json` needs a live `claude` to test, so it is left for later.
+  - Fixes from the review of images (`cf729bb`); it found no way around the rules:
+    - The file is opened once, and at most 5 MB + 1 byte is read from that handle, so a file that grows after the size check cannot slip through.
+    - A named file that turns out not to be an image is still an allowed read, so it keeps its receipt record.
+    - A pasted `x.png` that is a link to `.env` is not treated as an image. The same image named twice is sent once (compared by real path).
+    - The path in the note is quoted, so a file name cannot pass itself off as the note's own words. The note also gives a token estimate.
+    - Images are sent as AI SDK `file` parts; the `image` part is deprecated.
+    - Vision check: a `vendor/` prefix is ignored, and Qwen 3.5+ and Kimi K2.5+ count as seeing images.
+- The agent's `read` of a `.png`/`.jpg`/`.gif`/`.webp` returns the image to a model that can see images (`toModelOutput` with an `image-data` part), after the same lock and the same one-handle capped read.
+  - Saved history keeps only the note: `capToolResults` turns a tool result's content parts into their text before saving, so later turns replay the note.
+  - A model without vision gets the note and "this model cannot see images". The explore helper always gets only the note.
+- Aegis Studio: paste (ctrl+v) or drop up to 4 screenshots into the message box. They show as chips with a remove button and go with the next message.
+  - The server checks them again: a list of at most 4, base64, 5 MB each, type from the first bytes. Anything else is a 400. Only `/api/prompt` accepts a larger body (about 28 MB); every other route stays at 1 MB.
+  - Pasted images are passed in as `RunOpts.images`. They skip the lock because you supplied them yourself, like typed text; no file is read. The saved chat keeps the note `pasted 1 (shot.png)`.
+  - The Claude Code engine cannot take them: there is no file for its Read tool to open. A notice says to save the image in the folder and @mention it.
+  - Fixes from the review of the read-tool images and Studio paste; it found no image data in any saved file, event or export:
+    - A read's image is used once, so a provider that reuses call ids cannot attach a stale image to a later text read.
+    - The agent sees at most 4 images per turn. Past that, read returns the note and says why.
+    - Tool results use the SDK's current `file` part (`image-data` and `file-data` print deprecation warnings).
+    - Studio: a busy server answers 409 before reading a large body, and images sent with a command get a 400. The chips stay if a send is refused, and the command buttons no longer clear them.
+    - Pasted images count first toward the limit of 4, so an @mention past it is refused up front with a note, not read and then dropped. With the Claude Code engine, pasted images are left out of the saved message too, not only the prompt.
+- `/rules` (also `/permissions`), like Claude Code's `/permissions` and Codex's `/approvals`:
+  - Lists every rule in the order the lock decides (deny, ask, allow), each with its layer: built-in, always on, the project's file (or "waiting for /trust"), yours, or this run.
+  - `/rules remove <n>` removes one of yours. Project, built-in and floor rules say where they live instead.
+  - `/rules deny|ask <rule>` adds a stricter rule for this folder. Allow rules still come only from answering "a" at a question, so each one is a narrow rule the user saw.
+- `/diff` (like Codex's `/diff`): each file the agent changed in this session, against how it was before the session first changed it.
+  - It reads the restore points (the first kept copy of each file), not git, so it works in any folder and runs no program. After a `/rewind`, the rewound files drop out.
+  - `/diff stat` lists names with +/- counts, and `/diff <file>` shows one file. Output is capped at 300 lines per file and 2,000 in total.
+  - Binary, too-large and link targets are named, not shown. Output passes the same secret redaction as tool output.
+  - `src/diff.ts` is a small line diff (LCS on the part between the unchanged start and end; past 4M cells it shows that part as one change), so a huge file cannot make it slow.
+- Bell (like Claude Code's and OpenCode's notifications):
+  - The TUI writes a BEL when a y/a/N question appears, and when a turn of 5 s or more ends. Quick answers do not ring.
+  - `/bell all|ask|done|off` is saved in `~/.aegis/settings.json`. It is read at each ring, so a change applies at once.
+  - `-p` and the plain REPL never ring. Studio has no sound: when its tab is in the background, the title shows "● Waiting for you" or "✓ Done" until you come back.
+- Fixes from the review of `/rules`, `/diff` and `/bell`:
+  - `/rules`:
+    - A rule you saved that an untrusted project also lists shows as yours, since it is in effect. Untrusted project allow rules are listed last.
+    - Rules must name a real tool, because `deny *` matched nothing while looking like it blocked everything.
+    - `/rules remove allow <rule>` removes by text. "This run" rules are listed before yours, so answering "a" never shifts a number.
+    - Ask rules are listed in the lock's order.
+  - `/diff`:
+    - A replaced line reads `-old` then `+new`, and hunks merge at git's boundary.
+    - A change to only the line endings or the final newline is named, not shown as "back as it was".
+    - An exact file name wins over suffix matches. Names compare case-insensitively on Windows.
+  - `/bell`:
+    - No ring after you stop a turn.
+    - `~/.aegis/settings.json` is never rewritten when it does not parse; before, `/bell` and `/theme` silently dropped your other settings.
+  - The headless tests get 20 s each: one timed out once on a slow Windows runner (a full turn per test).
+- Git branch in the TUI footer (`~/app (main) · …`, like Pi) and next to the folder in Studio.
+  - It is read from `.git/HEAD`, following a worktree's `.git` file; no git program runs, so a repo's config cannot run anything.
+  - Only the characters branch names use are shown, so a crafted HEAD cannot put escape codes into the terminal. A detached HEAD shows the short commit id.
+  - The TUI caches it for 2 s, since the footer repaints four times a second during a turn.
+- `multi_edit` tool, like Claude Code's MultiEdit: several replacements in one file, in order, written once, all or nothing. An error names which edit failed.
+  - It passes the lock as `edit`, so your edit rules, plan mode, hooks and restore points treat it the same way. Tool args are flat, so the edits travel as JSON text; the question and hooks parse them back.
+  - Fix: Claude Code's own MultiEdit showed an empty diff in the question (only one old_string/new_string pair was read). It now shows every change.
+- `/memory` numbers the notes, and `/memory remove <n>` forgets one. Before, notes could only be added.
+- `aegis -r` (`--resume`): the TUI starts with `/sessions` already run, and `/resume <n>` opens one, much like `claude --resume`. It reuses the same numbered list, so there is no second picker to keep in step.
+- Fixes from the review of `multi_edit` and the branch display:
+  - P1: hooks now see a multi-edit as Claude Code's `MultiEdit`, and matchers `Edit`, `MultiEdit` and `multi_edit` all run. `tool_input.new_string` carries every change's new text, so a secret scanner written for Edit still catches a key. Claude Code's own MultiEdit edits travel as JSON text too, since tool args stay flat.
+  - P1: a named pipe (FIFO) called `.git/HEAD` froze Aegis: the footer's synchronous read never returned. HEAD and a `.git` file are now read only if they are small regular files (checked before opening), with a bounded read.
+  - P3:
+    - Each change in the multi-edit question is capped at 4 KB and says when it was cut; the whole list is capped too. Unreadable edits say "answer No".
+    - `websearch` rules are accepted by `/rules`.
+- `/search <text>` (also `/find`) searches your messages and the answers across this folder's sessions, newest first (up to 200 scanned, 15 shown), and shows the line around the first hit. `/resume <n>` picks from that list. Tool output is not searched, and the output passes secret redaction.
+- MCP over HTTP (MCP's "streamable HTTP"), next to stdio: `{ "url": …, "headers": { … } }` under `mcp.servers`.
+  - The protocol part (initialize, tools/list with pages, tools/call, result capping) moved into one base class used by both transports; the stdio tests pass unchanged.
+  - Every request is a POST. The answer is read as JSON or as an event stream (up to 10 MB), and the `mcp-session-id` and protocol version are sent back. Close sends a DELETE for the session. Stop cancels the request and tells the server.
+  - Security:
+    - https only, or plain http to localhost. No user or password in the URL, and redirects are refused, so an auth header never follows one to another host.
+    - `${NAME}` in a header reads your environment only for servers in your own settings. A project's headers are sent exactly as written, so a cloned repo cannot pull your secrets into a request to its URL.
+    - A project's URL server still waits for `/mcp trust`. The trust covers the URL and headers, so changing either asks again.
+  - Its tools are `mcp__server__tool` and pass the lock like every other MCP tool.
+- Fixes from the review of HTTP MCP and `/search`:
+  - P2: a token with a line break made fetch quote the whole header value in its error, which `/mcp` then showed. Header values are now checked first (line break or NUL means a clear error naming the header only), and every failure status passes secret redaction. An unset `${NAME}` is an error instead of sending "Bearer ".
+  - P2: a `/search` snippet could cut a key so its pattern no longer matched. Each message is now redacted before the snippet is taken. `/search` also streams each file and parses only lines that contain the text.
+  - P3:
+    - A server request that reuses the request's id is not taken as the answer.
+    - A last event with no blank line after it is read.
+    - An empty answer and an ended session (404 → "/mcp restart") get clear messages.
+    - The branch reader opens HEAD without blocking and checks the open file, so a pipe swapped in after the check cannot hang it.
+- GitHub Action (`action.yml`, composite): `aegis -p --json` in a workflow, with `allow`/`deny` rule lists, extra `args`, `working-directory` and `fail-on-denied`.
+  - The prompt and rules go in as environment variables, never pasted into the script: a local run with `$(touch PWNED)` in the prompt created nothing.
+  - The answer is read from the JSON result by Node and written to `GITHUB_OUTPUT` with a random delimiter, and to the job summary.
+  - Our Windows CI runs it through `uses: ./` with the local planner and checks the answer.
+  - Fixes from the review of the action (it found no way to inject a script):
+    - The README example pasted the answer (model output) into a `run:` script. It now passes the answer through `env`.
+    - The log is printed inside `::stop-commands::`, so nothing in it can act as a workflow command.
+    - `printf` instead of `echo`, so an answer like `-n` is not swallowed.
+    - When Aegis cannot start, the answer says why, from its stderr.
+    - Tab-only rule lines are skipped. The docs say `args` is trusted and to pin the action to a SHA.
+- `websearch` with your own Brave Search API key (`BRAVE_API_KEY`), like Claude Code's WebSearch. There is no tool without a key.
+  - Each query passes the lock as `websearch <query>`. With no rule it asks, since a query can carry data out as easily as a request can. It is allowed in plan mode (it only reads).
+  - The key goes to the search service only: redirects are refused, and a timeout and a 2 MB cap apply. At most 8 results, only http(s) links, with HTML removed from snippets. They come in a random tag marked as data.
+  - Tests stub `fetch` itself, so there is no endpoint override a project could use to redirect your key.
+  - Fixes from the review of `websearch`; it found no key leak:
+    - A project's `.env` can no longer set `BRAVE_API_KEY`. It could have turned the tool on, or swapped in a key, without trust. Brave keys (`BSA…`) are now redacted like other key formats.
+    - A `null` answer or `null` rows no longer crash. Entities are decoded before tags are stripped, and stray `<` `>` are removed, so nothing tag-like reaches the model.
+    - The test counts only calls to the search service: once, a background model-list refresh landed inside the test window.
+- Custom agents (Claude Code's `agents/<name>.md` format), the top gap left in the comparison:
+  - Yours come from `~/.aegis/agents` and `~/.claude/agents`, used at once. A project's come from `.aegis/agents` and `.claude/agents`, only after `/skills trust`, and that trust hash now covers agent files too.
+  - Frontmatter: `name`, `description`, `tools` (Aegis or Claude Code names; unknown ones are ignored; read/grep/glob when none are listed), `model` (haiku/cheap/fast = the cheaper model, anything else = the turn's model). The body is the agent's instructions, read when it runs.
+  - The `agent` tool (name from the list, task) passes the lock as `agent <name>`. With no rule it asks, and "always" saves that one agent.
+  - Inside, the agent has a fresh conversation with only its own tools. Every call passes the same lock, confirm queue, restore points and plan mode. It gets no `agent` tool, so it cannot nest.
+  - Its tokens count toward the turn. Its report is capped and comes back in a random tag marked as data.
+  - `/agents` (and `/skills`) lists them.
+  - Fixes from the review of custom agents; it found no way around the lock:
+    - Yours win a name clash with a project's, so trusting a repo never swaps the agent an `allow agent <name>` rule meant.
+    - Instructions are the text read with the file (the bytes the trust hash covered), not re-read at run time.
+    - At most 30 steps per agent, and the prompt listing is capped.
+    - The question shows the task on one line, so it cannot draw fake lines.
+    - Each tool record an agent made carries `via: <agent>`.
+- Test timeouts on Windows are 30 s (vitest.config.ts). The Windows runners start git, PowerShell and node slowly, and the files run in parallel: `/review`, worktree and headless tests that take 0.3 s on Linux have each passed 5 s there once under load. A real hang is still caught. Linux keeps 5 s.
+- Fixes from the final cross-feature review. It found no P0–P2: every combination it drove held, including agents with hooks and multi_edit, `-p` with agents and websearch, redaction of every new output, and Studio escaping.
+  - Worktrees now share `/skills trust` (skills, commands, agents) and `/mcp trust` with their main checkout. Both are keyed by the project, like `/trust` already was. MCP trust given before tonight is asked for once more.
+  - `/rules remove` from a worktree no longer relabels your settings file with the worktree's path.
+  - An agent on a model that can see images gets the image from `read`, as the main loop does.
+  - The agent that made a call is shown in the TUI tool line, in the receipt line and in `-p --json` (`agent`).
+  - Agent and command files may be `.MD`.
+- `remember` tool (auto memory, like Claude Code's): the model asks to keep one line (under 300 characters) in `.harness/memory.md`, which goes into every later prompt.
+  - It is on the always-on ask floor (`remember *`), so no allow rule skips it and "always" is never offered. You see the exact note each time. In `-p` it is always a No.
+  - Notes that look like secrets are refused before the question. Agents and the explore helper do not get it.
+  - Fixes from the review of `remember`:
+    - P1: `-p --yes` answered the question for you, so a note was kept that nobody saw. `remember` now refuses whenever nobody reads the questions (`-p`, `--yes`).
+    - P2: with shell on, an allowed command could write `.harness/memory.md` directly. Shell commands that name `.harness` or `.aegis` are now on the always-on ask floor.
+    - P3: memory goes into the prompt marked as approved notes that never override the lock, AGENTS.md or the current request. A note is not recorded as an irreversible change.
+- Images in the Claude Code engine: attached and pasted images go to your `claude` as image blocks, with `--input-format stream-json` and one user-message line of text plus base64 images. Without images the prompt stays plain text on stdin.
+  - Checked offline against the installed Claude Code 2.1.282: a capture server on 127.0.0.1 (answering 500, so no model ran) received the image data in the `/v1/messages` request.
+  - The images passed Aegis's lock first, exactly as in its own loop.
+  - Pasted Studio images now reach Claude Code too; before, they were refused with a notice.
+  - Fixes from the review of engine images:
+    - P1: if `claude` quit before reading its input (a bad resume, a sign-in error), writing up to about 27 MB of images failed with EPIPE and crashed Aegis. stdin errors are now handled, and the exit code and stderr report the failure. The test was checked to fail without the fix.
+    - A prompt that starts with "/" goes to Claude Code as `Task: /…`, so it is never taken as one of Claude's slash commands.
+    - The `.harness`/`.aegis` shell floor is an extra question, not a sandbox: an obfuscated path can avoid it. The shell stays off unless you turn it on.
+- `aegis doctor` also shows web search (on with your key, or how to turn it on) and your skills, commands and agents, with a warning when a project's files wait for `/skills trust`.
+- Studio composer: a `+` menu (as in Codex and Claude desktop) replaces the Thinking, Reasoning and Plan chips.
+  - The menu holds "Add photos & files", Thinking (a four-way choice), Reasoning (a three-way choice) and a Plan mode switch. The bar keeps the model picker and shows a small badge only when plan mode is on or thinking is not the default.
+  - Text files (logs, configs, scripts, notes) can be attached from the file picker or by dropping them: up to 5, 200 KB each.
+  - The page refuses binary files (a NUL byte), and so does the server, which also checks count and size.
+  - The runtime sends them in a random tag marked as data, redacted (a password line in a config is cut before the model provider sees it), capped at 120,000 characters per message.
+  - PDF and Word need a parser and are not read yet.

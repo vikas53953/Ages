@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.ts";
 import { runGatedTool } from "../src/gated.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { runShell } from "../src/tools/shell.ts";
 
 const cwd = await mkdtemp(path.join(os.tmpdir(), "gate-verify-"));

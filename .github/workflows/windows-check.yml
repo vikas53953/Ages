@@ -1,0 +1,103 @@
+# Runs the full Aegis check on a real Windows machine with real PowerShell.
+# Replaces the manual Windows test list: typecheck, the Vitest suite, and scripts/windows-check.ts.
+# Add an OPENCODE_API_KEY repository secret to also run the live-model checks.
+name: windows-check
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the minimum; 24 is the current LTS most Windows users install.
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: dist/ matches src/ (installs run the committed build)
+        shell: pwsh
+        run: |
+          npm run build
+          git diff --exit-code --stat -- dist
+          if ($LASTEXITCODE -ne 0) { throw "dist/ is stale: run npm run build and commit dist/" }
+          $untracked = git ls-files --others --exclude-standard -- dist
+          if ($untracked) { throw "dist/ has uncommitted new files: $untracked" }
+      - name: Vitest suite
+        run: npm test
+      - name: End-to-end checks (slices 1-4)
+        if: always()
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: npm run check:windows
+      - name: Install like a user (npm pack → npm install -g → aegis)
+        shell: pwsh
+        run: |
+          npm pack --silent
+          npm install -g (Get-ChildItem aegis-*.tgz).FullName
+          $v = aegis --version
+          if ($v -notmatch '^aegis \d') { throw "aegis --version said: $v" }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\aegis-user" | Out-Null
+          Set-Location "$env:RUNNER_TEMP\aegis-user"
+          "hello from the installed aegis" | Set-Content README.md
+          $out = "/status`nread README.md`n/exit`n" | aegis --local --repl 2>&1 | Out-String
+          Write-Output $out
+          if ($out -notmatch 'hello from the installed aegis') { throw "installed aegis did not read README.md" }
+          if ($out -notmatch 'Welcome back') { throw "welcome screen missing" }
+      - name: Install from GitHub with install.ps1 (the one-line user path)
+        shell: pwsh
+        run: |
+          npm uninstall -g aegis
+          $env:AEGIS_REF = "${{ github.sha }}"
+          ./install.ps1
+          $v = aegis --version
+          if ($v -notmatch '^aegis \d') { throw "aegis --version said: $v" }
+      - name: Folder for the GitHub Action test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\aegis-action" | Out-Null
+          "hello from the aegis action" | Set-Content "$env:RUNNER_TEMP\aegis-action\README.md"
+      - name: The GitHub Action (uses ./, local planner, no key)
+        id: action
+        uses: ./
+        with:
+          prompt: read README.md
+          allow: |
+            read *
+          deny: |
+            webfetch *
+          args: --local --mock-jev
+          working-directory: ${{ runner.temp }}/aegis-action
+          node-version: ""
+      - name: The action's answer came back
+        shell: pwsh
+        env:
+          ANSWER: ${{ steps.action.outputs.answer }}
+          CODE: ${{ steps.action.outputs.exit-code }}
+        run: |
+          if ($env:CODE -ne "0") { throw "exit code $env:CODE" }
+          if ($env:ANSWER -notmatch 'hello from the aegis action') { throw "answer was: $env:ANSWER" }
+      - name: Report to job summary
+        if: always()
+        shell: pwsh
+        run: if (Test-Path windows-check-report.md) { Get-Content windows-check-report.md | Add-Content $env:GITHUB_STEP_SUMMARY }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-check-report-node${{ matrix.node }}
+          path: windows-check-report.md
+          if-no-files-found: ignore

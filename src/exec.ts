@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { programPath, system32 } from "./which.ts";
 
 const WIN_ENV = [
   "ALLUSERSPROFILE",
@@ -51,15 +52,54 @@ export function checkProcessEnv(extra?: Record<string, string>): NodeJS.ProcessE
   return out;
 }
 
+/**
+ * Process groups Aegis started (POSIX, detached): a detached group does not get the terminal's Ctrl+C or hang-up,
+ * so they are killed when Aegis exits, however it exits, instead of lingering as orphans.
+ */
+const ownedGroups = new Set<number>();
+let exitHook = false;
+
+export function ownGroup(pid: number | undefined) {
+  if (!pid || process.platform === "win32") return;
+  ownedGroups.add(pid);
+  if (exitHook) return;
+  exitHook = true;
+  process.on("exit", () => {
+    for (const group of ownedGroups) {
+      try {
+        process.kill(-group, "SIGKILL");
+      } catch {
+        // gone
+      }
+    }
+  });
+  // Killed by a signal, Node skips "exit" handlers: turn TERM/HUP into a normal exit (the default would end the
+  // process anyway). Ctrl+C is left alone: the TUI reads it as a key and headless runs stop gracefully on it.
+  for (const signal of ["SIGTERM", "SIGHUP"] as const) {
+    if (process.listenerCount(signal) === 0) process.once(signal, () => process.exit(143));
+  }
+}
+
+export function releaseGroup(pid: number | undefined) {
+  if (pid) ownedGroups.delete(pid);
+}
+
 /** Kill the spawned process and its children. Windows uses taskkill /T, not POSIX killpg. */
 export function killProcessTree(pid: number) {
   if (!pid) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+    spawnSync(system32("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
       windowsHide: true,
       stdio: "ignore",
     });
     return;
+  }
+  // POSIX: a process started as a group leader (detached) takes its whole group with it; otherwise just itself.
+  try {
+    process.kill(-pid, "SIGKILL");
+    return;
+  } catch {
+    // not a group leader, or already gone
   }
   try {
     process.kill(pid, "SIGKILL");
@@ -83,11 +123,21 @@ export function runOwnedArgv(
     let spawnFailed = false;
     let settled = false;
     let output = "";
-    const child = spawn(command, args, {
+    let program: string;
+    try {
+      program = programPath(command);
+    } catch (error) {
+      resolve({ exitCode: 127, output: error instanceof Error ? error.message : String(error), executed: false });
+      return;
+    }
+    const child = spawn(program, args, {
       cwd,
       env: checkProcessEnv(opts.env),
       windowsHide: true,
+      // POSIX: its own process group, so stopping it also stops what it started (Windows uses taskkill /T).
+      detached: process.platform !== "win32",
     });
+    ownGroup(child.pid);
     const finish = (result: { exitCode: number; output: string; executed: boolean }) => {
       if (settled) return;
       settled = true;
@@ -120,6 +170,7 @@ export function runOwnedArgv(
       finish({ exitCode: 1, output: `${output}\n${error.message}`.trim(), executed: false });
     });
     child.on("close", (code) => {
+      releaseGroup(child.pid);
       if (spawnFailed) return;
       const aborted = Boolean(opts.abortSignal?.aborted);
       finish({

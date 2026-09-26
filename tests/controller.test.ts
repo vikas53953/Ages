@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { handleLine, startState } from "../src/runtime.ts";
-import { loadTask, writeAgreement, type Agreement } from "../src/delivery.ts";
+import { loadTask, writeAgreement, type Agreement } from "../src/plugins/delivery/delivery.ts";
 import { writePath } from "../src/tools/write.ts";
 import type { GenerateFn } from "../src/loop.ts";
 

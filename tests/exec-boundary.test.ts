@@ -4,16 +4,17 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runDeliveryBuild, emptyPlan, savePlan } from "../src/controller.ts";
+import { runDeliveryBuild, emptyPlan, savePlan } from "../src/plugins/delivery/controller.ts";
 import {
   agreementFromOwnerText,
   confirmAgreement,
   loadTask,
   proposeNewTask,
-} from "../src/delivery.ts";
+} from "../src/plugins/delivery/delivery.ts";
 import { packageRoot } from "../src/env.ts";
 import { checkProcessEnv, killProcessTree, runOwnedArgv } from "../src/exec.ts";
 import type { GenerateFn } from "../src/loop.ts";
+import { loadPlugins } from "../src/plugins/index.ts";
 
 const localOpts = { toolCallId: "t1", messages: [], context: {} } as never;
 const SENTINEL = "aegis-review-sentinel-not-a-secret";
@@ -191,7 +192,7 @@ setInterval(() => {}, 1 << 30);
       runDeliveryBuild({
         cwd,
         sessionId: "exec-boundary",
-        mockJev: true,
+        plugins: loadPlugins(["jev", "delivery", "receipts"], { mockJev: true }).plugins,
         generate,
         confirm: async () => true,
         abortSignal: abort.signal,
@@ -214,4 +215,27 @@ setInterval(() => {}, 1 << 30);
       }
     }
   }, 20_000);
+});
+
+describe("process groups on POSIX", () => {
+  it.runIf(process.platform !== "win32")("when Aegis is terminated, what it started (and their children) goes too", async () => {
+    const { spawn } = await import("node:child_process");
+    const { readFile: read } = await import("node:fs/promises");
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-groupexit-"));
+    await writeFile(
+      path.join(cwd, "hang.mjs"),
+      `import { spawn } from "node:child_process";
+import fs from "node:fs";
+const child = spawn(process.execPath, ["-e", "require('fs').writeFileSync('grandchild.json', JSON.stringify({pid:process.pid}));setInterval(()=>{},1<<30);"], { stdio: "ignore" });
+setInterval(() => {}, 1 << 30);
+`,
+    );
+    const dist = path.resolve("dist/exec.js");
+    const aegis = spawn(process.execPath, ["-e", `import(${JSON.stringify(dist)}).then((m) => m.runOwnedArgv([process.execPath, "hang.mjs"], ${JSON.stringify(cwd)}, { timeoutMs: 60000 }));`], { cwd, stdio: "ignore" });
+    const grandchild = await waitForFile(path.join(cwd, "grandchild.json"));
+    aegis.kill("SIGTERM");
+    await new Promise((resolve) => aegis.on("exit", resolve));
+    await waitDead(grandchild.pid!);
+    void read;
+  }, 30_000);
 });

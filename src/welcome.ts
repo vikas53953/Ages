@@ -1,0 +1,170 @@
+/**
+ * The startup screen. Layout follows Claude Code's welcome box (title in the border, welcome + mascot on the
+ * left, tips and recent activity on the right) and Pi's one-line key hints underneath. The content is Aegis's own:
+ * a shield, and the lock (rules, Jev, plugins) that every tool call passes.
+ */
+import os from "node:os";
+import path from "node:path";
+import { THEMES, themeName } from "./theme.ts";
+
+export type WelcomeInfo = {
+  name: string;
+  version: string;
+  user: string;
+  model: string;
+  provider: string;
+  cwd: string;
+  jevMode: string;
+  jevHealth: string;
+  rules: { deny: number; ask: number; allow: number };
+  plugins: string[];
+  recent: { when: string; text: string }[];
+  hasChatKey: boolean;
+  /** e.g. "low · folded" */
+  thinking?: string;
+};
+
+const ESC = "\x1b[";
+type Paint = (text: string) => string;
+
+function palette(color: boolean) {
+  const wrap = (code: string): Paint => (color ? (text) => `${ESC}${code}m${text}${ESC}0m` : (text) => text);
+  return { accent: wrap(THEMES[themeName()].accent), strong: wrap(THEMES[themeName()].strong), bold: wrap("1"), dim: wrap(THEMES[themeName()].dim) };
+}
+
+/** Visible width: ANSI colour codes take no room. Every character we draw is single-width. */
+export function visibleWidth(text: string) {
+  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function fit(text: string, width: number) {
+  const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+  if (plain.length <= width) return text + " ".repeat(width - plain.length);
+  return `${plain.slice(0, Math.max(0, width - 1))}…`;
+}
+
+function center(text: string, width: number) {
+  const pad = Math.max(0, width - visibleWidth(text));
+  const left = Math.floor(pad / 2);
+  return " ".repeat(left) + text + " ".repeat(pad - left);
+}
+
+/** ~\Projects\gate instead of C:\Users\vikasmit\Projects\gate; long paths keep their tail. */
+export function shortPath(cwd: string, max: number, home = os.homedir()) {
+  const rel = path.relative(home, cwd);
+  const shown = rel === "" ? "~" : !rel.startsWith("..") && !path.isAbsolute(rel) ? `~${path.sep}${rel}` : cwd;
+  return shown.length <= max ? shown : `…${shown.slice(shown.length - max + 1)}`;
+}
+
+/** The Aegis shield. Only full and half blocks, so Windows Terminal and the classic console both draw it. */
+export const SHIELD = [
+  "█▀▀▀▀▀▀▀█",
+  "█  ▄█▄  █",
+  "█ ▀▀█▀▀ █",
+  "▀▄  █  ▄▀",
+  "  ▀▄█▄▀  ",
+];
+
+export const KEY_HINTS = ["esc stop", "ctrl+c twice exit", "/ commands", "! powershell", "@ files", "shift+enter newline"];
+
+function hintLine(width: number, paint: ReturnType<typeof palette>) {
+  const parts: string[] = [];
+  for (const hint of KEY_HINTS) {
+    const next = [...parts, hint].join(" · ");
+    if (next.length + 2 > width) break;
+    parts.push(hint);
+  }
+  return paint.dim(`  ${parts.join(" · ")}`);
+}
+
+function lockLines(info: WelcomeInfo) {
+  const { deny, ask, allow } = info.rules;
+  return [
+    `rules    ${deny} deny · ${ask} ask · ${allow} allow`,
+    `jev      ${info.jevMode} · ${info.jevHealth}`,
+    `plugins  ${info.plugins.length ? info.plugins.join(", ") : "none"}`,
+    ...(info.thinking ? [`think    ${info.thinking}`] : []),
+  ];
+}
+
+function firstSteps(info: WelcomeInfo) {
+  return info.hasChatKey
+    ? ["Type a task, or /help for commands", "Rules decide first: .aegis/settings.json"]
+    : ["Connect a model: /login opencode <key>", "Until then: list, read and search only"];
+}
+
+/** Lines of the welcome screen for a terminal `cols` wide. */
+export function welcomeLines(info: WelcomeInfo, cols: number, color = true): string[] {
+  const paint = palette(color);
+  const width = Math.min(Math.max(cols, 20), 104);
+  const title = ` ${info.name} v${info.version} `;
+
+  if (width < 44) {
+    // Pi-sized: name, one hint, done.
+    return [
+      `${paint.strong(info.name)} ${paint.dim(`v${info.version}`)}`,
+      paint.dim(`${info.model} · jev ${info.jevMode}`),
+      paint.dim("/help commands · ctrl+c exit"),
+      "",
+    ];
+  }
+
+  const inner = width - 2;
+  const top = paint.accent(`╭───${title}${"─".repeat(Math.max(0, inner - 3 - title.length))}╮`);
+  const bottom = paint.accent(`╰${"─".repeat(inner)}╯`);
+  const side = paint.accent("│");
+  const row = (text: string) => `${side}${fit(text, inner)}${side}`;
+  const modelLine = `${info.model} · ${info.provider}`;
+
+  if (width < 78) {
+    const body = [
+      "",
+      ` ${paint.bold(`Welcome back, ${info.user}!`)}`,
+      ` ${paint.dim(modelLine)}`,
+      ` ${paint.dim(shortPath(info.cwd, inner - 2))}`,
+      "",
+      ...firstSteps(info).map((line) => ` ${line}`),
+      "",
+      ...lockLines(info).map((line) => ` ${paint.dim(line)}`),
+      "",
+    ];
+    return [top, ...body.map(row), bottom, hintLine(width, paint), ""];
+  }
+
+  const leftWidth = Math.floor(inner * 0.4);
+  const rightWidth = inner - leftWidth - 1;
+  const left = [
+    "",
+    center(paint.bold(`Welcome back, ${info.user}!`), leftWidth),
+    "",
+    ...SHIELD.map((line) => center(paint.accent(line), leftWidth)),
+    "",
+    center(paint.dim(fit(info.model, leftWidth - 2).trimEnd()), leftWidth),
+    center(paint.dim(fit(info.provider, leftWidth - 2).trimEnd()), leftWidth),
+    center(paint.dim(shortPath(info.cwd, leftWidth - 2)), leftWidth),
+  ];
+  const rule = paint.dim("─".repeat(rightWidth - 2));
+  const recent = info.recent.length
+    ? info.recent.slice(0, 3).map((item) => `${paint.dim(item.when)}  ${item.text}`)
+    : [paint.dim("No recent sessions")];
+  const right = [
+    "",
+    paint.strong("Getting started"),
+    ...firstSteps(info),
+    rule,
+    paint.strong("The lock"),
+    ...lockLines(info).map((line) => paint.dim(line)),
+    rule,
+    paint.strong("Recent sessions"),
+    ...recent,
+  ];
+  const height = Math.max(left.length, right.length) + 1;
+  const rows: string[] = [];
+  for (let i = 0; i < height; i++) {
+    const l = fit(left[i] ?? "", leftWidth);
+    const r = fit(` ${right[i] ?? ""}`, rightWidth);
+    rows.push(`${side}${l}${side}${r}${side}`);
+  }
+  // The column divider is part of the left cell's right edge.
+  return [top, ...rows, bottom, hintLine(width, paint), ""];
+}
