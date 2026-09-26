@@ -404,3 +404,9 @@
     - A prompt that starts with "/" goes to Claude Code as `Task: /…`, so it is never taken as one of Claude's slash commands.
     - The `.harness`/`.aegis` shell floor is an extra question, not a sandbox: an obfuscated path can avoid it. The shell stays off unless you turn it on.
 - `aegis doctor` also shows web search (on with your key, or how to turn it on) and your skills, commands and agents, with a warning when a project's files wait for `/skills trust`.
+- Studio composer: a `+` menu (as in Codex and Claude desktop) replaces the Thinking, Reasoning and Plan chips.
+  - The menu holds "Add photos & files", Thinking (a four-way choice), Reasoning (a three-way choice) and a Plan mode switch. The bar keeps the model picker and shows a small badge only when plan mode is on or thinking is not the default.
+  - Text files (logs, configs, scripts, notes) can be attached from the file picker or by dropping them: up to 5, 200 KB each.
+  - The page refuses binary files (a NUL byte), and so does the server, which also checks count and size.
+  - The runtime sends them in a random tag marked as data, redacted (a password line in a config is cut before the model provider sees it), capped at 120,000 characters per message.
+  - PDF and Word need a parser and are not read yet.

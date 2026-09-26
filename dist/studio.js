@@ -18,8 +18,31 @@ import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
 import { gitBranch } from "./git-head.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage } from "./images.js";
-/** 4 images of 5 MB as base64, plus the text. */
-const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) + 1_000_000;
+/** Text files attached from the page: at most 5, 200 KB each. */
+const MAX_DOCUMENTS = 5;
+const MAX_DOCUMENT_CHARS = 200 * 1024;
+/** 4 images of 5 MB as base64, 5 text files, plus the text. */
+const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) + MAX_DOCUMENTS * MAX_DOCUMENT_CHARS * 2 + 1_000_000;
+/** Text files attached on the page (logs, configs, scripts): a list of at most 5, text only, 200 KB each. */
+export function pastedDocuments(value) {
+    if (value === undefined || value === null)
+        return undefined;
+    if (!Array.isArray(value))
+        throw new BadRequest("documents must be a list");
+    if (value.length > MAX_DOCUMENTS)
+        throw new BadRequest(`at most ${MAX_DOCUMENTS} files per message`);
+    return value.map((item) => {
+        const entry = (item ?? {});
+        if (typeof entry.text !== "string")
+            throw new BadRequest("a file has no text");
+        if (entry.text.length > MAX_DOCUMENT_CHARS)
+            throw new BadRequest("a file is over 200 KB");
+        if (entry.text.includes("\u0000"))
+            throw new BadRequest("only text files can be attached (this one is binary)");
+        const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || "file.txt" : "file.txt";
+        return { name, text: entry.text };
+    });
+}
 /**
  * Images pasted or dropped on the page: at most 4, each checked by its first bytes and size. Anything else is
  * refused with a 400, so a page bug cannot send the model a file it did not mean to.
@@ -113,12 +136,12 @@ export async function startStudio(input) {
         turnAbort?.signal.addEventListener("abort", () => finish(false), { once: true });
         send({ kind: "approval", id, question, options });
     });
-    const run = async (text, images) => {
+    const run = async (text, images, documents) => {
         busy = true;
         turnAbort = new AbortController();
         send({ kind: "started", text });
         try {
-            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images }, confirm, (event) => send({ kind: "event", event }));
+            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images, documents }, confirm, (event) => send({ kind: "event", event }));
             const receipt = result.receipt;
             send({
                 kind: "done",
@@ -280,11 +303,11 @@ export async function startStudio(input) {
                 return json(res, 400, { error: "nothing to run" });
             // A model turn runs in the background (202); the page follows it on the event stream.
             const isTurn = (!line.startsWith("/") && !line.startsWith("!")) || /^\/plan\s+(?!off\s*$)\S/i.test(line);
-            if (url.pathname === "/api/prompt" && !isTurn && body.images !== undefined) {
-                return json(res, 400, { error: "images go with a message, not a command" });
+            if (url.pathname === "/api/prompt" && !isTurn && (body.images !== undefined || body.documents !== undefined)) {
+                return json(res, 400, { error: "files go with a message, not a command" });
             }
             if (url.pathname === "/api/prompt" && isTurn) {
-                void run(line, pastedImages(body.images));
+                void run(line, pastedImages(body.images), pastedDocuments(body.documents));
                 return json(res, 202, { ok: true, started: true });
             }
             const result = await run(line);

@@ -34,13 +34,36 @@
         <div class="plist" id="plist" role="listbox" aria-label="Models"></div>
       </div>
       <div class="attachments" id="attachments" hidden></div>
-      <textarea id="input" rows="1" placeholder="Ask Aegis to read, change or run something in this folder… (paste or drop a screenshot)" aria-label="Message"></textarea>
+      <textarea id="input" rows="1" placeholder="Ask Aegis to read, change or run something in this folder… (+ or paste to attach files)" aria-label="Message"></textarea>
+      <div class="menu" id="plusMenu" role="menu" hidden>
+        <button class="menu-item" type="button" id="attachBtn" role="menuitem">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Add photos &amp; files<small>Images, logs, configs, scripts, notes</small></span>
+        </button>
+        <input type="file" id="fileInput" multiple hidden>
+        <div class="menu-row">
+          <span>Thinking<small>How hard the model thinks</small></span>
+          <div class="seg" id="thinkSeg" role="group" aria-label="Thinking">
+            <button type="button" data-value="off">Off</button><button type="button" data-value="low">Low</button><button type="button" data-value="medium">Med</button><button type="button" data-value="high">High</button>
+          </div>
+        </div>
+        <div class="menu-row">
+          <span>Reasoning<small>How its thinking appears</small></span>
+          <div class="seg" id="showSeg" role="group" aria-label="Reasoning">
+            <button type="button" data-value="fold">Folded</button><button type="button" data-value="show">Shown</button><button type="button" data-value="hide">Hidden</button>
+          </div>
+        </div>
+        <div class="menu-row">
+          <span>Plan mode<small>Read-only until you approve the plan</small></span>
+          <button type="button" class="switch" id="planSwitch" role="switch" aria-checked="false" aria-label="Plan mode"><span></span></button>
+        </div>
+      </div>
       <div class="bar">
         <div class="chips">
+          <button class="plus" type="button" id="plusBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="plusMenu" title="Add files and options">+</button>
           <button class="chip" type="button" id="modelChip" aria-haspopup="listbox">Model <b id="modelName">auto</b> ▾</button>
-          <button class="chip" type="button" id="thinkChip" title="How hard the model thinks">Thinking <b id="thinkLevel">low</b></button>
-          <button class="chip" type="button" id="showChip" title="How reasoning appears">Reasoning <b id="showMode">folded</b></button>
-          <button class="chip" type="button" id="planChip" title="Read-only until you approve the plan" aria-pressed="false">Plan <b id="planState">off</b></button>
+          <span class="badge" id="planBadge" hidden title="Plan mode: read-only until you approve the plan">Plan</span>
+          <span class="badge soft" id="thinkBadge" hidden></span>
         </div>
         <button class="send" id="send" type="submit" aria-label="Send">Send ↵</button>
       </div>

@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const chat = $("chat");
   const input = $("input");
-  const state = { busy: false, model: "auto", thinking: { level: "low", display: "fold" }, models: [], turnFiles: new Set(), images: [] };
+  const state = { busy: false, model: "auto", thinking: { level: "low", display: "fold" }, models: [], turnFiles: new Set(), images: [], docs: [] };
   let current = { ai: null, think: null, thinkStart: 0, tools: [] };
 
   if (!token) {
@@ -367,27 +367,33 @@
 
   async function submit(text) {
     const images = text === undefined ? state.images.filter((image) => image.data) : [];
-    const value = String(text ?? input.value).trim() || (images.length ? "Look at the attached image(s)." : "");
+    const docs = text === undefined ? state.docs.filter((doc) => doc.text !== undefined) : [];
+    const attached = [...images, ...docs];
+    const value = String(text ?? input.value).trim() || (attached.length ? "Look at the attached file(s)." : "");
     if (!value || state.busy) return;
-    if (images.length && (value.startsWith("/") || value.startsWith("!"))) {
-      addNote("⚠ Images go with a message, not a command.");
+    if (attached.length && (value.startsWith("/") || value.startsWith("!"))) {
+      addNote("⚠ Files go with a message, not a command.");
       return;
     }
     input.value = "";
     autosize();
     if (!value.startsWith("/") && !value.startsWith("!")) {
-      addUser(images.length ? `${value}\n📎 ${images.map((image) => image.name).join(", ")}` : value);
+      addUser(attached.length ? `${value}\n📎 ${attached.map((file) => file.name).join(", ")}` : value);
       $("steps").textContent = "";
       state.turnFiles.clear();
       renderFiles();
     } else addNote(`› ${value.replace(/^(\/login\s+\S+\s+)\S+/i, "$1••••")}`);
     setBusy(true);
     setWorking("Starting");
+    const body = { text: value };
+    if (images.length) body.images = images.map(({ name, data }) => ({ name, data }));
+    if (docs.length) body.documents = docs.map(({ name, text: content }) => ({ name, text: content }));
     try {
-      await api("/api/prompt", images.length ? { text: value, images: images.map(({ name, data }) => ({ name, data })) } : { text: value });
+      await api("/api/prompt", body);
       // Only once the server took them: a refused send keeps the chips for another try.
-      if (images.length) {
+      if (attached.length) {
         state.images = state.images.filter((image) => !images.includes(image));
+        state.docs = state.docs.filter((doc) => !docs.includes(doc));
         renderImages();
       }
     } catch (error) {
@@ -404,13 +410,11 @@
     $("version").textContent = `v${s.welcome.version}`;
     $("folder").textContent = s.branch ? `${s.welcome.cwd} (${s.branch})` : s.welcome.cwd;
     $("modelName").textContent = s.model;
-    $("thinkLevel").textContent = s.thinking.level;
-    $("showMode").textContent = { fold: "folded", show: "shown", hide: "hidden" }[s.thinking.display];
+
     $("topMeta").textContent = `${s.plan ? "PLAN MODE · " : ""}${s.model === "auto" ? s.welcome.model : s.model} · ${s.welcome.provider} · runs on this PC`;
     state.plan = Boolean(s.plan);
     renderTodos(s.todos);
-    $("planState").textContent = s.plan ? "on" : "off";
-    $("planChip").setAttribute("aria-pressed", String(s.plan));
+    renderMenuState();
     const total = s.tokens.input + s.tokens.output;
     $("tokenTotal").textContent = fmt(total);
     $("tokenSplit").textContent = `↑ ${fmt(s.tokens.input)} in · ↓ ${fmt(s.tokens.output)} out`;
@@ -474,23 +478,60 @@
     hero(s.welcome);
   });
 
-  const levels = ["off", "low", "medium", "high"];
-  $("thinkChip").addEventListener("click", async () => {
-    const next = levels[(levels.indexOf(state.thinking.level) + 1) % levels.length];
-    await api("/api/think", { value: next }).catch(showError);
+  // ---------- the + menu: attach, thinking, reasoning, plan mode ----------
+  const plusBtn = $("plusBtn");
+  const plusMenu = $("plusMenu");
+  function openMenu(open) {
+    plusMenu.hidden = !open;
+    plusBtn.setAttribute("aria-expanded", String(open));
+    if (open) picker.hidden = true;
+  }
+  function renderMenuState() {
+    for (const button of $("thinkSeg").querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.value === state.thinking.level));
+    for (const button of $("showSeg").querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.value === state.thinking.display));
+    $("planSwitch").setAttribute("aria-checked", String(Boolean(state.plan)));
+    // Only what differs from the defaults shows next to the model, so the bar stays quiet.
+    $("planBadge").hidden = !state.plan;
+    const think = $("thinkBadge");
+    think.hidden = state.thinking.level === "low";
+    think.textContent = `Thinking ${state.thinking.level}`;
+  }
+  plusBtn.addEventListener("click", () => openMenu(plusMenu.hidden));
+  document.addEventListener("mousedown", (e) => {
+    if (!plusMenu.hidden && !plusMenu.contains(e.target) && !plusBtn.contains(e.target)) openMenu(false);
+  });
+  plusMenu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      openMenu(false);
+      plusBtn.focus();
+    }
+  });
+  $("attachBtn").addEventListener("click", () => {
+    openMenu(false);
+    $("fileInput").click();
+  });
+  $("fileInput").addEventListener("change", (e) => {
+    addFiles([...(e.target.files ?? [])]);
+    e.target.value = "";
+  });
+  $("thinkSeg").addEventListener("click", async (e) => {
+    const value = e.target.closest("button")?.dataset.value;
+    if (!value || value === state.thinking.level) return;
+    await api("/api/think", { value }).catch(showError);
     await refresh();
   });
-  // Plan chip: on = read-only planning; when a plan is shown, "go" carries it out.
-  $("planChip").addEventListener("click", () => {
+  // Plan mode: on = read-only planning; turning it off while a plan is open asks whether to carry it out.
+  $("planSwitch").addEventListener("click", () => {
     if (state.busy) return;
+    openMenu(false);
     if (!state.plan) return submit("/plan");
     const go = window.confirm("Carry out the plan now?\nOK = go (the agent may change files, your rules still decide)\nCancel = leave plan mode without running it");
     submit(go ? "/plan go" : "/plan off");
   });
 
-  const displays = ["fold", "show", "hide"];
-  $("showChip").addEventListener("click", async () => {
-    const next = displays[(displays.indexOf(state.thinking.display) + 1) % displays.length];
+  $("showSeg").addEventListener("click", async (e) => {
+    const next = e.target.closest("button")?.dataset.value;
+    if (!next || next === state.thinking.display) return;
     await api("/api/think", { value: next }).catch(showError);
     await refresh();
     for (const block of chat.querySelectorAll(".think")) {
@@ -607,22 +648,71 @@
   function renderImages() {
     const box = $("attachments");
     box.textContent = "";
-    box.hidden = !state.images.length;
+    box.hidden = !state.images.length && !state.docs.length;
+    const chip = (name, preview, onRemove) => {
+      const node = el("span", "attach");
+      const remove = el("button", "linkbtn", "×");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${name}`);
+      remove.addEventListener("click", onRemove);
+      node.append(preview, el("span", "", name), remove);
+      box.append(node);
+    };
     state.images.forEach((image, index) => {
-      const chip = el("span", "attach");
       const img = el("img");
       img.src = `data:${image.type};base64,${image.data}`;
       img.alt = image.name;
-      const remove = el("button", "linkbtn", "×");
-      remove.type = "button";
-      remove.setAttribute("aria-label", `Remove ${image.name}`);
-      remove.addEventListener("click", () => {
+      chip(image.name, img, () => {
         state.images.splice(index, 1);
         renderImages();
       });
-      chip.append(img, el("span", "", image.name), remove);
-      box.append(chip);
     });
+    state.docs.forEach((doc, index) => {
+      const icon = el("span", "doc", (doc.name.split(".").pop() || "txt").slice(0, 4));
+      icon.setAttribute("aria-hidden", "true");
+      chip(doc.name, icon, () => {
+        state.docs.splice(index, 1);
+        renderImages();
+      });
+    });
+  }
+  // Text documents (logs, configs, scripts, notes): sent as text with the message, checked again on the server.
+  const MAX_DOCS = 5;
+  const MAX_DOC_BYTES = 200 * 1024;
+  function addDocs(files) {
+    for (const file of files) {
+      if (state.docs.length >= MAX_DOCS) {
+        addNote(`⚠ At most ${MAX_DOCS} files per message.`);
+        break;
+      }
+      if (file.size > MAX_DOC_BYTES) {
+        addNote(`⚠ ${file.name} is over 200 KB. Put it in the folder and mention it with @${file.name} instead.`);
+        continue;
+      }
+      const entry = { name: file.name || "file.txt", text: undefined };
+      state.docs.push(entry);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result);
+        // A NUL byte means binary (a PDF, a Word file, an exe): not sent.
+        if (text.includes("\u0000")) {
+          state.docs.splice(state.docs.indexOf(entry), 1);
+          addNote(`⚠ ${entry.name} is not a text file. Images and text files (logs, configs, scripts, notes) can be attached.`);
+        } else entry.text = text;
+        renderImages();
+      };
+      reader.onerror = () => {
+        state.docs.splice(state.docs.indexOf(entry), 1);
+        renderImages();
+      };
+      reader.readAsText(file);
+    }
+    renderImages();
+  }
+  /** Images go as images, anything else is tried as a text document. */
+  function addFiles(files) {
+    addImages(files.filter((file) => IMAGE_TYPES.includes(file.type)));
+    addDocs(files.filter((file) => !IMAGE_TYPES.includes(file.type)));
   }
   function addImages(files) {
     for (const file of files) {
@@ -658,7 +748,7 @@
   $("composer").addEventListener("dragover", (e) => e.preventDefault());
   $("composer").addEventListener("drop", (e) => {
     e.preventDefault();
-    addImages([...(e.dataTransfer?.files ?? [])]);
+    addFiles([...(e.dataTransfer?.files ?? [])]);
   });
 
   function autosize() {

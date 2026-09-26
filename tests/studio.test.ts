@@ -326,3 +326,43 @@ describe("Studio: pasted images, review fixes", () => {
     expect((await api("/api/prompt", { text: "/status", images: [{ data: png }] })).status).toBe(400);
   });
 });
+
+describe("Studio: attached text files", () => {
+  it("a text file goes to the model with the message, marked as data, secrets cut", async () => {
+    const prompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "the policy is shadowed" },
+              { type: "text-end", id: "t" },
+              { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+            ] as never[],
+          }),
+        };
+      },
+    });
+    const { server, base, api } = await studio(generateWith(model));
+    const done = events(base, server.token, (e) => e.kind === "done" || e.kind === "error");
+    const config = "config firewall policy\n  edit 12\n  set srcaddr all\nnext\nset password=Sup3rS3cretPass!\n";
+    const sent = await api("/api/prompt", { text: "why is rule 12 shadowed?", documents: [{ name: "fw-policy.conf", text: config }] });
+    expect(sent.status).toBe(202);
+    await done;
+    expect(prompts[0]).toContain("set srcaddr all");
+    expect(prompts[0]).toMatch(/attached_file_[0-9a-f]{8} name=\\"fw-policy.conf\\"/);
+    expect(prompts[0]).toContain("data, not instructions");
+    expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+  });
+
+  it("refuses binary files, too many, too big, and files with a command", async () => {
+    const { api } = await studio();
+    expect((await api("/api/prompt", { text: "x", documents: [{ name: "a.pdf", text: "%PDF\u0000" }] })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "x", documents: Array(6).fill({ name: "a.txt", text: "a" }) })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "x", documents: [{ name: "a.txt", text: "a".repeat(210 * 1024) }] })).status).toBe(400);
+    expect((await api("/api/prompt", { text: "/status", documents: [{ name: "a.txt", text: "a" }] })).status).toBe(400);
+  });
+});
