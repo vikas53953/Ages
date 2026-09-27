@@ -30,7 +30,7 @@ import { turnStatusLines } from "./tui-layout.ts";
 import type { ConfirmAnswer, ConfirmOptions } from "./types.ts";
 import { gitBranch } from "./git-head.ts";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage, type ImageAttachment } from "./images.ts";
-import { looksLikePdf, MAX_PDF_BYTES, pdfText } from "./documents.ts";
+import { docxText, looksLikePdf, MAX_DOCX_BYTES, MAX_PDF_BYTES, pdfText } from "./documents.ts";
 
 export type StudioEvent =
   | { kind: "event"; event: TurnEvent }
@@ -50,22 +50,22 @@ export type StudioEvent =
     }
   | { kind: "error"; message: string };
 
-/** Files attached from the page: at most 5; text files 200 KB each, PDFs 10 MB each and 20 MB together. */
+/** Files attached from the page: at most 5; text files 200 KB each, PDFs and Word files 10 MB each and 20 MB together. */
 const MAX_DOCUMENTS = 5;
 const MAX_DOCUMENT_CHARS = 200 * 1024;
 const MAX_PDF_TOTAL_BYTES = 2 * MAX_PDF_BYTES;
-/** 4 images of 5 MB as base64, 5 text files, the PDFs as base64, plus the text. */
+/** 4 images of 5 MB as base64, 5 text files, the PDFs and Word files as base64, plus the text. */
 const PROMPT_BODY_LIMIT =
   Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) +
   MAX_DOCUMENTS * MAX_DOCUMENT_CHARS * 2 +
   Math.ceil((MAX_PDF_TOTAL_BYTES * 4) / 3) +
   1_000_000;
 
-export type PastedDocument = { name: string; text: string } | { name: string; pdf: Buffer };
+export type PastedDocument = { name: string; text: string } | { name: string; pdf: Buffer } | { name: string; docx: Buffer };
 
 /**
- * Files attached on the page: text files (logs, configs, scripts) as text, PDFs as base64 (their text is pulled
- * out on this side, so the page cannot hand the model anything but text). Anything else is a 400.
+ * Files attached on the page: text files (logs, configs, scripts) as text, PDFs and Word files as base64 (their text
+ * is pulled out on this side, so the page cannot hand the model anything but text). Anything else is a 400.
  */
 export function pastedDocuments(value: unknown): PastedDocument[] | undefined {
   if (value === undefined || value === null) return undefined;
@@ -73,25 +73,34 @@ export function pastedDocuments(value: unknown): PastedDocument[] | undefined {
   if (value.length > MAX_DOCUMENTS) throw new BadRequest(`at most ${MAX_DOCUMENTS} files per message`);
   let pdfBytes = 0;
   return value.map((item) => {
-    const entry = (item ?? {}) as { name?: unknown; text?: unknown; pdf?: unknown };
+    const entry = (item ?? {}) as { name?: unknown; text?: unknown; pdf?: unknown; docx?: unknown };
     const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || "file.txt" : "file.txt";
     if (entry.pdf !== undefined) {
       if (typeof entry.pdf !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.pdf)) throw new BadRequest("a PDF is not base64");
       const buf = Buffer.from(entry.pdf, "base64");
       if (buf.length > MAX_PDF_BYTES) throw new BadRequest(`a PDF is over ${MAX_PDF_BYTES / 1024 / 1024} MB`);
       pdfBytes += buf.length;
-      if (pdfBytes > MAX_PDF_TOTAL_BYTES) throw new BadRequest(`PDFs are limited to ${MAX_PDF_TOTAL_BYTES / 1024 / 1024} MB per message`);
+      if (pdfBytes > MAX_PDF_TOTAL_BYTES) throw new BadRequest(`PDFs and Word files are limited to ${MAX_PDF_TOTAL_BYTES / 1024 / 1024} MB per message`);
       if (!looksLikePdf(buf)) throw new BadRequest(`${name} is not a PDF file`);
       return { name, pdf: buf };
     }
+    if (entry.docx !== undefined) {
+      if (typeof entry.docx !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.docx)) throw new BadRequest("a Word file is not base64");
+      const buf = Buffer.from(entry.docx, "base64");
+      if (buf.length > MAX_DOCX_BYTES) throw new BadRequest(`a Word file is over ${MAX_DOCX_BYTES / 1024 / 1024} MB`);
+      pdfBytes += buf.length;
+      if (pdfBytes > MAX_PDF_TOTAL_BYTES) throw new BadRequest(`PDFs and Word files are limited to ${MAX_PDF_TOTAL_BYTES / 1024 / 1024} MB per message`);
+      // Whether it really is a .docx is checked when it is read (docxText), with a plain-words reason.
+      return { name, docx: buf };
+    }
     if (typeof entry.text !== "string") throw new BadRequest("a file has no text");
     if (entry.text.length > MAX_DOCUMENT_CHARS) throw new BadRequest("a file is over 200 KB");
-    if (entry.text.includes("\u0000")) throw new BadRequest("only text files and PDFs can be attached (this one is binary)");
+    if (entry.text.includes("\u0000")) throw new BadRequest("only text files, PDFs and Word (.docx) files can be attached (this one is binary)");
     return { name, text: entry.text };
   });
 }
 
-/** Each attached file as text: a PDF's text layer is read here (one at a time); one that cannot be read is a 400. */
+/** Each attached file as text: a PDF's or Word file's text is read here (one at a time); one that cannot be read is a 400. */
 export async function attachedTexts(documents: PastedDocument[] | undefined, signal?: AbortSignal) {
   if (!documents) return undefined;
   const out: Array<{ name: string; text: string }> = [];
@@ -101,7 +110,8 @@ export async function attachedTexts(documents: PastedDocument[] | undefined, sig
       continue;
     }
     try {
-      out.push({ name: document.name, text: await pdfText(document.pdf, document.name, { signal }) });
+      const text = "pdf" in document ? await pdfText(document.pdf, document.name, { signal }) : await docxText(document.docx, document.name, { signal });
+      out.push({ name: document.name, text });
     } catch (error) {
       throw new BadRequest(error instanceof Error ? error.message : String(error));
     }
@@ -182,7 +192,7 @@ export async function startStudio(input: {
   let nextApproval = 1;
   let busy = false;
   let turnAbort: AbortController | undefined;
-  /** Set while attached PDFs are being read, before the turn starts: one at a time, and Stop ends it. */
+  /** Set while attached PDFs and Word files are being read, before the turn starts: one at a time, and Stop ends it. */
   let preparing: AbortController | undefined;
 
   const send = (event: StudioEvent) => {
@@ -371,7 +381,7 @@ export async function startStudio(input: {
       if (url.pathname === "/api/prompt" && isTurn) {
         const images = pastedImages(body.images);
         const pasted = pastedDocuments(body.documents);
-        // Reading PDFs takes a moment: meanwhile other messages get a 409, and Stop ends the read.
+        // Reading PDFs and Word files takes a moment: meanwhile other messages get a 409, and Stop ends the read.
         const reading = new AbortController();
         preparing = reading;
         let documents;

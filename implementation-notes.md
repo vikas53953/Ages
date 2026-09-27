@@ -420,4 +420,12 @@
   - Stop now ends a PDF read at once in the terminal too (the read tool and `@file.pdf` get the turn's stop signal). In Studio, Stop during the read answers 409 "stopped".
   - Studio sends the PDF as base64; the server checks it starts with `%PDF-` and reads the text before the turn starts, so a bad PDF is a clear 400 and the chips stay for another try.
   - Deviation: a scanned PDF (pictures only) is not OCR'd. Aegis says "no text found" instead. OCR would need a much bigger engine.
-  - Word (.docx) is still not read.
+  - Word (.docx) is still not read (added next, below).
+- Word (.docx) support (Studio, `@file.docx` in the terminal, and the agent's read tool).
+  - No new package. A .docx is a zip of XML files; Aegis has its own small zip reader (central directory, stored or deflated parts, no zip64) and Node's built-in zlib. Only `word/document.xml` is unpacked (or the part `_rels/.rels` names, for tools that call it something else).
+  - Text out: paragraphs as lines, tabs and line breaks kept, tables as `| a | b |` rows (nested tables stay inside their cell). Inserted tracked changes are kept and deleted ones left out, which is what Word shows once changes are accepted. A text box's old-Word fallback copy (`mc:Fallback`) is skipped so its text is not doubled.
+  - Left out, as agreed: headers, footers, footnotes, comments, pictures. Old `.doc` is not read.
+  - Limits: 10 MB per file; one part unpacks to at most 50 MB (a zip bomb stops there, even when its size fields lie); 1,000,000 characters of text; in Studio PDFs and Word files share the 20 MB per message.
+  - A password-protected .docx is not a zip at all (Word saves it as an OLE file, like an old .doc). Both are refused with one plain reason: remove the password or save as .docx.
+  - Found while testing: zlib's one-shot unpack of a 50 MB part froze Aegis for ~0.5 s. It is now unpacked as a stream (0.09 s, no freeze), and the XML scan pauses every 20,000 tags so the terminal and Studio stay live and Stop works. Worst case measured: 50 MB of empty tags, about 1 s in total, longest freeze 0.1 s.
+  - Deviation: unlike PDFs, a .docx is read on the main thread, not in a worker. The unpack cap bounds the work, and the scan yields; a worker would add ~50 ms per file for nothing.

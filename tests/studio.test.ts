@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import { makeDocx, makeDocxBomb, para, table } from "./fixtures/docx.ts";
 import { makePdf, makeSlowPdf } from "./fixtures/pdf.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateWith } from "../src/loop.ts";
@@ -410,6 +411,63 @@ describe("Studio: attached text files", () => {
     const first = await slow;
     expect(first.status).toBeGreaterThanOrEqual(400);
     expect(Date.now() - started).toBeLessThan(3000);
+    // Free again for the next message.
+    expect((await api("/api/prompt", { text: "/status" })).status).toBe(200);
+  });
+
+  it("a Word file goes as its text: read on the server, marked as data, secrets cut", async () => {
+    const prompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "read it" },
+              { type: "text-end", id: "t" },
+              { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+            ] as never[],
+          }),
+        };
+      },
+    });
+    const { server, base, api } = await studio(generateWith(model));
+    const done = events(base, server.token, (e) => e.kind === "done" || e.kind === "error");
+    const docx = makeDocx(para("Change CR-1042 opens port 8443") + table([["Rule", "12"]]) + para("set password=Sup3rS3cretPass!")).toString("base64");
+    const sent = await api("/api/prompt", { text: "what does the change do?", documents: [{ name: "cr.docx", docx }] });
+    expect(sent.status).toBe(202);
+    await done;
+    expect(prompts[0]).toContain("Change CR-1042 opens port 8443");
+    expect(prompts[0]).toContain("| Rule | 12 |");
+    expect(prompts[0]).toMatch(/attached_file_[0-9a-f]{8} name=\\"cr.docx\\"/);
+    expect(prompts[0]).toContain("[Word document;");
+    expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+  });
+
+  it("refuses a Word file that is not base64, not a .docx, a zip bomb, too big, or over the shared 20 MB", async () => {
+    const { api } = await studio();
+    const send = (docx: unknown) => api("/api/prompt", { text: "x", documents: [{ name: "a.docx", docx }] });
+    expect((await send("not base64!")).status).toBe(400);
+    const notWord = await send(Buffer.from("hello").toString("base64"));
+    expect(notWord.status).toBe(400);
+    expect(String(notWord.data.error)).toMatch(/not a Word \(.docx\) file/);
+    const bomb = await send(makeDocxBomb(100).toString("base64"));
+    expect(bomb.status).toBe(400);
+    expect(String(bomb.data.error)).toMatch(/needs too much memory/);
+    expect((await send(Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"))).status).toBe(400);
+    const nine = Buffer.alloc(9 * 1024 * 1024).toString("base64");
+    const shared = await api("/api/prompt", {
+      text: "x",
+      documents: [
+        { name: "a.pdf", pdf: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(9 * 1024 * 1024)]).toString("base64") },
+        { name: "b.docx", docx: nine },
+        { name: "c.docx", docx: nine },
+      ],
+    });
+    expect(shared.status).toBe(400);
+    expect(String(shared.data.error)).toMatch(/PDFs and Word files are limited to 20 MB/);
     // Free again for the next message.
     expect((await api("/api/prompt", { text: "/status" })).status).toBe(200);
   });
