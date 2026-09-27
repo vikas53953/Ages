@@ -72,6 +72,15 @@ describe("Word (.docx) text", () => {
     expect(text.length).toBeLessThan(1_000_300);
   });
 
+  it("text under the cap is kept whole: a 600,000-character cell, and 900,000 long-form entities", async () => {
+    const cell = await docxText(makeDocx(table([["y".repeat(600_000), "z"]])), "cell.docx");
+    expect(cell).toContain(`| ${"y".repeat(600_000)} | z |`);
+    expect(cell).not.toContain("[cut:");
+    const long = await docxText(makeDocx(para("&#x00000041;".repeat(900_000))), "long.docx");
+    expect(long.match(/A/g)).toHaveLength(900_000);
+    expect(long).not.toContain("[cut:");
+  });
+
   it("finds the body through the package index when it is not word/document.xml", async () => {
     const zip = makeZip([
       {

@@ -296,8 +296,9 @@ async function documentXmlText(xml: string, limit: number, signal: AbortSignal |
     if (cells.length) cells[cells.length - 1] += kept;
     else out += kept;
   };
-  // An entity is at most 10 characters and gives at least one, so this much raw text is enough for what is left.
-  const room = () => (limit - used) * 10 + 16;
+  // An entity is at most 12 characters (&#x + 8 digits + ;) and gives at least one, so this much raw text is enough
+  // for what is left: text past it can only be text past the cap.
+  const room = () => (limit - used) * 12 + 16;
   let steps = 0;
   let pos = 0;
   while (pos < xml.length && used < limit) {
@@ -358,11 +359,18 @@ async function documentXmlText(xml: string, limit: number, signal: AbortSignal |
       if (opens) rows.push([]);
       else {
         const row = rows.pop() ?? [];
+        // The cells' text was counted when it was written; the row counts it again, so it is taken off first.
+        used -= row.reduce((sum, cell) => sum + cell.length, 0);
         write(`| ${row.join(" | ")} |${cells.length ? " " : "\n"}`);
       }
     } else if (tag === "w:tc" && !selfClosing) {
       if (opens) cells.push("");
-      else rows[rows.length - 1]?.push((cells.pop() ?? "").replace(/\s+/g, " ").trim());
+      else {
+        const raw = cells.pop() ?? "";
+        const cell = raw.replace(/\s+/g, " ").trim();
+        used -= raw.length - cell.length;
+        rows[rows.length - 1]?.push(cell);
+      }
     }
   }
   const cut = used >= limit;
