@@ -15,6 +15,13 @@ import { MemoryTerminal } from "../src/tui-memory.ts";
 import { filterItems, ModelPicker } from "../src/tui-model-picker.ts";
 import type { TurnEvent } from "../src/types.ts";
 
+/** Waits until `check` holds (up to 5 s): a busy Windows runner can take longer than any fixed sleep. */
+async function until(check: () => boolean | Promise<boolean>, ms = 5000) {
+  const end = Date.now() + ms;
+  while (!(await check()) && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 20));
+}
+
+
 const usage = (output: number, reasoning: number) => ({
   inputTokens: { total: 1200, noCache: 1200, cacheRead: undefined, cacheWrite: undefined },
   outputTokens: { total: output, text: output - reasoning, reasoning },
@@ -160,11 +167,11 @@ describe("/model picker", () => {
     const app = await createTuiApp({ mockJev: true, yes: false, local: true }, { cwd, terminal });
     for (const ch of "/model") app.feed(ch);
     app.feed("\r");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await until(() => terminal.writes.join("").includes("Pick a model"));
     expect(terminal.writes.join("")).toContain("Pick a model");
     for (const ch of "glm-5.3-flash") app.feed(ch);
     app.feed("\r");
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await until(() => app.messages().join("\n").includes("model  glm-5.3-flash (pinned)"));
     expect(app.messages().join("\n")).toContain("model  glm-5.3-flash (pinned)");
     app.shutdown();
   });
@@ -183,13 +190,20 @@ describe("reasoning in the TUI", () => {
     );
     for (const ch of "what does the readme say?") app.feed(ch);
     app.feed("\r");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await until(() => terminal.writes.join("").includes("Thought for"));
     const folded = terminal.writes.join("");
     expect(folded).toContain("Thought for");
     expect(folded).not.toContain("read it first.");
     terminal.writes.length = 0;
     app.feed("\x14"); // ctrl+t
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await until(async () => {
+      if (!terminal.writes.join("").includes("read it first.")) return false;
+      try {
+        return JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")).thinking?.display === "show";
+      } catch {
+        return false;
+      }
+    });
     expect(terminal.writes.join("")).toContain("read it first.");
     expect(JSON.parse(await readFile(yourSettingsPath(cwd), "utf8")).thinking.display).toBe("show");
     app.shutdown();
