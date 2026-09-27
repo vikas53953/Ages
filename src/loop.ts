@@ -268,7 +268,7 @@ export function createTools(input: {
               readImages.set(options.toolCallId, image);
               return imageNote(image);
             })
-          : gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit })),
+          : gate("read", { path: filePath }, () => readPath(filePath, input.cwd, { offset, limit }, options.abortSignal)),
       toModelOutput: ({ toolCallId, output }) => {
         // Used once: a provider that reuses call ids across steps must not get a stale image on a later read.
         const image = readImages.get(toolCallId);

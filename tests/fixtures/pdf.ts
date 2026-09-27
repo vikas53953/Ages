@@ -50,3 +50,22 @@ export function makeSlowPdf(pageCount = 100, streamMb = 5) {
   parts.push(Buffer.from(tail, "latin1"));
   return Buffer.concat(parts);
 }
+
+/** A small PDF whose one stream inflates to `inflateMb` of spaces: memory that the heap cap does not count. */
+export async function makeInflatingPdf(inflateMb = 768) {
+  const { createDeflate } = process.getBuiltinModule("node:zlib") as typeof import("node:zlib");
+  const deflate = createDeflate({ level: 9 });
+  const out: Buffer[] = [];
+  deflate.on("data", (chunk: Buffer) => out.push(chunk));
+  const done = new Promise((resolve) => deflate.on("end", resolve));
+  const block = Buffer.alloc(16 * 1024 * 1024, 0x20);
+  for (let i = 0; i < inflateMb / 16; i++) {
+    if (!deflate.write(block)) await new Promise((resolve) => deflate.once("drain", resolve));
+  }
+  deflate.end();
+  await done;
+  const packed = Buffer.concat(out);
+  const head = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n";
+  const stream = Buffer.concat([Buffer.from(`4 0 obj\n<< /Length ${packed.length} /Filter /FlateDecode >>\nstream\n`, "latin1"), packed, Buffer.from("\nendstream\nendobj\n", "latin1")]);
+  return Buffer.concat([Buffer.from(head, "latin1"), stream, Buffer.from("trailer\n<< /Root 1 0 R >>\n%%EOF\n", "latin1")]);
+}

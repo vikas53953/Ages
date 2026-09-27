@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { looksLikePdf, MAX_PDF_BYTES, MAX_PDF_PAGES, pdfText } from "../src/documents.ts";
 import { readPath } from "../src/tools/read.ts";
-import { makePdf, makeSlowPdf } from "./fixtures/pdf.ts";
+import { makeInflatingPdf, makePdf, makeSlowPdf } from "./fixtures/pdf.ts";
 
 describe("PDF text", () => {
   it("gives the text page by page with a header", async () => {
@@ -58,4 +58,13 @@ describe("PDF text", () => {
     setTimeout(() => stop.abort(), 300);
     await expect(pdfText(slow, "slow.pdf", { signal: stop.signal })).rejects.toThrow("reading slow.pdf was stopped");
   });
+
+  it("a small PDF that inflates to hundreds of MB is stopped for memory, not left to take the PC down", async () => {
+    const bomb = await makeInflatingPdf();
+    expect(bomb.length).toBeLessThan(2 * 1024 * 1024);
+    const before = process.memoryUsage().rss;
+    await expect(pdfText(bomb, "bomb.pdf")).rejects.toThrow(/bomb.pdf (needs too much memory to read|took too long to read)/);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(process.memoryUsage().rss - before).toBeLessThan(1.5 * 1024 * 1024 * 1024);
+  }, 60_000);
 });

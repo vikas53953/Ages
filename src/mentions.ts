@@ -147,7 +147,7 @@ export async function attachMentions(input: {
         settingsError: input.settingsError,
         abortSignal: input.abortSignal,
         onEvent: input.onEvent,
-        execute: () => readPath(mention, input.cwd),
+        execute: () => readPath(mention, input.cwd, undefined, input.abortSignal),
       });
     } catch (error) {
       blocks.push(`(@${mention} was not attached: ${error instanceof Error ? error.message : String(error)})`);

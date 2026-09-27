@@ -25,6 +25,13 @@ const MAX_PDF_TEXT_CHARS = 1_000_000;
 /** Memory the PDF reader may use; a PDF built to blow up is stopped, not Aegis. */
 const PDF_WORKER_HEAP_MB = 256;
 /**
+ * The heap cap does not cover decoded streams (ArrayBuffers): a 1 MB PDF can inflate to gigabytes. So the
+ * process's buffer and total memory are watched while the worker runs, and it is killed past these.
+ */
+const PDF_MAX_BUFFER_GROWTH = 512 * 1024 * 1024;
+const PDF_MAX_RSS_GROWTH = 1024 * 1024 * 1024;
+const PDF_MEMORY_CHECK_MS = 25;
+/**
  * Runs in its own thread (a worker), so a PDF built to be slow cannot freeze the terminal or Studio, and a
  * timeout or Stop really ends it (the thread is killed). Given as source, not a file; written to run as either
  * a script or a module (Node picks by how Aegis was started), so it only uses import().
@@ -92,10 +99,18 @@ export async function pdfText(bytes, name = "the PDF", options = {}) {
             stderr: true,
         });
         let settled = false;
+        const start = process.memoryUsage();
+        const watch = setInterval(() => {
+            const now = process.memoryUsage();
+            if (now.arrayBuffers - start.arrayBuffers > PDF_MAX_BUFFER_GROWTH || now.rss - start.rss > PDF_MAX_RSS_GROWTH) {
+                finish(() => reject(new Error(`${name} needs too much memory to read`)));
+            }
+        }, PDF_MEMORY_CHECK_MS);
         const finish = (done) => {
             if (settled)
                 return;
             settled = true;
+            clearInterval(watch);
             clearTimeout(timer);
             signal?.removeEventListener("abort", onAbort);
             void worker.terminate();

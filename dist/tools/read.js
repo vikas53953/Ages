@@ -7,7 +7,9 @@ import { assertInsideCwd } from "../env.js";
  * (like Claude Code's Read), so a big file can be read piece by piece. A .pdf gives its text (page by page),
  * so offset/limit work on that text the same way.
  */
-export async function readPath(relativePath, cwd, lines) {
+export async function readPath(relativePath, cwd, lines, 
+/** Stop (the turn's signal): ends a PDF read at once instead of at its time limit. */
+signal) {
     const target = await assertInsideCwd(relativePath || ".", cwd);
     const info = await stat(target);
     if (info.isDirectory()) {
@@ -19,7 +21,7 @@ export async function readPath(relativePath, cwd, lines) {
         // Checked before reading: a huge PDF is refused without loading it.
         if (info.size > MAX_PDF_BYTES)
             throw new Error(`${path.basename(target)} is over ${MAX_PDF_BYTES / 1024 / 1024} MB; PDFs up to that size can be read`);
-        body = await pdfText(await readFile(target), path.basename(target));
+        body = await pdfText(await readFile(target), path.basename(target), { signal });
     }
     else {
         body = await readFile(target, "utf8");

@@ -416,7 +416,8 @@
   - pdf.js runs text-only: no fonts loaded, no forms (XFA), warnings silenced, and its output is kept off the terminal.
   - Review fix: pdf.js works on the main thread and a timeout cannot stop it. A small PDF built to be slow (many pages sharing one compressed stream) froze the terminal and Studio for 30 s and kept using CPU afterwards. Every PDF is now read in its own worker thread with a 256 MB memory cap. The thread is killed at the 30 s limit or on Stop.
   - Review fix: while Studio reads attached PDFs, other messages get "busy" (409), and Stop ends the read.
-  - The agent's read tool and `@file.pdf` use the 30 s limit; Stop during that read waits for the limit (the read is not given the turn's stop signal yet).
+  - Second review fix: the worker's heap cap does not count decoded streams (ArrayBuffers). A 1 MB PDF that inflates to 1 GB took 3.4 GB. While a PDF is read, Aegis now watches its own memory every 25 ms and kills the worker past +512 MB of buffers or +1 GB in total ("needs too much memory to read").
+  - Stop now ends a PDF read at once in the terminal too (the read tool and `@file.pdf` get the turn's stop signal). In Studio, Stop during the read answers 409 "stopped".
   - Studio sends the PDF as base64; the server checks it starts with `%PDF-` and reads the text before the turn starts, so a bad PDF is a clear 400 and the chips stay for another try.
   - Deviation: a scanned PDF (pictures only) is not OCR'd. Aegis says "no text found" instead. OCR would need a much bigger engine.
   - Word (.docx) is still not read.

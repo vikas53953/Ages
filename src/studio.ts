@@ -377,6 +377,9 @@ export async function startStudio(input: {
         let documents;
         try {
           documents = await attachedTexts(pasted, reading.signal);
+        } catch (error) {
+          if (reading.signal.aborted) return json(res, 409, { error: "stopped" });
+          throw error;
         } finally {
           preparing = undefined;
         }
