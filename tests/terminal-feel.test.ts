@@ -291,9 +291,26 @@ describe("review fixes: nothing the model writes can drive the terminal or the q
     ).join("\n");
     expect(lines).not.toContain("\x1b[2J");
     expect(lines).not.toContain("https://evil");
-    expect(lines).toContain("blocked: ");
+    // A "Blocked" line in the model's answer is not the lock's: it is not shown at all.
+    expect(lines).not.toContain("blocked:");
     // The strange path is shown cleaned, and not as a link.
     expect(lines).not.toContain("file:///tmp/p/a");
+    const real = turnEndLines(
+      { outcome: "blocked", ms: 1000, model: "m", text: "", tools: [{ name: "edit", approved: false, target: "x", source: "agreement", deniedReason: "outside the confirmed task" }] },
+      "/tmp/p",
+    ).join("\n");
+    expect(real).toContain("blocked: outside the confirmed task");
+  });
+
+  it("Enter on \"don't ask again\" does nothing: saving a rule takes 2 or a", () => {
+    const answers: ConfirmAnswer[] = [];
+    const box = new ConfirmBox("q", (ok) => answers.push(ok), 30, "write a.txt", confirmCard({ name: "write", args: { path: "a.txt", contents: "x" } }), 0);
+    box.handleInput("\x1b[A");
+    box.handleInput("\r");
+    expect(answers).toEqual([]);
+    expect(sanitizeText(box.render(80).join("\n"))).toContain("❯ 2. Yes, and don't ask again for: write a.txt (press 2)");
+    box.handleInput("2");
+    expect(answers).toEqual(["always"]);
   });
 
   it("a path or question with line breaks and escape codes cannot draw a fake choice on the card", () => {

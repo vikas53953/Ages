@@ -238,7 +238,7 @@ export function fileLink(absolute: string) {
 export function turnEndLines(
   receipt: {
     outcome?: string;
-    tools: Pick<ToolRecord, "name" | "approved" | "target" | "created">[];
+    tools: Pick<ToolRecord, "name" | "approved" | "target" | "created" | "source" | "deniedReason">[];
     ms: number;
     model: string;
     text: string;
@@ -272,8 +272,8 @@ export function turnEndLines(
           : `${paint("warn", "…")} Stopped early (${oneLine(receipt.finishReason ?? "step limit")}) after ${took}${counts ? ` · ${counts}` : ""}`;
   const lines = [`  ${head}`];
   for (const file of files.keys()) lines.push(`    ${on("accent")}${fileLink(path.resolve(cwd, file))}${RESET}`);
-  // These come from the receipt text, which ends with the model's own answer: shown only as clean text.
-  const blocked = /^Blocked {2}(.*)$/m.exec(receipt.text)?.[1];
+  // What blocked the turn comes from the lock's own records, never from the text (which ends with the model's answer).
+  const blocked = receipt.tools.find((tool) => !tool.approved && tool.source === "agreement")?.deniedReason;
   if (blocked) lines.push(`    blocked: ${oneLine(blocked)}`);
   const next = /^Next {2}(.*)$/m.exec(receipt.text)?.[1];
   if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`    next: ${oneLine(next)}`);

@@ -85,7 +85,12 @@ export class ConfirmBox implements Component, Focusable {
       return;
     }
     if (matchesKey(data, Key.escape) || /^n$/i.test(data)) return this.onAnswer(false);
-    if (matchesKey(data, Key.enter)) return this.onAnswer(this.card ? this.choices[this.selected]!.answer : false);
+    if (matchesKey(data, Key.enter)) {
+      const answer = this.card ? this.choices[this.selected]!.answer : false;
+      // Saving a rule is never one stray Enter away: "don't ask again" takes 2 or a.
+      if (answer === "always") return;
+      return this.onAnswer(answer);
+    }
     if (/^y$/i.test(data)) return this.onAnswer(true);
     if (this.always && /^a$/i.test(data)) return this.onAnswer("always");
     if (this.card && /^[1-9]$/.test(data)) {
@@ -153,7 +158,8 @@ export class ConfirmBox implements Component, Focusable {
 
     out.push(row(`${clean(card.question)}${card.facts ? `  ${dim(clean(card.facts))}` : ""}`));
     this.choices.forEach((choice, index) => {
-      const text = `${index + 1}. ${clean(choice.label)}${choice.hint ? ` ${dim(`(${choice.hint})`)}` : ""}`;
+      const hint = choice.hint ?? (choice.answer === "always" ? "press 2" : undefined);
+      const text = `${index + 1}. ${clean(choice.label)}${hint ? ` ${dim(`(${hint})`)}` : ""}`;
       const chosen = index === this.selected;
       const marker = chosen && this.focused ? CURSOR_MARKER : "";
       out.push(row(chosen ? `${marker}${paint("accent", `❯ ${text}`)}` : `  ${text}`));

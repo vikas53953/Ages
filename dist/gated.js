@@ -120,7 +120,7 @@ export function formatConfirm(name, args, decision, why, existing) {
 function unscoredClass(name) {
     return isMutation(name) ? "irreversible" : "read_only";
 }
-function cancelled(decision, name) {
+function cancelled(decision, name, target) {
     const toolClass = decision?.class ?? unscoredClass(name);
     const record = {
         name,
@@ -131,6 +131,8 @@ function cancelled(decision, name) {
         approved: false,
         deniedReason: "cancelled",
         source: decision?.source ?? "default",
+        // So the terminal can mark this call's own line "Stopped" (two calls asked at once).
+        target,
     };
     return {
         output: JSON.stringify({
@@ -211,7 +213,7 @@ export async function runGatedTool(input) {
         return run;
     }
     if (input.abortSignal?.aborted) {
-        return cancelled(undefined, input.name);
+        return cancelled(undefined, input.name, target);
     }
     if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
         return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
@@ -241,7 +243,7 @@ export async function runGatedTool(input) {
         signal: input.abortSignal,
     });
     if (input.abortSignal?.aborted)
-        return cancelled(undefined, input.name);
+        return cancelled(undefined, input.name, target);
     if (hook?.action === "deny") {
         const run = denied({ name: input.name, target, reason: `hook: ${hook.reason}`, source: "hook" });
         run.record.hook = hook.hook;
@@ -268,7 +270,7 @@ export async function runGatedTool(input) {
         }, input.abortSignal)
             .then((scored) => ({ kind: "decision", decision: scored })), input.abortSignal, () => ({ kind: "abort" }));
         if (evaluation.kind === "abort" || input.abortSignal?.aborted) {
-            return cancelled(undefined, input.name);
+            return cancelled(undefined, input.name, target);
         }
         decision = evaluation.decision;
     }
@@ -320,7 +322,7 @@ export async function runGatedTool(input) {
             waitForAbort(input.abortSignal).then(() => ({ kind: "abort" })),
         ]);
         if (raced.kind === "abort" || input.abortSignal?.aborted) {
-            return cancelled(decision, input.name);
+            return cancelled(decision, input.name, target);
         }
         if (raced.ok === "always" && always) {
             // Save it so the lock learns: next time this call is allowed by your rule, without asking.
@@ -350,7 +352,7 @@ export async function runGatedTool(input) {
         }
     }
     if (input.abortSignal?.aborted) {
-        return cancelled(decision, input.name);
+        return cancelled(decision, input.name, target);
     }
     record.approved = true;
     // Read before the write replaces it: "Created" and "Replaced 12 → 40 lines" need the old file.

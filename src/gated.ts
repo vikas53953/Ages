@@ -139,7 +139,7 @@ function unscoredClass(name: string) {
   return isMutation(name) ? ("irreversible" as const) : ("read_only" as const);
 }
 
-function cancelled(decision: ToolDecision | undefined, name: string): GatedRun {
+function cancelled(decision: ToolDecision | undefined, name: string, target?: string): GatedRun {
   const toolClass = decision?.class ?? unscoredClass(name);
   const record: ToolRecord = {
     name,
@@ -150,6 +150,8 @@ function cancelled(decision: ToolDecision | undefined, name: string): GatedRun {
     approved: false,
     deniedReason: "cancelled",
     source: decision?.source ?? "default",
+    // So the terminal can mark this call's own line "Stopped" (two calls asked at once).
+    target,
   };
   return {
     output: JSON.stringify({
@@ -256,7 +258,7 @@ export async function runGatedTool(input: {
     return run;
   }
   if (input.abortSignal?.aborted) {
-    return cancelled(undefined, input.name);
+    return cancelled(undefined, input.name, target);
   }
   if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
     return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
@@ -285,7 +287,7 @@ export async function runGatedTool(input: {
     readOnly: Boolean(input.readOnly),
     signal: input.abortSignal,
   });
-  if (input.abortSignal?.aborted) return cancelled(undefined, input.name);
+  if (input.abortSignal?.aborted) return cancelled(undefined, input.name, target);
   if (hook?.action === "deny") {
     const run = denied({ name: input.name, target, reason: `hook: ${hook.reason}`, source: "hook" });
     run.record.hook = hook.hook;
@@ -320,7 +322,7 @@ export async function runGatedTool(input: {
       () => ({ kind: "abort" as const }),
     );
     if (evaluation.kind === "abort" || input.abortSignal?.aborted) {
-      return cancelled(undefined, input.name);
+      return cancelled(undefined, input.name, target);
     }
     decision = evaluation.decision;
   }
@@ -377,7 +379,7 @@ export async function runGatedTool(input: {
       waitForAbort(input.abortSignal).then(() => ({ kind: "abort" as const })),
     ]);
     if (raced.kind === "abort" || input.abortSignal?.aborted) {
-      return cancelled(decision, input.name);
+      return cancelled(decision, input.name, target);
     }
     if (raced.ok === "always" && always) {
       // Save it so the lock learns: next time this call is allowed by your rule, without asking.
@@ -406,7 +408,7 @@ export async function runGatedTool(input: {
   }
 
   if (input.abortSignal?.aborted) {
-    return cancelled(decision, input.name);
+    return cancelled(decision, input.name, target);
   }
 
   record.approved = true;
