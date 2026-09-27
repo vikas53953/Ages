@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, mkdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
@@ -25,10 +26,33 @@ export function parseEnvText(text: string): Record<string, string> {
   return out;
 }
 
-function applyEnvFile(file: string) {
+/**
+ * What a project's own .env / .env.local may set: model names and API keys, nothing else. A cloned repo must not
+ * be able to switch on the shell, swap the Claude or PowerShell program, move Aegis's home (and with it your
+ * trusted MCP servers and sign-ins), or send your ChatGPT token to another server.
+ */
+export const PROJECT_ENV_KEYS = new Set([
+  "OPENCODE_API_KEY",
+  "OPENAI_API_KEY",
+  "TYPESAFE_API_KEY",
+  "TYPESAFE_AI_API_KEY",
+  "GATE_CHEAP_MODEL",
+  "GATE_FRONTIER_MODEL",
+]);
+
+/** Names a project .env tried to set and Aegis ignored (shown by /doctor). */
+export const ignoredProjectEnv = new Set<string>();
+
+function applyEnvFile(file: string, allow?: (key: string) => boolean) {
   if (!existsSync(file)) return;
   const parsed = parseEnvText(readFileSync(file, "utf8"));
   for (const [key, value] of Object.entries(parsed)) {
+    // Where Aegis keeps your settings comes only from the real environment, never from a file.
+    if (key === "AEGIS_HOME") continue;
+    if (allow && !allow(key)) {
+      ignoredProjectEnv.add(key);
+      continue;
+    }
     process.env[key] = value;
   }
 }
@@ -37,12 +61,49 @@ export function packageRoot() {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+/** Per-user Aegis folder: keys and defaults shared by every project. AEGIS_HOME overrides it (tests). */
+export function userAegisDir() {
+  return process.env.AEGIS_HOME ? path.resolve(process.env.AEGIS_HOME) : path.join(os.homedir(), ".aegis");
+}
+
+/**
+ * The main checkout of a linked git worktree (`aegis --worktree`, or any `git worktree add`): its `.git` is a file
+ * "gitdir: <main>/.git/worktrees/<name>". Undefined for an ordinary folder. Trust, your saved rules and the
+ * project's .env belong to the project, so a worktree shares them with its main checkout.
+ */
+export function mainCheckoutOf(cwd: string): string | undefined {
+  try {
+    const text = readFileSync(path.join(cwd, ".git"), "utf8");
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
+    if (!gitdir) return undefined;
+    const absolute = path.resolve(cwd, gitdir);
+    const worktrees = path.dirname(absolute);
+    if (path.basename(worktrees) !== "worktrees" || path.basename(path.dirname(worktrees)) !== ".git") return undefined;
+    // The main checkout's record must point back at this folder: a hand-made ".git" file naming some other
+    // project would otherwise borrow that project's trust, saved rules and .env.
+    const back = readFileSync(path.join(absolute, "gitdir"), "utf8").trim();
+    if (realpathSync.native(path.dirname(path.resolve(absolute, back))) !== realpathSync.native(cwd)) return undefined;
+    return path.dirname(path.dirname(worktrees));
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadEnv(cwd = process.cwd()) {
   const root = packageRoot();
   applyEnvFile(path.join(root, ".env"));
   applyEnvFile(path.join(root, ".env.local"));
-  applyEnvFile(path.join(cwd, ".env"));
-  applyEnvFile(path.join(cwd, ".env.local"));
+  // Keys saved once for every folder (like Pi's login): %USERPROFILE%\.aegis\.env. A project .env still wins.
+  applyEnvFile(path.join(userAegisDir(), ".env"));
+  const projectKey = (key: string) => PROJECT_ENV_KEYS.has(key);
+  // A worktree has no copy of the (git-ignored) .env: its main checkout's applies, then its own if any.
+  const main = mainCheckoutOf(cwd);
+  if (main) {
+    applyEnvFile(path.join(main, ".env"), projectKey);
+    applyEnvFile(path.join(main, ".env.local"), projectKey);
+  }
+  applyEnvFile(path.join(cwd, ".env"), projectKey);
+  applyEnvFile(path.join(cwd, ".env.local"), projectKey);
   return loadConfig(cwd);
 }
 

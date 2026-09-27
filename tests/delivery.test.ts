@@ -19,10 +19,15 @@ import {
   runCheck,
   writeAgreement,
   type Agreement,
-} from "../src/delivery.ts";
+} from "../src/plugins/delivery/delivery.ts";
 import { createTools } from "../src/loop.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { handleLine, startState } from "../src/runtime.ts";
+import { loadPlugins } from "../src/plugins/index.ts";
+import { toolGuards } from "../src/plugin-api.ts";
+
+const shipped = () => loadPlugins(["jev", "delivery", "receipts"], { mockJev: true }).plugins;
+
 
 const sample = (id = "demo"): Agreement => ({
   id,
@@ -219,6 +224,7 @@ describe("delivery records", () => {
     await writeAgreement(tracked, sample());
     const toolsTracked = createTools({
       cwd: tracked,
+      guards: toolGuards(shipped()),
       jev: mockJev(),
       config: loadConfig(),
       confirm: async () => true,
@@ -231,6 +237,7 @@ describe("delivery records", () => {
     await expect(readFile(path.join(tracked, "a.txt"), "utf8")).rejects.toThrow();
     const toolsFree = createTools({
       cwd: untracked,
+      guards: toolGuards(shipped()),
       jev: mockJev(),
       config: loadConfig(),
       confirm: async () => true,
@@ -244,6 +251,7 @@ describe("delivery records", () => {
     await confirmAgreement(tracked, "owner");
     const toolsOk = createTools({
       cwd: tracked,
+      guards: toolGuards(shipped()),
       jev: mockJev(),
       config: loadConfig(),
       confirm: async () => true,
@@ -281,6 +289,7 @@ describe("delivery records", () => {
     await expect(loadTask(cwd)).rejects.toThrow(/Broken delivery agreement/);
     const tools = createTools({
       cwd,
+      guards: toolGuards(shipped()),
       jev: mockJev(),
       config: loadConfig(),
       confirm: async () => true,

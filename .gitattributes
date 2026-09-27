@@ -1,0 +1,2 @@
+# Built output is committed so `npm install -g github:…` needs no build step. Keep LF everywhere.
+dist/** text eol=lf

@@ -11,9 +11,19 @@ const defaults: GateConfig = {
   highConfidence: 0.7,
   lowConfidence: 0.5,
   dataLossThreshold: 0.5,
-  maxSteps: 8,
+  maxSteps: 25,
   shellTimeoutMs: 30_000,
+  compactAtChars: 120_000,
+  compactKeepTurns: 3,
 };
+
+const PROJECT_CONFIG_KEYS = ["jevModel", "cheapModel", "frontierModel", "maxSteps", "shellTimeoutMs", "compactAtChars", "compactKeepTurns"] as const;
+
+function pickProjectConfig(parsed: Partial<GateConfig>): Partial<GateConfig> {
+  const out: Record<string, unknown> = {};
+  for (const key of PROJECT_CONFIG_KEYS) if (parsed[key] !== undefined) out[key] = parsed[key];
+  return out as Partial<GateConfig>;
+}
 
 export function loadConfig(cwd = process.cwd()): GateConfig {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,9 +32,11 @@ export function loadConfig(cwd = process.cwd()): GateConfig {
     path.join(here, "..", "gate.config.json"),
   ];
   let file: Partial<GateConfig> = {};
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
     try {
-      file = JSON.parse(readFileSync(candidate, "utf8")) as Partial<GateConfig>;
+      const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Partial<GateConfig>;
+      // A project's own gate.config.json may tune models and limits, never the lock's thresholds.
+      file = index === 0 ? pickProjectConfig(parsed) : parsed;
       break;
     } catch {
       // try next

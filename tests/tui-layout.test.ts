@@ -39,10 +39,10 @@ describe("tui-layout", () => {
     expect(text).not.toContain("Tips for getting started");
   });
 
-  it("marks your turn as you, the reply as indent", () => {
+  it("marks your turn with ›, the reply as indent", () => {
     const user = renderUserMessage("list the files", 40);
     const assistant = renderAssistantMessage("README.md", 40);
-    expect(user[0]).toContain("you");
+    expect(user[0]).toContain("›");
     expect(user[0]).toContain("list the files");
     expect(assistant[0]).toMatch(/^\s+README.md/);
     expect(user[0]).not.toMatch(/^>/);
@@ -72,6 +72,6 @@ describe("tui-layout", () => {
         elapsedMs: 3200,
         task: "proposed",
       }),
-    ).toBe("auto · jev live · task proposed · waiting for model  3s");
+    ).toBe("waiting for model  3s · auto · jev live · task proposed");
   });
 });

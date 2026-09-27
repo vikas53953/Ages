@@ -1,13 +1,14 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { serializeConfirm } from "../src/confirm-queue.ts";
 import { formatConfirm, formatActionDiff, runGatedTool } from "../src/gated.ts";
-import { failClosedTool, failClosedTurn } from "../src/jev/evaluate.ts";
-import { mockTool } from "../src/jev/mock.ts";
+import { failClosedTool, failClosedTurn } from "../src/plugins/jev/evaluate.ts";
+import { mockTool } from "../src/plugins/jev/mock.ts";
 import { decideToolAction } from "../src/policy.ts";
 import { loadConfig } from "../src/config.ts";
+import { DEFAULT_SETTINGS } from "../src/rules.ts";
 
 async function tmp() {
   return mkdtemp(path.join(os.tmpdir(), "aegis-lock-"));
@@ -58,6 +59,41 @@ describe("Jev fail-closed lock", () => {
     expect(question).toContain("- alpha");
     expect(question).toContain("+ beta");
     expect(formatActionDiff("alpha", "beta")).toContain("- alpha");
+  });
+
+  it("diffs only what changed, with two lines of context; a write over a file shows its diff", () => {
+    const before = ["a", "b", "c", "d", "e", "f", "g"].join("\n");
+    const after = ["a", "b", "c", "D", "e", "f", "g"].join("\n");
+    const diff = formatActionDiff(before, after);
+    expect(diff).toContain("@@ line 2 @@");
+    expect(diff).toContain("  - d");
+    expect(diff).toContain("  + D");
+    expect(diff).not.toContain("  - a");
+    expect(diff).not.toContain("    g");
+    expect(formatActionDiff("same", "same")).toBe("  (no change)");
+    const question = formatConfirm("write", { path: "note.txt", contents: after }, undefined, undefined, before);
+    expect(question).toContain("replaces the whole file: 7 lines now");
+    expect(question).toContain("  + D");
+  });
+
+  it("the question for a real overwrite carries the diff against the file on disk", async () => {
+    const cwd = await tmp();
+    await writeFile(path.join(cwd, "note.txt"), "one\ntwo\nthree\n");
+    let asked = "";
+    await runGatedTool({
+      name: "write",
+      args: { path: "note.txt", contents: "one\nTWO\nthree\n" },
+      cwd,
+      config: loadConfig(),
+      settings: { ...structuredClone(DEFAULT_SETTINGS), jev: { mode: "off" } },
+      confirm: async (question) => {
+        asked = question;
+        return false;
+      },
+      execute: async () => "written",
+    });
+    expect(asked).toContain("  - two");
+    expect(asked).toContain("  + TWO");
   });
 
   it("does not clip a long write payload off the confirm prompt", () => {
@@ -202,10 +238,11 @@ describe("Jev fail-closed lock", () => {
     expect(second.record.deniedReason).toBe("cancelled");
   });
 
-  it("blocks mutations when live Jev cannot score", async () => {
+  it("asks you (default n) instead of running when live Jev cannot score a write", async () => {
     expect(failClosedTurn().source).toBe("fail_closed");
-    expect(decideToolAction(failClosedTool(), loadConfig())).toBe("deny");
+    expect(decideToolAction(failClosedTool(), loadConfig())).toBe("confirm");
     const cwd = await tmp();
+    const asked: string[] = [];
     const result = await runGatedTool({
       name: "write",
       args: { path: "x.txt", contents: "no" },
@@ -215,14 +252,20 @@ describe("Jev fail-closed lock", () => {
         evaluateTool: async () => failClosedTool(),
       },
       config: loadConfig(),
-      confirm: async () => true,
+      confirm: async (question) => {
+        asked.push(question);
+        return false;
+      },
       execute: async () => {
         throw new Error("must not run");
       },
     });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Jev could not score");
     expect(result.record.approved).toBe(false);
-    expect(result.record.action).toBe("deny");
-    expect(result.output).toContain("fail-closed");
+    expect(result.record.action).toBe("confirm");
+    expect(result.record.source).toBe("fail_closed");
+    expect(result.record.deniedReason).toBe("user declined");
   });
 
   it("queues overlapping confirms so the first waiter is not dropped", async () => {

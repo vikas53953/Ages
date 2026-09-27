@@ -1,5 +1,3 @@
-import { mkdir, appendFile } from "node:fs/promises";
-import path from "node:path";
 import type { Receipt, ToolRecord, TurnOutcome } from "./types.ts";
 
 export function millicentsFromUsage(_inputTokens: number, _outputTokens: number) {
@@ -57,7 +55,9 @@ export function formatReceipt(receipt: Receipt) {
     ? receipt.tools
         .map((tool) => {
           const deny = tool.deniedReason ? `  ${tool.deniedReason}` : "";
-          return `  ${tool.name}  ${tool.class}  data_loss=${tool.dataLoss.toFixed(2)}  ${tool.action}  ${tool.approved ? "ran" : "denied"}${deny}`;
+          const via = tool.source ? `  via ${tool.source}${tool.rule ? ` "${tool.rule}"` : ""}` : "";
+          const agent = tool.via ? `  (agent ${tool.via})` : "";
+          return `  ${tool.name}${agent}  ${tool.class}  data_loss=${tool.dataLoss.toFixed(2)}  ${tool.action}  ${tool.approved ? "ran" : "denied"}${via}${deny}`;
         })
         .join("\n")
     : "  (none)";
@@ -93,13 +93,22 @@ export function formatChat(receipt: Receipt) {
     taskId: receipt.taskId,
     taskFingerprint: receipt.taskFingerprint,
   });
-  return [...(tools.length ? [...tools, ""] : []), body].join("\n");
+  const tokens = formatTokenLine(receipt.tokens);
+  return [...(tools.length ? [...tools, ""] : []), body, ...(tokens ? ["", `tokens  ${tokens}`] : [])].join("\n");
 }
 
-export async function writeReceipt(cwd: string, receipt: Receipt) {
-  const dir = path.join(cwd, ".harness", "receipts");
-  await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${receipt.sessionId}.jsonl`);
-  await appendFile(file, `${JSON.stringify(receipt)}\n`, "utf8");
-  return file;
+/** 830 · 1.2k · 12k · 1.2M — the same short form Pi's footer uses. */
+export function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(count / 1_000_000)}M`;
+}
+
+/** "↑ 12k ↓ 830" (+ " · 410 thinking" when the provider reports reasoning tokens). */
+export function formatTokenLine(tokens: { input: number; output: number; reasoning?: number } | undefined) {
+  if (!tokens || (!tokens.input && !tokens.output)) return "";
+  const thinking = tokens.reasoning ? ` · ${formatTokens(tokens.reasoning)} thinking` : "";
+  return `↑ ${formatTokens(tokens.input)} ↓ ${formatTokens(tokens.output)}${thinking}`;
 }

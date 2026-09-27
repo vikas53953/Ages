@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
 import { runGatedTool } from "../src/gated.ts";
-import { mockJev } from "../src/jev/mock.ts";
+import { mockJev } from "../src/plugins/jev/mock.ts";
 import { runShell } from "../src/tools/shell.ts";
 
 describe("irreversible shell deny", () => {

@@ -1,3 +1,5 @@
+import type { ChatMessage } from "./session.ts";
+
 export const TURN_KINDS = ["lookup", "edit", "architecture"] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
@@ -32,7 +34,7 @@ export type TurnDecision = {
   needsRepoWide: number;
   confidence: number;
   probabilities: { kind: Record<TurnKind, number> };
-  source: "jev" | "mock" | "fail_closed";
+  source: "jev" | "mock" | "fail_closed" | "off";
 };
 
 export type ToolDecision = {
@@ -53,6 +55,10 @@ export type GateConfig = {
   dataLossThreshold: number;
   maxSteps: number;
   shellTimeoutMs: number;
+  /** Compact before a turn once saved history is bigger than this many characters (about 4 per token). 0 = never. */
+  compactAtChars: number;
+  /** Recent user turns kept word for word when compacting. */
+  compactKeepTurns: number;
 };
 
 export type JevClient = {
@@ -60,12 +66,24 @@ export type JevClient = {
   evaluateTool(state: ToolState, abortSignal?: AbortSignal): Promise<ToolDecision>;
 };
 
-export type ConfirmFn = (question: string) => Promise<boolean>;
+/** What a y/N prompt can offer beyond yes and no. */
+export type ConfirmOptions = {
+  /** An allow rule that "always" would save, e.g. "edit scripts/*". Absent: only yes / no. */
+  always?: string;
+  /** Structured facts for a richer card (the Studio face): tool, target, why. */
+  tool?: string;
+  target?: string;
+  why?: string;
+};
+/** true = yes this once, false = no, "always" = yes and save the offered allow rule. */
+export type ConfirmAnswer = boolean | "always";
+export type ConfirmFn = (question: string, options?: ConfirmOptions) => Promise<ConfirmAnswer>;
 
-export type JevHealth = "mock" | "live" | "down" | "blocked";
+export type JevHealth = "mock" | "live" | "down" | "blocked" | "off";
 export type TaskPermission = "untracked" | "proposed" | "confirmed" | "invalid";
 export type TurnOutcome = "completed" | "blocked" | "incomplete" | "cancelled";
-export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement";
+/** rule = decided by .aegis/settings.json; default = no rule and no Jev, so you were asked. */
+export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "hook" | "default";
 
 export type TurnEvent =
   | { type: "accepted" }
@@ -76,9 +94,16 @@ export type TurnEvent =
   | { type: "awaiting_approval"; name: string; target?: string }
   | { type: "tool"; record: ToolRecord }
   | { type: "text_delta"; text: string }
+  | { type: "reasoning_delta"; text: string }
+  /** The model's todo list changed. */
+  | { type: "todos"; todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" | "cancelled" }> }
+  /** A line to show now, before the command finishes (the ChatGPT sign-in code). */
+  | { type: "notice"; text: string }
   | { type: "outcome"; outcome: TurnOutcome };
 
 export type ToolRecord = {
+  /** Made by this custom agent (agents/<name>.md), not the main conversation. */
+  via?: string;
   name: string;
   class: ToolClass;
   dataLoss: number;
@@ -88,6 +113,15 @@ export type ToolRecord = {
   deniedReason?: string;
   target?: string;
   source?: ToolSource;
+  rule?: string;
+  /** The allow rule you saved with "always" on this call's prompt. */
+  savedRule?: string;
+  /** A PreToolUse hook that denied this call or made Aegis ask. */
+  hook?: string;
+  /** How many secret-looking values were cut from the output before the model saw it. */
+  redacted?: number;
+  /** Set when you chose "always" but the rule could not be saved (the call still ran once). */
+  saveFailed?: string;
 };
 
 export type Receipt = {
@@ -106,4 +140,10 @@ export type Receipt = {
   taskId?: string;
   taskFingerprint?: string;
   taskPermission?: TaskPermission;
+  /** Tokens this turn used, across every step (input, output, and the part of output spent reasoning). */
+  tokens?: { input: number; output: number; reasoning?: number };
+  /** The model's own answer text, without the handoff card. */
+  answer?: string;
+  /** Messages this turn added to the conversation. Saved to the session, not to the receipt file. */
+  newMessages?: ChatMessage[];
 };
