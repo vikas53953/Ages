@@ -420,4 +420,17 @@
   - Stop now ends a PDF read at once in the terminal too (the read tool and `@file.pdf` get the turn's stop signal). In Studio, Stop during the read answers 409 "stopped".
   - Studio sends the PDF as base64; the server checks it starts with `%PDF-` and reads the text before the turn starts, so a bad PDF is a clear 400 and the chips stay for another try.
   - Deviation: a scanned PDF (pictures only) is not OCR'd. Aegis says "no text found" instead. OCR would need a much bigger engine.
-  - Word (.docx) is still not read.
+  - Word (.docx) is still not read (added next, below).
+- Word (.docx) support (Studio, `@file.docx` in the terminal, and the agent's read tool).
+  - No new package. A .docx is a zip of XML files; Aegis has its own small zip reader (central directory, stored or deflated parts, no zip64) and Node's built-in zlib. Only `word/document.xml` is unpacked (or the part `_rels/.rels` names, for tools that call it something else).
+  - Text out: paragraphs as lines, tabs and line breaks kept, tables as `| a | b |` rows (nested tables stay inside their cell). Inserted tracked changes are kept and deleted ones left out, which is what Word shows once changes are accepted. A text box's old-Word fallback copy (`mc:Fallback`) is skipped so its text is not doubled.
+  - Left out, as agreed: headers, footers, footnotes, comments, pictures. Old `.doc` is not read.
+  - Limits: 10 MB per file; one part unpacks to at most 50 MB (a zip bomb stops there, even when its size fields lie); 1,000,000 characters of text; in Studio PDFs and Word files share the 20 MB per message.
+  - A password-protected .docx is not a zip at all (Word saves it as an OLE file, like an old .doc). Both are refused with one plain reason: remove the password or save as .docx.
+  - Found while testing: zlib's one-shot unpack of a 50 MB part froze Aegis for ~0.5 s. It is now unpacked as a stream (0.09 s, no freeze), and the XML scan pauses every 20,000 tags so the terminal and Studio stay live and Stop works. Worst case measured: 50 MB of empty tags, about 1 s in total, longest freeze 0.1 s.
+  - Review fix (high): the XML was split into tags with a regex that backtracked. A 300-byte .docx (a tag that never closes) froze Aegis for 34 s and larger ones for hours, and Stop could not help (one regex call never yields). It is now a plain left-to-right scan with indexOf: the same files take under 20 ms.
+  - Review fix: tab-stop settings in a paragraph's settings (`w:pPr`) came out as tab characters; they are now ignored. Moved text (`w:moveFrom`) is no longer doubled. XML comments and CDATA are handled. `&#0;` and lone surrogates become a replacement mark, not NUL.
+  - Review fix: text inside a table cell did not count toward the 1,000,000-character cap, so a 45 MB cell froze Aegis for 7.7 s. Cells count now, raw text is clipped before entities are decoded, and a cell cut at the cap is still kept (found while fixing: it was dropped). Worst case measured: 9 million `&amp;` in 64 KB, 1.3 s in total, longest freeze 10 ms.
+  - Codex review fix: table text was counted twice against the cap (once in the cell, again in its row), so a 600,000-character cell was cut to ~400,000. Long-form entities (`&#x00000041;`, 12 characters) fell outside the decode window, and the rest of that text was dropped without a cut note. Both fixed, with tests that fail on the old code.
+  - A Studio Word file sent without a name is called `file.docx` (and a PDF `file.pdf`), not `file.txt`.
+  - Deviation: unlike PDFs, a .docx is read on the main thread, not in a worker. The unpack cap bounds the work, and the scan yields; a worker would add ~50 ms per file for nothing.

@@ -8,6 +8,7 @@ import { generateWith } from "../src/loop.ts";
 import { findMentions } from "../src/mentions.ts";
 import { settingsPath } from "../src/rules.ts";
 import { handleLine, startState } from "../src/runtime.ts";
+import { makeDocx, para, table } from "./fixtures/docx.ts";
 import { makePdf } from "./fixtures/pdf.ts";
 
 const usage = {
@@ -116,6 +117,29 @@ describe("@file mentions", () => {
     expect(prompts[0]).not.toContain("Sup3rS3cretPass");
     expect(prompts[0]).not.toContain("HIDDEN-PDF-TEXT");
     expect(prompts[0]).toContain("@secret.pdf was not attached");
+    expect(result.receipt?.tools.slice(0, 2).map((t) => [t.name, t.approved])).toEqual([
+      ["read", true],
+      ["read", false],
+    ]);
+  });
+
+  it("@plan.docx attaches the Word file's text through the lock, secrets cut; a deny rule keeps it out", async () => {
+    const cwd = await project({ deny: ["read secret.docx"] });
+    await writeFile(path.join(cwd, "plan.docx"), makeDocx(para("Cutover plan for DC-2") + table([["VIP", "10.1.1.10"]]) + para("password=Sup3rS3cretPass")));
+    await writeFile(path.join(cwd, "secret.docx"), makeDocx(para("HIDDEN-DOCX-TEXT")));
+    const state = await startState(cwd, { local: true, mockJev: true });
+    const prompts: string[] = [];
+    const result = await handleLine("summarise @plan.docx and @secret.docx", state, {
+      mockJev: true,
+      yes: false,
+      local: true,
+      generate: generateWith(answering(prompts)),
+    });
+    expect(prompts[0]).toContain("Cutover plan for DC-2");
+    expect(prompts[0]).toContain("| VIP | 10.1.1.10 |");
+    expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+    expect(prompts[0]).not.toContain("HIDDEN-DOCX-TEXT");
+    expect(prompts[0]).toContain("@secret.docx was not attached");
     expect(result.receipt?.tools.slice(0, 2).map((t) => [t.name, t.approved])).toEqual([
       ["read", true],
       ["read", false],

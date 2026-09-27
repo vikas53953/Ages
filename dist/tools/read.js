@@ -1,14 +1,14 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { isPdfPath, MAX_PDF_BYTES, pdfText } from "../documents.js";
+import { docxText, isDocxPath, isPdfPath, MAX_DOCX_BYTES, MAX_PDF_BYTES, pdfText } from "../documents.js";
 import { assertInsideCwd } from "../env.js";
 /**
  * A folder's names, a whole file (cut at 80,000 characters), or with offset/limit a numbered slice of lines
- * (like Claude Code's Read), so a big file can be read piece by piece. A .pdf gives its text (page by page),
- * so offset/limit work on that text the same way.
+ * (like Claude Code's Read), so a big file can be read piece by piece. A .pdf gives its text (page by page) and a
+ * .docx its body text and tables, so offset/limit work on that text the same way.
  */
 export async function readPath(relativePath, cwd, lines, 
-/** Stop (the turn's signal): ends a PDF read at once instead of at its time limit. */
+/** Stop (the turn's signal): ends a PDF or Word read at once instead of at its time limit. */
 signal) {
     const target = await assertInsideCwd(relativePath || ".", cwd);
     const info = await stat(target);
@@ -22,6 +22,11 @@ signal) {
         if (info.size > MAX_PDF_BYTES)
             throw new Error(`${path.basename(target)} is over ${MAX_PDF_BYTES / 1024 / 1024} MB; PDFs up to that size can be read`);
         body = await pdfText(await readFile(target), path.basename(target), { signal });
+    }
+    else if (isDocxPath(target)) {
+        if (info.size > MAX_DOCX_BYTES)
+            throw new Error(`${path.basename(target)} is over ${MAX_DOCX_BYTES / 1024 / 1024} MB; Word files up to that size can be read`);
+        body = await docxText(await readFile(target), path.basename(target), { signal });
     }
     else {
         body = await readFile(target, "utf8");

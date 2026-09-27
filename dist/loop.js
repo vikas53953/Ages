@@ -158,7 +158,7 @@ export function createTools(input) {
             }),
         }),
         read: tool({
-            description: "Read a file or list a directory. Path is relative to the working folder. A .pdf gives its text, page by page.",
+            description: "Read a file or list a directory. Path is relative to the working folder. A .pdf gives its text, page by page; a .docx gives its body text and tables.",
             inputSchema: z.object({
                 path: z.string().describe("Relative path. Use . for the working folder."),
                 offset: z.number().int().optional().describe("First line to read (1-based), for big files."),
