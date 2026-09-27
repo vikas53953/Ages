@@ -20,7 +20,8 @@ import { writePath } from "./tools/write.ts";
 import { editPath, multiEditPath } from "./tools/edit.ts";
 import { searchInWorker } from "./tools/search.ts";
 import { REDACTED_MARK, redactSecrets } from "./redact.ts";
-import { runShell } from "./tools/shell.ts";
+import { runShell, shellAllowed } from "./tools/shell.ts";
+import { readDraft } from "./tool-draft.ts";
 import { formatSearch, searchWeb, websearchKey } from "./websearch.ts";
 import { addMemory } from "./memory.ts";
 import { imageNote, isImagePath, loadImage, MAX_IMAGES_PER_TURN, modelSeesImages, type ImageAttachment } from "./images.ts";
@@ -245,7 +246,7 @@ export function createTools(input: {
         }),
     }),
     read: tool({
-      description: "Read a file or list a directory. Path is relative to the working folder. A .pdf gives its text, page by page; a .docx gives its body text and tables.",
+      description: "Read a file or list a folder (path \".\" lists the working folder). Path is relative to the working folder. A .pdf gives its text, page by page; a .docx gives its body text and tables.",
       inputSchema: z.object({
         path: z.string().describe("Relative path. Use . for the working folder."),
         offset: z.number().int().optional().describe("First line to read (1-based), for big files."),
@@ -385,9 +386,11 @@ export function createTools(input: {
         }),
     }),
   };
-  if (!input.onlyTools) return all;
+  // Shell off (the default): the model is not offered it, so it never asks a question a yes cannot answer.
+  const offered = shellAllowed() ? all : (Object.fromEntries(Object.entries(all).filter(([name]) => name !== "shell")) as typeof all);
+  if (!input.onlyTools) return offered;
   const only = new Set(input.onlyTools);
-  return Object.fromEntries(Object.entries(all).filter(([name]) => only.has(name))) as typeof all;
+  return Object.fromEntries(Object.entries(offered).filter(([name]) => only.has(name))) as typeof all;
 }
 
 const localOpts = { toolCallId: "local", messages: [], context: {} } as never;
@@ -435,6 +438,9 @@ export const localGenerate: GenerateFn = async ({ tools, messages }) => {
   };
 };
 
+/** How often a tool call being written is shown again. */
+const DRAFT_EVERY_MS = 150;
+
 export const defaultGenerate: GenerateFn = (input) => generateWith(languageModel(input.model))(input);
 
 /** Stream one turn from a given model object. Tests pass the AI SDK mock model here. */
@@ -451,9 +457,28 @@ export function generateWith(model: LanguageModel): GenerateFn {
       ...(thinking ? { reasoning: thinking.reasoning, providerOptions: thinking.providerOptions as never } : {}),
     });
     let text = "";
+    // Tool calls being written, by id: the screen shows them growing (a big file can take minutes).
+    const drafts = new Map<string, { name: string; raw: string; shownAt: number }>();
+    const showDraft = (id: string, draft: { name: string; raw: string; shownAt: number }) => {
+      draft.shownAt = Date.now();
+      const { path, lines, tail } = readDraft(draft.name, draft.raw);
+      input.onEvent?.({ type: "tool_input", id, name: draft.name, path, chars: draft.raw.length, lines, tail });
+    };
     // The full stream carries reasoning next to the answer text; textStream alone would drop it.
     for await (const part of result.fullStream) {
-      if (part.type === "text-delta" && part.text) {
+      if (part.type === "tool-input-start") {
+        const draft = { name: part.toolName, raw: "", shownAt: 0 };
+        drafts.set(part.id, draft);
+        showDraft(part.id, draft);
+      } else if (part.type === "tool-input-delta") {
+        const draft = drafts.get(part.id);
+        if (!draft) continue;
+        draft.raw += part.delta;
+        // A few updates a second is enough to look live; one per piece would repaint thousands of times.
+        if (Date.now() - draft.shownAt >= DRAFT_EVERY_MS) showDraft(part.id, draft);
+      } else if (part.type === "tool-input-end") {
+        drafts.delete(part.id);
+      } else if (part.type === "text-delta" && part.text) {
         text += part.text;
         input.onEvent?.({ type: "text_delta", text: part.text });
       } else if (part.type === "reasoning-delta" && part.text) {

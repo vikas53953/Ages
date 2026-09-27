@@ -1,6 +1,8 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { formatTokenLine } from "./receipt.ts";
 import { on, paint } from "./theme.ts";
-import type { JevHealth } from "./types.ts";
+import type { JevHealth, ToolRecord } from "./types.ts";
 
 export const RESET = "\x1b[0m";
 
@@ -50,20 +52,58 @@ export function renderUserMessage(text: string, cols: number): string[] {
   return wrapLine(text, wrapAt).map((line, index) => (index === 0 ? `${on("accent")}›${RESET} ${line}` : `  ${line}`));
 }
 
-export type ToolStatus = "pending" | "ran" | "denied";
+/** drafting = the model is still writing the call (a big file); pending = asked or running. */
+export type ToolStatus = "drafting" | "pending" | "ran" | "denied";
 
-const DOT_ROLE: Record<ToolStatus, "warn" | "ok" | "err"> = { pending: "warn", ran: "ok", denied: "err" };
+const DOT_ROLE: Record<ToolStatus, "dim" | "warn" | "ok" | "err"> = { drafting: "dim", pending: "warn", ran: "ok", denied: "err" };
 const dot = (status: ToolStatus) => paint(DOT_ROLE[status], "●");
+/** Plain bold, in every theme (Claude Code's tool names). */
+const bold = (text: string) => `\x1b[1m${text}${RESET}`;
 
-/** "● read README.md   rule read *" — one line per tool call, dot coloured by what happened. */
-export function renderToolLine(item: { text: string; status: ToolStatus; detail?: string }, cols: number): string[] {
-  const head = `${dot(item.status)} ${item.text}`;
-  const detail = item.detail ? `${on("dim")}${item.detail}${RESET}` : "";
-  const lines = wrapLine(item.text, Math.max(8, cols - 4)).map((line, index) =>
-    index === 0 ? `${dot(item.status)} ${line}` : `  ${line}`,
-  );
-  if (!detail) return lines.length ? lines : [head];
-  return [...lines, ...wrapLine(item.detail!, Math.max(8, cols - 6)).map((line) => `  ${on("dim")}└ ${line}${RESET}`)];
+/** Claude Code's names for what a tool does. */
+const TOOL_LABEL: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  grep: "Search",
+  glob: "Find",
+  shell: "Shell",
+  webfetch: "Fetch",
+  websearch: "Web search",
+  explore: "Explore",
+  agent: "Agent",
+  skill: "Skill",
+  remember: "Remember",
+  todo: "Todos",
+};
+
+/** "Write(src/App.jsx)", "List(.)", "Search(runLoop)": what a tool line is called. */
+export function toolTitle(name: string, target?: string) {
+  const listing = name === "read" && (target === undefined || target === "." || /[\\/]$/.test(target));
+  const label = listing ? "List" : (TOOL_LABEL[name] ?? name);
+  return target ? `${label}(${target})` : label;
+}
+
+/**
+ * One tool call in the transcript, like Claude Code:
+ *   ● Write(src/App.jsx)
+ *     ⎿  Created · 9 lines
+ *        1 import App from "./App";
+ */
+export function renderToolLine(item: { text: string; status: ToolStatus; detail?: string; body?: string[] }, cols: number): string[] {
+  const [first = "", ...rest] = wrapLine(item.text, Math.max(8, cols - 4));
+  const lines = [`${dot(item.status)} ${bold(first)}`, ...rest.map((line) => `  ${bold(line)}`)];
+  if (item.detail) {
+    wrapLine(item.detail, Math.max(8, cols - 7)).forEach((line, index) =>
+      lines.push(index === 0 ? `  ${on("dim")}⎿${RESET}  ${line}` : `     ${line}`),
+    );
+  }
+  for (const line of item.body ?? []) {
+    // A preview line is cut at the edge, never wrapped: it is a glimpse, not the file.
+    const text = sanitizeText(line).replace(/\t/g, "  ");
+    lines.push(`     ${on("dim")}${text.length > cols - 6 ? `${text.slice(0, Math.max(1, cols - 7))}…` : text}${RESET}`);
+  }
+  return lines;
 }
 
 export function renderAssistantMessage(text: string, cols: number): string[] {
@@ -149,6 +189,86 @@ export function turnStatusLines(receipt: {
   if (blocked) lines.push(`blocked ${blocked}`);
   const next = /^Next {2}(.*)$/m.exec(receipt.text)?.[1];
   if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`next    ${next}`);
+  return lines;
+}
+
+/** The line under a tool call: what happened, in plain words ("Created · 381 lines", "You said no"). */
+export function toolOutcome(record: ToolRecord) {
+  if (!record.approved) {
+    const reason = record.deniedReason ?? "";
+    if (reason === "user declined") return "You said no";
+    if (reason === "cancelled") return "Stopped";
+    if (reason.startsWith("rule: ")) return `Blocked by your rule "${reason.slice(6)}"`;
+    if (reason.startsWith("hook: ")) return `Blocked by a hook: ${reason.slice(6)}`;
+    return `Not allowed: ${reason || "no reason given"}`;
+  }
+  const parts = [record.summary ?? "Done"];
+  if (record.savedRule) parts.push(`won't ask again (${record.savedRule})`);
+  else if (record.saveFailed) parts.push(`rule not saved: ${record.saveFailed}`);
+  if (record.via) parts.push(`by agent ${record.via}`);
+  if (record.redacted) parts.push(`${record.redacted} secret${record.redacted === 1 ? "" : "s"} hidden from the model`);
+  return parts.join(" · ");
+}
+
+/** "9.9s", "2m 40s". */
+export function formatDuration(ms: number) {
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}m ${whole % 60}s`;
+}
+
+/** A path the terminal opens on ctrl+click (an OSC 8 link; Windows Terminal, VS Code, iTerm2 and others follow it). */
+export function fileLink(absolute: string) {
+  return `\x1b]8;;${pathToFileURL(absolute).href}\x07${absolute}\x1b]8;;\x07`;
+}
+
+/**
+ * The end of a turn in the terminal: how it ended and how long it took, then the full path of every file it created
+ * or changed (ctrl+click opens one), then the model and tokens, quietly. Answers "where is it?" before it is asked.
+ */
+export function turnEndLines(
+  receipt: {
+    outcome?: string;
+    tools: Pick<ToolRecord, "name" | "approved" | "target" | "created">[];
+    ms: number;
+    model: string;
+    text: string;
+    finishReason?: string;
+    taskId?: string;
+    tokens?: { input: number; output: number; reasoning?: number };
+  },
+  cwd: string,
+): string[] {
+  const took = formatDuration(receipt.ms);
+  const files = new Map<string, boolean>();
+  for (const tool of receipt.tools) {
+    if (!tool.approved || !tool.target || (tool.name !== "write" && tool.name !== "edit")) continue;
+    files.set(tool.target, Boolean(files.get(tool.target) || tool.created));
+  }
+  const created = [...files.values()].filter(Boolean).length;
+  const changed = files.size - created;
+  const counts = [created ? `created ${created} file${created === 1 ? "" : "s"}` : "", changed ? `changed ${changed} file${changed === 1 ? "" : "s"}` : ""]
+    .filter(Boolean)
+    .join(", ");
+  const outcome = receipt.outcome ?? "completed";
+  const head =
+    outcome === "completed"
+      ? `${paint("ok", "✓")} Done in ${took}${counts ? ` · ${counts}` : ""}`
+      : outcome === "blocked"
+        ? `${paint("warn", "⚠")} Blocked after ${took}${counts ? ` · ${counts}` : ""}`
+        : outcome === "cancelled"
+          ? `${paint("err", "✗")} Stopped after ${took}${counts ? ` · ${counts}` : ""}`
+          : `${paint("warn", "…")} Stopped early (${receipt.finishReason ?? "step limit"}) after ${took}${counts ? ` · ${counts}` : ""}`;
+  const lines = [`  ${head}`];
+  for (const file of files.keys()) lines.push(`    ${on("accent")}${fileLink(path.resolve(cwd, file))}${RESET}`);
+  const blocked = /^Blocked {2}(.*)$/m.exec(receipt.text)?.[1];
+  if (blocked) lines.push(`    blocked: ${blocked}`);
+  const next = /^Next {2}(.*)$/m.exec(receipt.text)?.[1];
+  if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`    next: ${next}`);
+  const tokens = formatTokenLine(receipt.tokens);
+  const quiet = [files.size ? "ctrl+click a path to open it" : "", receipt.model, tokens].filter(Boolean).join(" · ");
+  lines.push(`    ${on("dim")}${quiet}${RESET}`);
   return lines;
 }
 

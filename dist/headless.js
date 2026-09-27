@@ -18,7 +18,8 @@ export async function runHeadless(input) {
     try {
         state = await startState(input.cwd, input.opts);
         // Always a task for the model: a piped "!cmd" or "/command" is text, never run as a shell line or a command.
-        const result = await runPrompt(input.prompt, state, { ...input.opts, abortSignal: input.abortSignal, unattended: true }, confirm, (event) => emit({ type: "event", event }));
+        // A tool call being written (tool_input) is for the terminal's live view only, not for scripts.
+        const result = await runPrompt(input.prompt, state, { ...input.opts, abortSignal: input.abortSignal, unattended: true }, confirm, (event) => event.type === "tool_input" ? undefined : emit({ type: "event", event }));
         const tools = (result.receipt?.tools ?? []).map((tool) => ({
             name: tool.name,
             target: tool.target,

@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { confirmCard } from "./confirm-card.ts";
 import { redactSecrets } from "./redact.ts";
 import { loadHooks, runPostToolHooks, runPreToolHooks, type HookConfig } from "./hooks.ts";
 import { decideToolAction, stricter } from "./policy.ts";
@@ -368,9 +369,10 @@ export async function runGatedTool(input: {
     const always = loaded.error || !sameRoot || hook ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
     const existing = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
     const prompt = formatConfirm(input.name, input.args, decision, why, existing);
+    const card = confirmCard({ name: input.name, args: input.args, existing, decision, rule, hook, settingsError: loaded.error });
     const raced = await Promise.race([
       input
-        .confirm(prompt, { always, tool: input.name, target, why })
+        .confirm(prompt, { always, tool: input.name, target, why, card })
         .then((ok) => ({ kind: "answer" as const, ok })),
       waitForAbort(input.abortSignal).then(() => ({ kind: "abort" as const })),
     ]);
@@ -408,11 +410,52 @@ export async function runGatedTool(input: {
   }
 
   record.approved = true;
+  // Read before the write replaces it: "Created" and "Replaced 12 → 40 lines" need the old file.
+  const before = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
   let output = await input.execute();
+  Object.assign(record, describeResult(input.name, input.args, output, before, input.cwd));
   // Your PostToolUse hooks (a linter, a secret scanner) see the result; what they report goes back with it.
   const notes = await runPostToolHooks({ config: hookConfig, name: input.name, args: input.args, output, cwd: input.cwd, signal: input.abortSignal });
   if (notes.length) output = `${output}\n${notes.join("\n")}`;
   return { output: redacted(output, record), record, decision };
+}
+
+const countLines = (text: string) => (text ? text.replace(/\n$/, "").split("\n").length : 0);
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What a tool did, in plain words, for the transcript line under it (like Claude Code's "Wrote 381 lines"). */
+export function describeResult(name: string, args: JsonObject, output: string, before: string | undefined, cwd: string): Pick<ToolRecord, "summary" | "created" | "preview"> {
+  if (name === "write") {
+    const contents = String(args.contents ?? "");
+    const lines = countLines(contents);
+    const preview = contents.split("\n").slice(0, 3).map((line) => redactSecrets(line).text);
+    if (before === undefined) return { summary: `Created · ${plural(lines, "line")}`, created: true, preview };
+    return { summary: `Replaced · ${countLines(before)} → ${plural(lines, "line")}`, preview };
+  }
+  if (name === "edit") {
+    let changes = 1;
+    try {
+      if (typeof args.edits === "string") changes = (JSON.parse(args.edits) as unknown[]).length;
+    } catch {
+      // the count is only for show
+    }
+    return { summary: `Edited · ${plural(changes, "change")}` };
+  }
+  if (name === "read") {
+    let folder = false;
+    try {
+      folder = statSync(path.resolve(cwd, String(args.path ?? "."))).isDirectory();
+    } catch {
+      // gone or unreadable: say lines
+    }
+    const count = countLines(output);
+    return { summary: folder ? plural(count, "item") : `Read · ${plural(count, "line")}` };
+  }
+  if (name === "grep") return { summary: /^no match/i.test(output.trim()) ? "No matches" : plural(countLines(output), "line") + " found" };
+  if (name === "glob") return { summary: /^no (match|file)/i.test(output.trim()) ? "No files" : plural(countLines(output), "file") };
+  if (name === "shell") return { summary: `Ran · ${plural(countLines(output), "line")} of output` };
+  if (name === "webfetch") return { summary: `Fetched · ${Math.max(1, Math.round(output.length / 1024))} KB` };
+  return {};
 }
 
 /** Tool output on its way to the model: secret-looking values are cut and the record says how many. */

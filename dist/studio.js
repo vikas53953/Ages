@@ -198,7 +198,9 @@ export async function startStudio(input) {
         turnAbort = new AbortController();
         send({ kind: "started", text });
         try {
-            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images, documents }, confirm, (event) => send({ kind: "event", event }));
+            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images, documents }, confirm, 
+            // tool_input (a call still being written) is shown live in the terminal only, for now.
+            (event) => (event.type === "tool_input" ? undefined : send({ kind: "event", event })));
             const receipt = result.receipt;
             send({
                 kind: "done",

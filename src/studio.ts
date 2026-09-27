@@ -225,7 +225,8 @@ export async function startStudio(input: {
         state,
         { ...input.opts, abortSignal: turnAbort.signal, images, documents },
         confirm,
-        (event) => send({ kind: "event", event }),
+        // tool_input (a call still being written) is shown live in the terminal only, for now.
+        (event) => (event.type === "tool_input" ? undefined : send({ kind: "event", event })),
       );
       const receipt = result.receipt;
       send({

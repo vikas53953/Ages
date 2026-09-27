@@ -217,8 +217,9 @@ describe("subnet-calculator interaction", () => {
     expect(mid).toMatch(/waiting for model\s+\d+s/);
     expect(mid).not.toContain("ready");
     app.feed("\x03");
-    const text = await waitFor(app, "cancelled");
-    expect(text).toContain("cancelled");
+    // A stop ends like any turn: "✗ Stopped after 1.2s".
+    const text = await waitFor(app, "Stopped after");
+    expect(text).toContain("Stopped after");
     expect(text).not.toContain("late");
   });
 
