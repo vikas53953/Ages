@@ -189,9 +189,11 @@ export async function startStudio(input) {
             send({ kind: "approval_done", id, answer });
             resolve(answer);
         };
-        pending.set(id, { resolve: finish, question, options });
+        // The page draws its own card from the question and these facts; the terminal's card (the whole file) stays here.
+        const { card: _card, ...shown } = options ?? {};
+        pending.set(id, { resolve: finish, question, options: shown });
         turnAbort?.signal.addEventListener("abort", () => finish(false), { once: true });
-        send({ kind: "approval", id, question, options });
+        send({ kind: "approval", id, question, options: shown });
     });
     const run = async (text, images, documents) => {
         busy = true;

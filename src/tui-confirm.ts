@@ -8,13 +8,18 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ConfirmCard } from "./confirm-card.ts";
 import { on, paint } from "./theme.ts";
-import { RESET, sanitizeText, wrapLine } from "./tui-layout.ts";
+import { oneLine, RESET, wrapLine } from "./tui-layout.ts";
 import type { ConfirmAnswer } from "./types.ts";
 
 type Choice = { label: string; hint?: string; answer: ConfirmAnswer };
 
 /** Lines of the file shown before "ctrl+o to see all" (fewer on a short terminal, so the choices always fit). */
 const PREVIEW_LINES = 12;
+/**
+ * Keys in the first moments are ignored: they were typed for the chat (a digit, Up + Enter to recall a message),
+ * not for this question, which had just appeared under them.
+ */
+export const CONFIRM_ARM_MS = 400;
 
 /**
  * The question before a tool runs. With a card it looks like Claude Code's: a box, the file in a frame, the
@@ -27,14 +32,18 @@ export class ConfirmBox implements Component, Focusable {
   private selected: number;
   private expanded = false;
   private readonly choices: Choice[];
+  private readonly openedAt = Date.now();
 
   constructor(
     private readonly question: string,
     private readonly onAnswer: (ok: ConfirmAnswer) => void,
-    private readonly rows = 24,
+    /** The terminal's height, read at each draw (it can be resized while the question waits). */
+    private readonly rows: number | (() => number) = 24,
     /** The allow rule "a" would save; without it only yes / no are offered. */
     private readonly always?: string,
     private readonly card?: ConfirmCard,
+    /** How long keys are ignored after the question appears (tests pass 0). */
+    private readonly armMs = CONFIRM_ARM_MS,
   ) {
     this.choices = [
       { label: "Yes", answer: true },
@@ -45,6 +54,7 @@ export class ConfirmBox implements Component, Focusable {
   }
 
   handleInput(data: string) {
+    if (Date.now() - this.openedAt < this.armMs) return;
     if (matchesKey(data, Key.ctrl("o"))) {
       this.expanded = !this.expanded;
       this.offset = 0;
@@ -91,18 +101,37 @@ export class ConfirmBox implements Component, Focusable {
     return this.card ? this.renderCard(this.card, Math.max(30, width)) : this.renderText(Math.max(24, width));
   }
 
-  /** Room for the file: the card's other lines (about 11) and the overlay's margins come first. */
+  private height() {
+    return typeof this.rows === "function" ? this.rows() : this.rows;
+  }
+
+  /** The card's lines at most: the overlay gets 80% of the terminal, and pi-tui cuts from the bottom beyond that. */
+  private budget() {
+    return Math.max(3, Math.floor(this.height() * 0.8));
+  }
+
+  /** Room for the file: what the budget leaves after the question, the choices, the reason and the borders. */
   private viewport() {
-    return Math.max(3, Math.floor(this.rows * 0.8) - 12);
+    const fixed = 5 + this.choices.length + 3 + (this.card?.subject ? 1 : 0);
+    return Math.max(0, this.budget() - fixed);
   }
 
   private renderCard(card: ConfirmCard, cols: number): string[] {
     const inner = cols - 4;
     const dim = (text: string) => `${on("dim")}${text}${RESET}`;
+    // Every text below that came from the call (path, question, facts, rule) is cleaned before it is styled:
+    // nothing the model wrote can move the cursor or draw a fake choice.
     const row = (text: string) => `${dim("│")} ${truncateToWidth(text, inner, "…", true)} ${dim("│")}`;
-    const out = [dim(`╭${"─".repeat(cols - 2)}╮`), row(`\x1b[1m${card.title}${RESET}`)];
+    const budget = this.budget();
+    // The choices come first; then the question, the borders, the reason and the title; the file gets the rest.
+    const essential = this.choices.length + 1;
+    const withBorders = essential + 2;
+    const showReason = budget >= withBorders + 1;
+    const showTitle = budget >= withBorders + 2;
+    const out = [dim(`╭${"─".repeat(cols - 2)}╮`)];
+    if (showTitle) out.push(row(`\x1b[1m${clean(card.title)}${RESET}`));
 
-    if (card.subject || card.lines.length) {
+    if ((card.subject || card.lines.length) && this.viewport() >= 1) {
       const frame = inner - 4;
       const framed = (text: string) => `${dim("│")} ${truncateToWidth(text, frame, "…", true)} ${dim("│")}`;
       out.push(row(dim(`╭${"─".repeat(inner - 2)}╮`)));
@@ -122,21 +151,22 @@ export class ConfirmBox implements Component, Focusable {
       out.push(row(dim(`╰${"─".repeat(inner - 2)}╯`)));
     }
 
-    out.push(row(`${card.question}${card.facts ? `  ${dim(card.facts)}` : ""}`));
+    out.push(row(`${clean(card.question)}${card.facts ? `  ${dim(clean(card.facts))}` : ""}`));
     this.choices.forEach((choice, index) => {
-      const text = `${index + 1}. ${choice.label}${choice.hint ? ` ${dim(`(${choice.hint})`)}` : ""}`;
+      const text = `${index + 1}. ${clean(choice.label)}${choice.hint ? ` ${dim(`(${choice.hint})`)}` : ""}`;
       const chosen = index === this.selected;
       const marker = chosen && this.focused ? CURSOR_MARKER : "";
       out.push(row(chosen ? `${marker}${paint("accent", `❯ ${text}`)}` : `  ${text}`));
     });
-    out.push(row(dim(card.reason)));
+    if (showReason) out.push(row(dim(clean(card.reason))));
     out.push(dim(`╰${"─".repeat(cols - 2)}╯`));
     return out;
   }
 
   private renderText(cols: number): string[] {
     const wrapped = wrapLine(this.question, cols - 2).map((line) => ` ${line}`);
-    const view = Math.max(8, Math.min(this.rows - 6, Math.floor(this.rows * 0.7)));
+    const rows = this.height();
+    const view = Math.max(8, Math.min(rows - 6, Math.floor(rows * 0.7)));
     const maxOffset = Math.max(0, wrapped.length - view);
     this.offset = Math.min(this.offset, maxOffset);
     const slice = wrapped.slice(this.offset, this.offset + view);
@@ -147,9 +177,9 @@ export class ConfirmBox implements Component, Focusable {
   }
 }
 
-/** Text the model wrote, safe to draw: no escape codes (it cannot paint fake lines or colours), tabs as spaces. */
+/** Text the model wrote, safe to draw: one line, no escape codes (it cannot paint fake lines or colours), tabs as spaces. */
 function clean(text: string) {
-  return sanitizeText(text).replace(/\t/g, "  ");
+  return oneLine(text).replace(/\t/g, "  ");
 }
 
 function paintLine(kind: ConfirmCard["kind"], line: string, number: number, width: number) {

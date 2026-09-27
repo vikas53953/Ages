@@ -371,6 +371,10 @@ export function generateWith(model) {
                     showDraft(part.id, draft);
             }
             else if (part.type === "tool-input-end") {
+                // The last pieces since the previous update: a call that never runs still shows how far it got.
+                const draft = drafts.get(part.id);
+                if (draft)
+                    showDraft(part.id, draft);
                 drafts.delete(part.id);
             }
             else if (part.type === "text-delta" && part.text) {

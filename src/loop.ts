@@ -477,6 +477,9 @@ export function generateWith(model: LanguageModel): GenerateFn {
         // A few updates a second is enough to look live; one per piece would repaint thousands of times.
         if (Date.now() - draft.shownAt >= DRAFT_EVERY_MS) showDraft(part.id, draft);
       } else if (part.type === "tool-input-end") {
+        // The last pieces since the previous update: a call that never runs still shows how far it got.
+        const draft = drafts.get(part.id);
+        if (draft) showDraft(part.id, draft);
         drafts.delete(part.id);
       } else if (part.type === "text-delta" && part.text) {
         text += part.text;

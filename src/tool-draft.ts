@@ -45,8 +45,14 @@ export function readDraft(name: string, raw: string, tailLines = 4): ToolDraft {
   const bodyStart = field ? new RegExp(`"${field}"\\s*:\\s*"`).exec(raw) : null;
   if (!bodyStart) return { path, lines: 0, tail: [] };
   const body = raw.slice(bodyStart.index + bodyStart[0].length);
-  // A line break inside a JSON string is always the two characters \n, so counting them counts lines.
-  const lines = (body.match(/\\n/g)?.length ?? 0) + 1;
+  // A line break inside a JSON string is always the escape \n; "\\n" is a backslash and an n, so escapes are walked.
+  let lines = 1;
+  for (let at = 0; at < body.length; at++) {
+    if (body[at] === '"') break;
+    if (body[at] !== "\\") continue;
+    if (body[at + 1] === "n") lines += 1;
+    at += 1;
+  }
   let from = Math.max(0, body.length - TAIL_CHARS);
   // Never start inside an escape: step back to a character that is not a backslash run.
   while (from > 0 && body[from - 1] === "\\") from -= 1;
@@ -54,6 +60,7 @@ export function readDraft(name: string, raw: string, tailLines = 4): ToolDraft {
   const all = text.split("\n");
   // The first line of a cut-off tail may be partial; drop it when there is more before it.
   const whole = from > 0 ? all.slice(1) : all;
-  const tail = whole.slice(-tailLines).map((line) => line.replace(/\s+$/, "").slice(0, 200));
+  // A tail cut between the two halves of an emoji would show half of it: that half is dropped.
+  const tail = whole.slice(-tailLines).map((line) => line.replace(/[\ud800-\udbff]$/, "").replace(/\s+$/, "").slice(0, 200));
   return { path, lines, tail };
 }

@@ -433,12 +433,7 @@ export function describeResult(name: string, args: JsonObject, output: string, b
     return { summary: `Replaced · ${countLines(before)} → ${plural(lines, "line")}`, preview };
   }
   if (name === "edit") {
-    let changes = 1;
-    try {
-      if (typeof args.edits === "string") changes = (JSON.parse(args.edits) as unknown[]).length;
-    } catch {
-      // the count is only for show
-    }
+    const changes = args.edits !== undefined ? (editList(args.edits)?.length ?? 1) : 1;
     return { summary: `Edited · ${plural(changes, "change")}` };
   }
   if (name === "read") {

@@ -234,10 +234,10 @@ describe("answering 'always' at the gate", () => {
 describe("the y / a / N prompt", () => {
   it("accepts a only when a rule is offered, and shows the rule", () => {
     const seen: ConfirmAnswer[] = [];
-    const withRule = new ConfirmBox("Aegis: edit scripts/ping.ps1", (ok) => seen.push(ok), 24, "edit scripts/*");
+    const withRule = new ConfirmBox("Aegis: edit scripts/ping.ps1", (ok) => seen.push(ok), 24, "edit scripts/*", undefined, 0);
     expect(withRule.render(90).join("\n")).toContain("[a] always allow: edit scripts/*");
     withRule.handleInput("a");
-    const without = new ConfirmBox("Aegis: shell Remove-Item", (ok) => seen.push(ok), 24);
+    const without = new ConfirmBox("Aegis: shell Remove-Item", (ok) => seen.push(ok), 24, undefined, undefined, 0);
     expect(without.render(90).join("\n")).not.toContain("always");
     without.handleInput("a");
     without.handleInput("\r");

@@ -13,7 +13,7 @@ import { redactLogin } from "./login.js";
 import { loadMessages, messageText } from "./session.js";
 import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
-import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, formatDuration, toolOutcome, toolTitle, turnEndLines, } from "./tui-layout.js";
+import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, formatDuration, oneLine, toolOutcome, toolTitle, turnEndLines, } from "./tui-layout.js";
 import { loadBell, shouldRing } from "./bell.js";
 import { cachedGitBranch } from "./git-head.js";
 const dim = (text) => paint("dim", text);
@@ -156,7 +156,8 @@ export async function createTuiApp(opts, input = {}) {
         if (busy) {
             const seconds = Math.max(0, Math.floor((Date.now() - turnStarted) / 1000));
             const frame = SPINNER[spin++ % SPINNER.length];
-            status.setText(`${paint("accent", frame ?? "")} ${phase}… ${paint("dim", `${seconds}s${phaseNote ? ` · ${phaseNote}` : ""} · esc to stop`)}`);
+            // The phase can hold a path the model wrote: drawn as clean text.
+            status.setText(`${paint("accent", frame ?? "")} ${oneLine(phase)}… ${paint("dim", `${seconds}s${phaseNote ? ` · ${phaseNote}` : ""} · esc to stop`)}`);
         }
         else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
             status.setText(paint("dim", "Press ctrl+c again to exit"));
@@ -174,7 +175,7 @@ export async function createTuiApp(opts, input = {}) {
             jev: state.jevHealth,
             provider: state.provider,
             busy,
-            phase: busy ? phase : undefined,
+            phase: busy ? oneLine(phase) : undefined,
             elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
             task: state.taskPermission,
             cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
@@ -239,6 +240,13 @@ export async function createTuiApp(opts, input = {}) {
             terminal.write("\x07");
     };
     const confirm = serializeConfirm((question, options) => new Promise((resolve) => {
+        // A question from a turn that was already stopped (a parallel call, queued behind the one you said No to)
+        // is answered No at once: it must not wait on screen, or hold up the next turn.
+        const turn = turnAbort;
+        if (turn.signal.aborted) {
+            resolve(false);
+            return;
+        }
         lastConfirm = question;
         overlay?.hide();
         let settled = false;
@@ -263,12 +271,13 @@ export async function createTuiApp(opts, input = {}) {
         // Your "No" (not a Stop or an exit, which also answer No): the turn stops once the lock has recorded it,
         // so you can say what to do instead, as in Claude Code.
         const answered = (ok) => {
-            if (ok === false && busy)
+            // Only for the turn that asked (a late answer to an old question must not stop a new turn).
+            if (ok === false && busy && turn === turnAbort && !turn.signal.aborted)
                 stopAfterNo = true;
             finish(ok);
         };
         // Full width: the card is a box of its own, and nothing from the chat behind it shows at its edges.
-        confirmBox = new ConfirmBox(question, answered, terminal.rows, options?.always, options?.card);
+        confirmBox = new ConfirmBox(question, answered, () => terminal.rows, options?.always, options?.card);
         overlay = tui.showOverlay(confirmBox, {
             anchor: "bottom-center",
             width: "100%",
@@ -391,9 +400,10 @@ export async function createTuiApp(opts, input = {}) {
             endThinking();
             streamAt = undefined; // text after a tool starts a new answer block
             const key = `${event.name}\u0000${event.target ?? ""}`;
-            // The call that was being written live becomes this line, in the same place.
-            const draft = log.find((row) => row.role === "tool" && row.status === "drafting" && row.name === event.name);
+            // The call that was being written live becomes this line, in the same place: the draft for this path first.
             const text = toolTitle(event.name, event.target);
+            const drafts = log.filter((row) => row.role === "tool" && row.status === "drafting" && row.name === event.name);
+            const draft = drafts.find((row) => row.text === text) ?? drafts[0];
             if (draft)
                 Object.assign(draft, { text, status: "pending", key, detail: undefined, body: undefined });
             else
@@ -414,6 +424,14 @@ export async function createTuiApp(opts, input = {}) {
             if (stopAfterNo && !record.approved) {
                 stopAfterNo = false;
                 turnAbort.abort();
+                // Any other question of this turn (a parallel call) is answered No and closed.
+                denyWaiters();
+                // Like esc: messages typed meanwhile go back into the editor, to send (or change) after you say what to do.
+                if (queued.length) {
+                    const draft = editor.getText().trim();
+                    editor.setText([...queued.splice(0), draft].filter(Boolean).join("\n"));
+                    showQueue();
+                }
                 add("system", "Stopped because you said no. Tell Aegis what to do instead.");
             }
             const detail = toolOutcome(record);
@@ -562,6 +580,7 @@ export async function createTuiApp(opts, input = {}) {
                 ring("done", Date.now() - turnStarted);
             if (alive)
                 setBusy(false);
+            stopAfterNo = false;
             // The next queued message, if any (after this turn fully settled).
             const next = alive && !turnAbort.signal.aborted ? queued.shift() : undefined;
             showQueue();

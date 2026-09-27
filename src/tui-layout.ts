@@ -19,6 +19,11 @@ export function sanitizeText(text: string) {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 
+/** Text from outside (the model, a file, a path) as one safe line: no escape codes, no line breaks. */
+export function oneLine(text: string) {
+  return sanitizeText(text.replace(/[\r\n]+/g, " "));
+}
+
 export function wrapLine(text: string, width: number): string[] {
   const cols = Math.max(1, width);
   const source = sanitizeText(text).replace(/\t/g, "  ").split(/\r?\n/);
@@ -212,7 +217,7 @@ export function toolOutcome(record: ToolRecord) {
 
 /** "9.9s", "2m 40s". */
 export function formatDuration(ms: number) {
-  const seconds = ms / 1000;
+  const seconds = Math.round(ms / 100) / 10;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   const whole = Math.round(seconds);
   return `${Math.floor(whole / 60)}m ${whole % 60}s`;
@@ -220,6 +225,9 @@ export function formatDuration(ms: number) {
 
 /** A path the terminal opens on ctrl+click (an OSC 8 link; Windows Terminal, VS Code, iTerm2 and others follow it). */
 export function fileLink(absolute: string) {
+  const shown = oneLine(absolute);
+  // A path with control characters (possible on Linux) is shown cleaned and not linked: what you click is what you see.
+  if (shown !== absolute) return shown;
   return `\x1b]8;;${pathToFileURL(absolute).href}\x07${absolute}\x1b]8;;\x07`;
 }
 
@@ -244,7 +252,9 @@ export function turnEndLines(
   const files = new Map<string, boolean>();
   for (const tool of receipt.tools) {
     if (!tool.approved || !tool.target || (tool.name !== "write" && tool.name !== "edit")) continue;
-    files.set(tool.target, Boolean(files.get(tool.target) || tool.created));
+    // "a.ts" and "./a.ts" are one file.
+    const file = path.normalize(tool.target);
+    files.set(file, Boolean(files.get(file) || tool.created));
   }
   const created = [...files.values()].filter(Boolean).length;
   const changed = files.size - created;
@@ -259,15 +269,16 @@ export function turnEndLines(
         ? `${paint("warn", "⚠")} Blocked after ${took}${counts ? ` · ${counts}` : ""}`
         : outcome === "cancelled"
           ? `${paint("err", "✗")} Stopped after ${took}${counts ? ` · ${counts}` : ""}`
-          : `${paint("warn", "…")} Stopped early (${receipt.finishReason ?? "step limit"}) after ${took}${counts ? ` · ${counts}` : ""}`;
+          : `${paint("warn", "…")} Stopped early (${oneLine(receipt.finishReason ?? "step limit")}) after ${took}${counts ? ` · ${counts}` : ""}`;
   const lines = [`  ${head}`];
   for (const file of files.keys()) lines.push(`    ${on("accent")}${fileLink(path.resolve(cwd, file))}${RESET}`);
+  // These come from the receipt text, which ends with the model's own answer: shown only as clean text.
   const blocked = /^Blocked {2}(.*)$/m.exec(receipt.text)?.[1];
-  if (blocked) lines.push(`    blocked: ${blocked}`);
+  if (blocked) lines.push(`    blocked: ${oneLine(blocked)}`);
   const next = /^Next {2}(.*)$/m.exec(receipt.text)?.[1];
-  if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`    next: ${next}`);
+  if (next && (outcome !== "completed" || receipt.taskId)) lines.push(`    next: ${oneLine(next)}`);
   const tokens = formatTokenLine(receipt.tokens);
-  const quiet = [files.size ? "ctrl+click a path to open it" : "", receipt.model, tokens].filter(Boolean).join(" · ");
+  const quiet = [files.size ? "ctrl+click a path to open it" : "", oneLine(receipt.model), tokens].filter(Boolean).join(" · ");
   lines.push(`    ${on("dim")}${quiet}${RESET}`);
   return lines;
 }

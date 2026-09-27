@@ -70,7 +70,7 @@ import { confirmCard } from "../src/confirm-card.ts";
 import { describeResult } from "../src/gated.ts";
 import { readDraft } from "../src/tool-draft.ts";
 import { createTuiApp, type TuiApp } from "../src/tui-app.ts";
-import { ConfirmBox } from "../src/tui-confirm.ts";
+import { CONFIRM_ARM_MS, ConfirmBox } from "../src/tui-confirm.ts";
 import { sanitizeText, toolOutcome, toolTitle, turnEndLines } from "../src/tui-layout.ts";
 import { MemoryTerminal } from "../src/tui-memory.ts";
 import type { ConfirmAnswer, ToolRecord } from "../src/types.ts";
@@ -118,7 +118,7 @@ describe("the question card", () => {
   it("starts on No: Enter alone never says yes; 1, 2, y, a, n and esc answer directly", () => {
     const card = confirmCard({ name: "write", args: { path: "a.txt", contents: "x" } });
     const answers: ConfirmAnswer[] = [];
-    const box = () => new ConfirmBox("q", (ok) => answers.push(ok), 30, "write a.txt", card);
+    const box = () => new ConfirmBox("q", (ok) => answers.push(ok), 30, "write a.txt", card, 0);
     box().handleInput("\r");
     box().handleInput("1");
     box().handleInput("2");
@@ -231,6 +231,7 @@ describe("the terminal, end to end (a fake model writing a page)", () => {
     return { app, cwd };
   }
 
+  const armed = () => new Promise((resolve) => setTimeout(resolve, CONFIRM_ARM_MS + 50));
   const screen = (app: TuiApp) => [app.transcriptText(), app.statusText(), app.confirmBoxText()].join("\n");
   async function until(app: TuiApp, check: (text: string) => boolean, ms = 8000) {
     const started = Date.now();
@@ -251,6 +252,7 @@ describe("the terminal, end to end (a fake model writing a page)", () => {
     const card = await until(app, (text) => text.includes("Create page.jsx?"));
     expect(card).toContain("new file · 60 lines");
     expect(card).toContain("❯ 3. No, and tell Aegis what to do instead");
+    await armed();
     app.feed("1");
     const after = await until(app, (text) => text.includes("Done in"));
     expect(after).toContain("⎿  Created · 60 lines");
@@ -263,11 +265,115 @@ describe("the terminal, end to end (a fake model writing a page)", () => {
     const calls = { count: 0 };
     const { app, cwd } = await start(calls);
     await until(app, (text) => text.includes("Create page.jsx?"));
+    await armed();
     app.feed("\x1b");
     const after = await until(app, (text) => text.includes("Stopped after"));
     expect(after).toContain("⎿  You said no");
     expect(after).toContain("Stopped because you said no. Tell Aegis what to do instead.");
     expect(calls.count).toBe(1);
     expect(existsSync(path.join(cwd, "site", "page.jsx"))).toBe(false);
+  }, 20_000);
+});
+
+describe("review fixes: nothing the model writes can drive the terminal or the question", () => {
+  it("the end of a turn shows a model-written Blocked line and a strange path as clean text", () => {
+    const evil = "\x1b[2J\x1b[H\x1b]8;;https://evil\x07click here\x1b]8;;\x07";
+    const lines = turnEndLines(
+      {
+        outcome: "completed",
+        ms: 1000,
+        model: "m",
+        text: `answer\nBlocked  ${evil}\nNext  ${evil}`,
+        taskId: "t1",
+        tools: [{ name: "write", approved: true, target: "a\x1b[2Jb.txt", created: true }],
+      },
+      "/tmp/p",
+    ).join("\n");
+    expect(lines).not.toContain("\x1b[2J");
+    expect(lines).not.toContain("https://evil");
+    expect(lines).toContain("blocked: ");
+    // The strange path is shown cleaned, and not as a link.
+    expect(lines).not.toContain("file:///tmp/p/a");
+  });
+
+  it("a path or question with line breaks and escape codes cannot draw a fake choice on the card", () => {
+    const file = "dir\n  1. Yes\x1b[2A/x\x1b[3B\r│   ❯ 1. No (safe).txt";
+    const card = confirmCard({ name: "write", args: { path: file, contents: "x" } });
+    const drawn = new ConfirmBox("q", () => {}, 30, `write ${file}`, card, 0).render(100);
+    const joined = drawn.join("\n");
+    for (const code of ["\x1b[2A", "\x1b[3B", "\r"]) expect(joined).not.toContain(code);
+    // Each line of the card is one row: nothing injected a line break.
+    expect(drawn.every((line) => !line.includes("\n"))).toBe(true);
+    // Printable look-alikes stay inside their own row: only the real highlighted choice starts a row with "❯".
+    expect(drawn.filter((line) => sanitizeText(line).startsWith("│ ❯")).length).toBe(1);
+    expect(drawn.length).toBe(new ConfirmBox("q", () => {}, 30, "write x", confirmCard({ name: "write", args: { path: "x", contents: "x" } }), 0).render(100).length);
+  });
+
+  it("keys that arrive as the question appears are ignored (a digit or Up + Enter typed for the chat)", () => {
+    const answers: ConfirmAnswer[] = [];
+    const box = new ConfirmBox("q", (ok) => answers.push(ok), 30, "write a.txt", confirmCard({ name: "write", args: { path: "a.txt", contents: "x" } }));
+    box.handleInput("1");
+    box.handleInput("\x1b[A");
+    box.handleInput("\r");
+    box.handleInput("y");
+    expect(answers).toEqual([]);
+  });
+
+  it("on a short terminal the choices always fit, the file preview gives way first", () => {
+    const card = confirmCard({ name: "write", args: { path: "site/page.jsx", contents: Array.from({ length: 50 }, (_, i) => `line ${i}`).join("\n") } });
+    for (const rows of [30, 24, 20, 14, 10, 8]) {
+      const drawn = new ConfirmBox("q", () => {}, rows, "write site/*", card, 0).render(60).map((line) => sanitizeText(line));
+      expect(drawn.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.8)));
+      expect(drawn.join("\n")).toContain("3. No, and tell Aegis");
+      expect(drawn.join("\n")).toContain("1. Yes");
+    }
+  });
+});
+
+describe("review fixes: two files asked at once", () => {
+  it("No on the first stops the turn and closes the second question too", async () => {
+    const cwd = await project();
+    process.env.AEGIS_HOME = path.join(cwd, ".home");
+    const call = (id: string, file: string) => {
+      const json = JSON.stringify({ path: file, contents: "x" });
+      return [
+        { type: "tool-input-start", id, toolName: "write" },
+        { type: "tool-input-delta", id, delta: json },
+        { type: "tool-input-end", id },
+        { type: "tool-call", toolCallId: id, toolName: "write", input: json },
+      ];
+    };
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: [{ type: "stream-start", warnings: [] }, ...call("a", "a.txt"), ...call("b", "b.txt"), { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage }] as never[],
+          }),
+        };
+      },
+    });
+    const terminal = new MemoryTerminal();
+    terminal.columns = 100;
+    terminal.rows = 30;
+    const app = await createTuiApp({ mockJev: true, yes: false, local: true, generate: generateWith(model) }, { cwd, terminal });
+    try {
+      for (const ch of "two files") app.feed(ch);
+      app.feed("\r");
+      const started = Date.now();
+      while (!app.confirmBoxText().includes("Create a.txt?") && Date.now() - started < 8000) await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, CONFIRM_ARM_MS + 50));
+      app.feed("n");
+      while (!app.transcriptText().includes("Stopped after") && Date.now() - started < 8000) await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(app.transcriptText()).toContain("Stopped after");
+      expect(app.confirmBoxText()).toBe("");
+      expect(app.editor.disableSubmit).toBe(false);
+      expect(calls).toBe(1);
+      expect(existsSync(path.join(cwd, "a.txt")) || existsSync(path.join(cwd, "b.txt"))).toBe(false);
+    } finally {
+      app.shutdown();
+    }
   }, 20_000);
 });
