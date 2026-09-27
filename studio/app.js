@@ -367,7 +367,7 @@
 
   async function submit(text) {
     const images = text === undefined ? state.images.filter((image) => image.data) : [];
-    const docs = text === undefined ? state.docs.filter((doc) => doc.text !== undefined) : [];
+    const docs = text === undefined ? state.docs.filter((doc) => doc.text !== undefined || doc.pdf !== undefined) : [];
     const attached = [...images, ...docs];
     const value = String(text ?? input.value).trim() || (attached.length ? "Look at the attached file(s)." : "");
     if (!value || state.busy) return;
@@ -387,7 +387,7 @@
     setWorking("Starting");
     const body = { text: value };
     if (images.length) body.images = images.map(({ name, data }) => ({ name, data }));
-    if (docs.length) body.documents = docs.map(({ name, text: content }) => ({ name, text: content }));
+    if (docs.length) body.documents = docs.map(({ name, text: content, pdf }) => (pdf !== undefined ? { name, pdf } : { name, text: content }));
     try {
       await api("/api/prompt", body);
       // Only once the server took them: a refused send keeps the chips for another try.
@@ -676,14 +676,42 @@
       });
     });
   }
-  // Text documents (logs, configs, scripts, notes): sent as text with the message, checked again on the server.
+  // Text documents (logs, configs, scripts, notes) go as text; PDFs go as they are and the server reads their text.
+  // Both are checked again on the server.
   const MAX_DOCS = 5;
   const MAX_DOC_BYTES = 200 * 1024;
+  const MAX_PDF_BYTES = 10 * 1024 * 1024;
+  const MAX_PDF_TOTAL = 20 * 1024 * 1024;
+  const isPdf = (file) => file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
   function addDocs(files) {
     for (const file of files) {
       if (state.docs.length >= MAX_DOCS) {
         addNote(`⚠ At most ${MAX_DOCS} files per message.`);
         break;
+      }
+      if (isPdf(file)) {
+        const pdfTotal = state.docs.reduce((sum, doc) => sum + (doc.bytes || 0), 0);
+        if (file.size > MAX_PDF_BYTES) {
+          addNote(`⚠ ${file.name} is over 10 MB. PDFs up to 10 MB can be attached.`);
+          continue;
+        }
+        if (pdfTotal + file.size > MAX_PDF_TOTAL) {
+          addNote(`⚠ ${file.name} was not added: PDFs are limited to 20 MB per message.`);
+          continue;
+        }
+        const entry = { name: file.name || "file.pdf", pdf: undefined, bytes: file.size };
+        state.docs.push(entry);
+        const reader = new FileReader();
+        reader.onload = () => {
+          entry.pdf = String(reader.result).replace(/^data:[^,]*,/, "");
+          renderImages();
+        };
+        reader.onerror = () => {
+          state.docs.splice(state.docs.indexOf(entry), 1);
+          renderImages();
+        };
+        reader.readAsDataURL(file);
+        continue;
       }
       if (file.size > MAX_DOC_BYTES) {
         addNote(`⚠ ${file.name} is over 200 KB. Put it in the folder and mention it with @${file.name} instead.`);
@@ -694,10 +722,10 @@
       const reader = new FileReader();
       reader.onload = () => {
         const text = String(reader.result);
-        // A NUL byte means binary (a PDF, a Word file, an exe): not sent.
+        // A NUL byte means binary (a Word file, an exe): not sent.
         if (text.includes("\u0000")) {
           state.docs.splice(state.docs.indexOf(entry), 1);
-          addNote(`⚠ ${entry.name} is not a text file. Images and text files (logs, configs, scripts, notes) can be attached.`);
+          addNote(`⚠ ${entry.name} is not a text file. Images, PDFs and text files (logs, configs, scripts, notes) can be attached.`);
         } else entry.text = text;
         renderImages();
       };

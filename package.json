@@ -47,6 +47,7 @@
     "@earendil-works/pi-tui": "^0.86.0",
     "ai": "^7.0.107",
     "dotenv": "^17.2.2",
+    "unpdf": "1.8.1",
     "zod": "^4.1.8"
   },
   "devDependencies": {

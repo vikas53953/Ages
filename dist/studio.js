@@ -18,12 +18,20 @@ import { loadMessages, messageText, recentSessions } from "./session.js";
 import { turnStatusLines } from "./tui-layout.js";
 import { gitBranch } from "./git-head.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_TURN, sniffImage } from "./images.js";
-/** Text files attached from the page: at most 5, 200 KB each. */
+import { looksLikePdf, MAX_PDF_BYTES, pdfText } from "./documents.js";
+/** Files attached from the page: at most 5; text files 200 KB each, PDFs 10 MB each and 20 MB together. */
 const MAX_DOCUMENTS = 5;
 const MAX_DOCUMENT_CHARS = 200 * 1024;
-/** 4 images of 5 MB as base64, 5 text files, plus the text. */
-const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) + MAX_DOCUMENTS * MAX_DOCUMENT_CHARS * 2 + 1_000_000;
-/** Text files attached on the page (logs, configs, scripts): a list of at most 5, text only, 200 KB each. */
+const MAX_PDF_TOTAL_BYTES = 2 * MAX_PDF_BYTES;
+/** 4 images of 5 MB as base64, 5 text files, the PDFs as base64, plus the text. */
+const PROMPT_BODY_LIMIT = Math.ceil((MAX_IMAGES_PER_TURN * MAX_IMAGE_BYTES * 4) / 3) +
+    MAX_DOCUMENTS * MAX_DOCUMENT_CHARS * 2 +
+    Math.ceil((MAX_PDF_TOTAL_BYTES * 4) / 3) +
+    1_000_000;
+/**
+ * Files attached on the page: text files (logs, configs, scripts) as text, PDFs as base64 (their text is pulled
+ * out on this side, so the page cannot hand the model anything but text). Anything else is a 400.
+ */
 export function pastedDocuments(value) {
     if (value === undefined || value === null)
         return undefined;
@@ -31,17 +39,50 @@ export function pastedDocuments(value) {
         throw new BadRequest("documents must be a list");
     if (value.length > MAX_DOCUMENTS)
         throw new BadRequest(`at most ${MAX_DOCUMENTS} files per message`);
+    let pdfBytes = 0;
     return value.map((item) => {
         const entry = (item ?? {});
+        const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || "file.txt" : "file.txt";
+        if (entry.pdf !== undefined) {
+            if (typeof entry.pdf !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.pdf))
+                throw new BadRequest("a PDF is not base64");
+            const buf = Buffer.from(entry.pdf, "base64");
+            if (buf.length > MAX_PDF_BYTES)
+                throw new BadRequest(`a PDF is over ${MAX_PDF_BYTES / 1024 / 1024} MB`);
+            pdfBytes += buf.length;
+            if (pdfBytes > MAX_PDF_TOTAL_BYTES)
+                throw new BadRequest(`PDFs are limited to ${MAX_PDF_TOTAL_BYTES / 1024 / 1024} MB per message`);
+            if (!looksLikePdf(buf))
+                throw new BadRequest(`${name} is not a PDF file`);
+            return { name, pdf: buf };
+        }
         if (typeof entry.text !== "string")
             throw new BadRequest("a file has no text");
         if (entry.text.length > MAX_DOCUMENT_CHARS)
             throw new BadRequest("a file is over 200 KB");
         if (entry.text.includes("\u0000"))
-            throw new BadRequest("only text files can be attached (this one is binary)");
-        const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || "file.txt" : "file.txt";
+            throw new BadRequest("only text files and PDFs can be attached (this one is binary)");
         return { name, text: entry.text };
     });
+}
+/** Each attached file as text: a PDF's text layer is read here (one at a time); one that cannot be read is a 400. */
+export async function attachedTexts(documents) {
+    if (!documents)
+        return undefined;
+    const out = [];
+    for (const document of documents) {
+        if ("text" in document) {
+            out.push(document);
+            continue;
+        }
+        try {
+            out.push({ name: document.name, text: await pdfText(document.pdf, document.name) });
+        }
+        catch (error) {
+            throw new BadRequest(error instanceof Error ? error.message : String(error));
+        }
+    }
+    return out;
 }
 /**
  * Images pasted or dropped on the page: at most 4, each checked by its first bytes and size. Anything else is
@@ -307,7 +348,12 @@ export async function startStudio(input) {
                 return json(res, 400, { error: "files go with a message, not a command" });
             }
             if (url.pathname === "/api/prompt" && isTurn) {
-                void run(line, pastedImages(body.images), pastedDocuments(body.documents));
+                const images = pastedImages(body.images);
+                const documents = await attachedTexts(pastedDocuments(body.documents));
+                // Reading a PDF takes a moment: another message may have started meanwhile.
+                if (busy)
+                    return json(res, 409, { error: "a turn is running; wait or stop it" });
+                void run(line, images, documents);
                 return json(res, 202, { ok: true, started: true });
             }
             const result = await run(line);

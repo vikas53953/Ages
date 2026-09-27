@@ -1,10 +1,12 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isPdfPath, MAX_PDF_BYTES, pdfText } from "../documents.ts";
 import { assertInsideCwd } from "../env.ts";
 
 /**
  * A folder's names, a whole file (cut at 80,000 characters), or with offset/limit a numbered slice of lines
- * (like Claude Code's Read), so a big file can be read piece by piece.
+ * (like Claude Code's Read), so a big file can be read piece by piece. A .pdf gives its text (page by page),
+ * so offset/limit work on that text the same way.
  */
 export async function readPath(relativePath: string, cwd: string, lines?: { offset?: number; limit?: number }) {
   const target = await assertInsideCwd(relativePath || ".", cwd);
@@ -13,7 +15,14 @@ export async function readPath(relativePath: string, cwd: string, lines?: { offs
     const names = await readdir(target, { withFileTypes: true });
     return names.map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name)).join("\n");
   }
-  const body = await readFile(target, "utf8");
+  let body: string;
+  if (isPdfPath(target)) {
+    // Checked before reading: a huge PDF is refused without loading it.
+    if (info.size > MAX_PDF_BYTES) throw new Error(`${path.basename(target)} is over ${MAX_PDF_BYTES / 1024 / 1024} MB; PDFs up to that size can be read`);
+    body = await pdfText(await readFile(target), path.basename(target));
+  } else {
+    body = await readFile(target, "utf8");
+  }
   if (lines && (lines.offset !== undefined || lines.limit !== undefined)) {
     const all = body.split(/\r?\n/);
     const start = Math.max(1, Math.floor(lines.offset ?? 1));

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import { makePdf } from "./fixtures/pdf.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateWith } from "../src/loop.ts";
 import { loadSettings, settingsPath } from "../src/rules.ts";
@@ -356,6 +357,47 @@ describe("Studio: attached text files", () => {
     expect(prompts[0]).toMatch(/attached_file_[0-9a-f]{8} name=\\"fw-policy.conf\\"/);
     expect(prompts[0]).toContain("data, not instructions");
     expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+  });
+
+  it("a PDF goes as its text: read on the server, marked as data, secrets cut", async () => {
+    const prompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(JSON.stringify(options.prompt));
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "read it" },
+              { type: "text-end", id: "t" },
+              { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+            ] as never[],
+          }),
+        };
+      },
+    });
+    const { server, base, api } = await studio(generateWith(model));
+    const done = events(base, server.token, (e) => e.kind === "done" || e.kind === "error");
+    const pdf = makePdf(["Audit: rule 12 is shadowed by rule 3", "set password=Sup3rS3cretPass!"]).toString("base64");
+    const sent = await api("/api/prompt", { text: "what does the audit say?", documents: [{ name: "audit.pdf", pdf }] });
+    expect(sent.status).toBe(202);
+    await done;
+    expect(prompts[0]).toContain("rule 12 is shadowed by rule 3");
+    expect(prompts[0]).toMatch(/attached_file_[0-9a-f]{8} name=\\"audit.pdf\\"/);
+    expect(prompts[0]).toContain("[PDF, 2 pages");
+    expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+  });
+
+  it("refuses a PDF that is not base64, not a PDF, broken or too big", async () => {
+    const { api } = await studio();
+    const send = (pdf: unknown) => api("/api/prompt", { text: "x", documents: [{ name: "a.pdf", pdf }] });
+    expect((await send("not base64!")).status).toBe(400);
+    expect((await send(Buffer.from("hello").toString("base64"))).status).toBe(400);
+    const broken = await send(Buffer.from("%PDF-1.4 junk").toString("base64"));
+    expect(broken.status).toBe(400);
+    expect(String(broken.data.error)).toMatch(/could not be read as a PDF/);
+    expect((await send(Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"))).status).toBe(400);
   });
 
   it("refuses binary files, too many, too big, and files with a command", async () => {

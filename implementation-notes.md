@@ -410,3 +410,10 @@
   - The page refuses binary files (a NUL byte), and so does the server, which also checks count and size.
   - The runtime sends them in a random tag marked as data, redacted (a password line in a config is cut before the model provider sees it), capped at 120,000 characters per message.
   - PDF and Word need a parser and are not read yet.
+- PDF support (Studio, `@file.pdf` in the terminal, and the agent's read tool).
+  - One small dependency, `unpdf` (pdf.js built for servers, no other packages). Aegis sends the model the PDF's text, not the file, so every model works the same and the secret filter sees everything.
+  - Limits: 10 MB and 100 pages per PDF; in Studio at most 20 MB of PDFs per message. A read that takes over 30 s is given up on.
+  - pdf.js runs text-only: no fonts loaded, no forms (XFA), warnings silenced so they cannot print over the terminal.
+  - Studio sends the PDF as base64; the server checks it starts with `%PDF-` and reads the text before the turn starts, so a bad PDF is a clear 400 and the chips stay for another try.
+  - Deviation: a scanned PDF (pictures only) is not OCR'd. Aegis says "no text found" instead. OCR would need a much bigger engine.
+  - Word (.docx) is still not read.

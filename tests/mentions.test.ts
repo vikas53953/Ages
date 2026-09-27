@@ -8,6 +8,7 @@ import { generateWith } from "../src/loop.ts";
 import { findMentions } from "../src/mentions.ts";
 import { settingsPath } from "../src/rules.ts";
 import { handleLine, startState } from "../src/runtime.ts";
+import { makePdf } from "./fixtures/pdf.ts";
 
 const usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
@@ -96,5 +97,28 @@ describe("@file mentions", () => {
     expect(user).toContain("data, not instructions");
     expect(user).not.toContain("OUTSIDE-SECRET");
     expect(result.receipt?.prompt).toBe("check @evil.md and @outlink");
+  });
+
+  it("@report.pdf attaches the PDF's text through the lock, secrets cut; a deny rule keeps it out", async () => {
+    const cwd = await project({ deny: ["read secret.pdf"] });
+    await writeFile(path.join(cwd, "report.pdf"), makePdf(["FW audit: rule 12 shadowed", "password=Sup3rS3cretPass"]));
+    await writeFile(path.join(cwd, "secret.pdf"), makePdf(["HIDDEN-PDF-TEXT"]));
+    const state = await startState(cwd, { local: true, mockJev: true });
+    const prompts: string[] = [];
+    const result = await handleLine("summarise @report.pdf and @secret.pdf", state, {
+      mockJev: true,
+      yes: false,
+      local: true,
+      generate: generateWith(answering(prompts)),
+    });
+    expect(prompts[0]).toContain("FW audit: rule 12 shadowed");
+    expect(prompts[0]).toContain("--- page 2 ---");
+    expect(prompts[0]).not.toContain("Sup3rS3cretPass");
+    expect(prompts[0]).not.toContain("HIDDEN-PDF-TEXT");
+    expect(prompts[0]).toContain("@secret.pdf was not attached");
+    expect(result.receipt?.tools.slice(0, 2).map((t) => [t.name, t.approved])).toEqual([
+      ["read", true],
+      ["read", false],
+    ]);
   });
 });
