@@ -394,3 +394,31 @@ describe("review fixes: two files asked at once", () => {
     }
   }, 20_000);
 });
+
+describe("Codex review: a file too big to preview", () => {
+  it("is still called an overwrite, never a new file", async () => {
+    const cwd = await project();
+    await writeFile(path.join(cwd, "big.log"), "x".repeat(3 * 1024 * 1024));
+    const json = JSON.stringify({ path: "big.log", contents: "short\n" });
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        const chunks =
+          calls === 1
+            ? [{ type: "stream-start", warnings: [] }, { type: "tool-call", toolCallId: "w", toolName: "write", input: json }, { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage }]
+            : [{ type: "stream-start", warnings: [] }, { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage }];
+        return { stream: simulateReadableStream({ chunks: chunks as never[] }) };
+      },
+    });
+    const cards: Array<{ title: string; question: string; facts?: string } | undefined> = [];
+    const state = await startState(cwd, { local: true, mockJev: true });
+    await handleLine("shorten it", state, { mockJev: true, yes: false, local: true, generate: generateWith(model) }, async (_question, options) => {
+      cards.push(options?.card);
+      return false;
+    });
+    expect(cards[0]).toMatchObject({ title: "Overwrite file", question: "Replace all of big.log?" });
+    expect(cards[0]?.facts).toContain("already exists");
+    expect(describeResult("write", { path: "big.log", contents: "a\n" }, "ok", undefined, cwd, true)).toEqual({ summary: "Replaced · now 1 line", preview: ["a", ""] });
+  });
+});

@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { confirmCard } from "./confirm-card.js";
 import { redactSecrets } from "./redact.js";
@@ -59,6 +59,21 @@ function existingText(cwd, file) {
     }
     catch {
         return undefined;
+    }
+}
+/**
+ * Whether something is already at the path a write targets. Separate from existingText, which also gives nothing
+ * for a file too big or unreadable to preview: such a write is an overwrite, never "a new file".
+ */
+function pathExists(cwd, file) {
+    if (typeof file !== "string" || !file)
+        return false;
+    try {
+        lstatSync(path.resolve(cwd, file));
+        return true;
+    }
+    catch {
+        return false;
     }
 }
 /** One change of a multi-edit in the question: long ones are cut, and say so. */
@@ -314,7 +329,8 @@ export async function runGatedTool(input) {
         const always = loaded.error || !sameRoot || hook ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
         const existing = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
         const prompt = formatConfirm(input.name, input.args, decision, why, existing);
-        const card = confirmCard({ name: input.name, args: input.args, existing, decision, rule, hook, settingsError: loaded.error });
+        const exists = input.name === "write" && pathExists(input.cwd, input.args.path);
+        const card = confirmCard({ name: input.name, args: input.args, existing, exists, decision, rule, hook, settingsError: loaded.error });
         const raced = await Promise.race([
             input
                 .confirm(prompt, { always, tool: input.name, target, why, card })
@@ -357,8 +373,9 @@ export async function runGatedTool(input) {
     record.approved = true;
     // Read before the write replaces it: "Created" and "Replaced 12 → 40 lines" need the old file.
     const before = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
+    const existed = input.name === "write" && pathExists(input.cwd, input.args.path);
     let output = await input.execute();
-    Object.assign(record, describeResult(input.name, input.args, output, before, input.cwd));
+    Object.assign(record, describeResult(input.name, input.args, output, before, input.cwd, existed));
     // Your PostToolUse hooks (a linter, a secret scanner) see the result; what they report goes back with it.
     const notes = await runPostToolHooks({ config: hookConfig, name: input.name, args: input.args, output, cwd: input.cwd, signal: input.abortSignal });
     if (notes.length)
@@ -368,13 +385,17 @@ export async function runGatedTool(input) {
 const countLines = (text) => (text ? text.replace(/\n$/, "").split("\n").length : 0);
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 /** What a tool did, in plain words, for the transcript line under it (like Claude Code's "Wrote 381 lines"). */
-export function describeResult(name, args, output, before, cwd) {
+export function describeResult(name, args, output, before, cwd, 
+/** Something was at the path before (even when too big or unreadable to read into `before`). */
+existed = before !== undefined) {
     if (name === "write") {
         const contents = String(args.contents ?? "");
         const lines = countLines(contents);
         const preview = contents.split("\n").slice(0, 3).map((line) => redactSecrets(line).text);
-        if (before === undefined)
+        if (!existed)
             return { summary: `Created · ${plural(lines, "line")}`, created: true, preview };
+        if (before === undefined)
+            return { summary: `Replaced · now ${plural(lines, "line")}`, preview };
         return { summary: `Replaced · ${countLines(before)} → ${plural(lines, "line")}`, preview };
     }
     if (name === "edit") {

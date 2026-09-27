@@ -53,6 +53,18 @@ export function confirmCard(input) {
     if (name === "write") {
         const contents = String(args.contents ?? "");
         const count = contents ? contents.replace(/\n$/, "").split("\n").length : 0;
+        if (input.existing === undefined && input.exists) {
+            // Too big or unreadable to compare: still an overwrite, and the card says so plainly.
+            return {
+                title: "Overwrite file",
+                subject: file,
+                lines: cap(contents.replace(/\n$/, "").split("\n")),
+                kind: "code",
+                question: `Replace all of ${base}?`,
+                facts: `the file already exists and is too big or unreadable to show · new text: ${plural(count, "line")}`,
+                reason,
+            };
+        }
         if (input.existing === undefined) {
             return {
                 title: "Create file",
