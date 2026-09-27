@@ -253,57 +253,108 @@ async function zipRead(buf, entry, name) {
 }
 const XML_ENTITIES = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 function xmlDecode(text) {
-    return text.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (whole, code) => {
+    return text.replace(/&(#x[0-9a-f]{1,8}|#\d{1,8}|\w{1,10});/gi, (whole, code) => {
         if (code[0] !== "#")
             return XML_ENTITIES[code] ?? whole;
         const point = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-        return point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : whole;
+        // NUL, lone surrogate halves and out-of-range numbers are not characters: a replacement mark instead.
+        return point > 0 && point <= 0x10ffff && (point < 0xd800 || point > 0xdfff) ? String.fromCodePoint(point) : "�";
     });
 }
+/** Parts whose text is not what Word shows: a text box's old-Word copy, and the old place of moved text. */
+const SKIPPED = new Set(["mc:Fallback", "w:moveFrom"]);
+const TAG_NAME = /(\/?)([\w.:-]+)/y;
 /**
  * The text of word/document.xml: paragraphs as lines, tabs and line breaks kept, a table as "| a | b |" rows.
  * Deleted text (tracked changes) is left out, inserted text is kept (what Word shows once changes are accepted).
- * Drawings carry a copy of their text for old Word versions (mc:Fallback); that copy is skipped so text is not doubled.
+ * A text box's copy for old Word versions (mc:Fallback) and moved text's old place (w:moveFrom) are skipped, so
+ * nothing is doubled; tab-stop settings (in w:pPr) are not tabs. Only the "w:" prefix is read (Word, LibreOffice
+ * and Google Docs all write it).
+ *
+ * A plain left-to-right scan with indexOf, no backtracking regex: every byte is looked at a bounded number of
+ * times, so a file built to be slow cannot freeze Aegis, and the text stops at `limit` (cells included).
  */
 async function documentXmlText(xml, limit, signal, stopped) {
     let out = "";
+    let used = 0;
     const cells = [];
     const rows = [];
     let inText = false;
-    let fallback = 0;
-    let cut = false;
+    let skipped = 0;
+    let settings = 0;
     const write = (text) => {
+        if (used >= limit)
+            return;
+        const kept = text.length > limit - used ? text.slice(0, limit - used) : text;
+        used += kept.length;
         if (cells.length)
-            cells[cells.length - 1] += text;
+            cells[cells.length - 1] += kept;
         else
-            out += text;
+            out += kept;
     };
-    const tokens = /<(\/?)([A-Za-z][\w.-]*:?[\w.-]*)[^>]*?(\/?)>|([^<]+)/g;
+    // An entity is at most 10 characters and gives at least one, so this much raw text is enough for what is left.
+    const room = () => (limit - used) * 10 + 16;
     let steps = 0;
-    for (let match = tokens.exec(xml); match; match = tokens.exec(xml)) {
+    let pos = 0;
+    while (pos < xml.length && used < limit) {
         // Up to 50 MB of XML: let the terminal and Studio breathe now and then, and let Stop end it.
         if (++steps % 20_000 === 0) {
             await new Promise((resolve) => setImmediate(resolve));
             if (signal?.aborted)
                 throw stopped();
         }
-        const [, closing, tag, selfClosing, text] = match;
-        if (text !== undefined) {
-            if (inText && !fallback)
-                write(xmlDecode(text));
+        const lt = xml.indexOf("<", pos);
+        const end = lt < 0 ? xml.length : lt;
+        if (end > pos) {
+            if (inText && !skipped && !settings)
+                write(xmlDecode(xml.slice(pos, Math.min(end, pos + room()))));
+            pos = end;
+            continue;
         }
-        else if (tag === "mc:Fallback") {
-            if (selfClosing)
-                continue;
-            fallback += closing ? -1 : 1;
-            if (fallback < 0)
-                fallback = 0;
+        if (xml.startsWith("<!--", lt)) {
+            const close = xml.indexOf("-->", lt + 4);
+            if (close < 0)
+                break;
+            pos = close + 3;
+            continue;
         }
-        else if (fallback) {
+        if (xml.startsWith("<![CDATA[", lt)) {
+            const close = xml.indexOf("]]>", lt + 9);
+            if (close < 0)
+                break;
+            if (inText && !skipped && !settings)
+                write(xml.slice(lt + 9, Math.min(close, lt + 9 + room())));
+            pos = close + 3;
+            continue;
+        }
+        const gt = xml.indexOf(">", lt + 1);
+        if (gt < 0)
+            break;
+        pos = gt + 1;
+        TAG_NAME.lastIndex = lt + 1;
+        const match = TAG_NAME.exec(xml);
+        if (!match || match.index + match[0].length > gt)
+            continue;
+        const closing = match[1] === "/";
+        const tag = match[2];
+        const selfClosing = !closing && xml[gt - 1] === "/";
+        const opens = !closing && !selfClosing;
+        if (SKIPPED.has(tag)) {
+            if (!selfClosing)
+                skipped = Math.max(0, skipped + (closing ? -1 : 1));
+        }
+        else if (skipped) {
+            continue;
+        }
+        else if (tag === "w:pPr") {
+            if (!selfClosing)
+                settings = Math.max(0, settings + (closing ? -1 : 1));
+        }
+        else if (settings) {
             continue;
         }
         else if (tag === "w:t") {
-            inText = !closing && !selfClosing;
+            inText = opens;
         }
         else if (tag === "w:tab" && selfClosing) {
             write("\t");
@@ -314,11 +365,11 @@ async function documentXmlText(xml, limit, signal, stopped) {
         else if (tag === "w:noBreakHyphen" && selfClosing) {
             write("-");
         }
-        else if (tag === "w:p" && (closing || selfClosing)) {
+        else if (tag === "w:p" && !opens) {
             write(cells.length ? " " : "\n");
         }
         else if (tag === "w:tr" && !selfClosing) {
-            if (!closing)
+            if (opens)
                 rows.push([]);
             else {
                 const row = rows.pop() ?? [];
@@ -326,18 +377,18 @@ async function documentXmlText(xml, limit, signal, stopped) {
             }
         }
         else if (tag === "w:tc" && !selfClosing) {
-            if (!closing)
+            if (opens)
                 cells.push("");
             else
                 rows[rows.length - 1]?.push((cells.pop() ?? "").replace(/\s+/g, " ").trim());
         }
-        if (out.length > limit) {
-            cut = true;
-            break;
-        }
     }
+    const cut = used >= limit;
+    // Cut off (or never closed) inside a table: its cells so far are still text, and already counted.
+    const open = [...rows.flat(), ...cells].map((cell) => cell.replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (open.length)
+        out += `| ${open.join(" | ")} |`;
     const text = out
-        .slice(0, limit)
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();

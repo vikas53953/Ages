@@ -38,6 +38,40 @@ describe("Word (.docx) text", () => {
     expect(text.match(/in the box/g)).toHaveLength(1);
   });
 
+  it("tab-stop settings are not tabs, moved text is not doubled, comments and odd characters are handled", async () => {
+    const body =
+      para("first") +
+      '<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/><w:tab w:val="right" w:pos="9000"/></w:tabs></w:pPr><w:r><w:t>Name</w:t></w:r></w:p>' +
+      '<w:p><w:moveFrom><w:r><w:t>Moved sentence.</w:t></w:r></w:moveFrom></w:p>' +
+      '<w:p><w:moveTo><w:r><w:t>Moved sentence.</w:t></w:r></w:moveTo></w:p>' +
+      "<!-- <w:p><w:r><w:t>hidden</w:t></w:r></w:p> -->" +
+      "<w:p><w:r><w:t><![CDATA[a<b]]>&#0;&#xD800;!</w:t></w:r></w:p>";
+    const text = await docxText(makeDocx(body), "t.docx");
+    expect(text).toContain("first\nName\n");
+    expect(text.match(/Moved sentence\./g)).toHaveLength(1);
+    expect(text).not.toContain("hidden");
+    expect(text).toContain("a<b\ufffd\ufffd!");
+    expect(text).not.toContain("\u0000");
+  });
+
+  it("a tiny file built to be slow (tags that never close) is read in linear time, not hours", async () => {
+    for (const body of ["<" + "a".repeat(1_000_000), "<a".repeat(1_000_000), "<w:p><w:r><w:t>&" + "a".repeat(5_000_000)]) {
+      const started = Date.now();
+      await docxText(makeZip([{ name: "word/document.xml", data: documentXml(body) }]), "slow.docx");
+      expect(Date.now() - started).toBeLessThan(2000);
+    }
+  });
+
+  it("text in a table cell counts toward the 1,000,000-character cap, and a cut cell is kept", async () => {
+    const huge = table([["x ".repeat(2_000_000)]]);
+    const started = Date.now();
+    const text = await docxText(makeDocx(huge), "cell.docx");
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(text).toMatch(/\| x x x/);
+    expect(text).toMatch(/\[cut: text from one Word file is limited to 1,000,000 characters\]$/);
+    expect(text.length).toBeLessThan(1_000_300);
+  });
+
   it("finds the body through the package index when it is not word/document.xml", async () => {
     const zip = makeZip([
       {

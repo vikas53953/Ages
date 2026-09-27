@@ -74,7 +74,8 @@ export function pastedDocuments(value: unknown): PastedDocument[] | undefined {
   let pdfBytes = 0;
   return value.map((item) => {
     const entry = (item ?? {}) as { name?: unknown; text?: unknown; pdf?: unknown; docx?: unknown };
-    const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || "file.txt" : "file.txt";
+    const fallback = entry.pdf !== undefined ? "file.pdf" : entry.docx !== undefined ? "file.docx" : "file.txt";
+    const name = typeof entry.name === "string" ? entry.name.replace(/[^\w. -]+/g, "_").slice(0, 80) || fallback : fallback;
     if (entry.pdf !== undefined) {
       if (typeof entry.pdf !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.pdf)) throw new BadRequest("a PDF is not base64");
       const buf = Buffer.from(entry.pdf, "base64");
