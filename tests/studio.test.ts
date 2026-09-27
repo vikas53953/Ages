@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { makePdf } from "./fixtures/pdf.ts";
+import { makePdf, makeSlowPdf } from "./fixtures/pdf.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateWith } from "../src/loop.ts";
 import { loadSettings, settingsPath } from "../src/rules.ts";
@@ -398,6 +398,20 @@ describe("Studio: attached text files", () => {
     expect(broken.status).toBe(400);
     expect(String(broken.data.error)).toMatch(/could not be read as a PDF/);
     expect((await send(Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"))).status).toBe(400);
+  });
+
+  it("while a PDF is being read, other messages wait (409) and Stop ends the read", async () => {
+    const { api } = await studio();
+    const slow = api("/api/prompt", { text: "read it", documents: [{ name: "slow.pdf", pdf: makeSlowPdf().toString("base64") }] });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect((await api("/api/prompt", { text: "another" })).status).toBe(409);
+    const started = Date.now();
+    expect((await api("/api/stop", {})).status).toBe(200);
+    const first = await slow;
+    expect(first.status).toBeGreaterThanOrEqual(400);
+    expect(Date.now() - started).toBeLessThan(3000);
+    // Free again for the next message.
+    expect((await api("/api/prompt", { text: "/status" })).status).toBe(200);
   });
 
   it("refuses binary files, too many, too big, and files with a command", async () => {

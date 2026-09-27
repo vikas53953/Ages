@@ -412,8 +412,11 @@
   - PDF and Word need a parser and are not read yet.
 - PDF support (Studio, `@file.pdf` in the terminal, and the agent's read tool).
   - One small dependency, `unpdf` (pdf.js built for servers, no other packages). Aegis sends the model the PDF's text, not the file, so every model works the same and the secret filter sees everything.
-  - Limits: 10 MB and 100 pages per PDF; in Studio at most 20 MB of PDFs per message. A read that takes over 30 s is given up on.
-  - pdf.js runs text-only: no fonts loaded, no forms (XFA), warnings silenced so they cannot print over the terminal.
+  - Limits: 10 MB and 100 pages per PDF, 1,000,000 characters of text per PDF; in Studio at most 20 MB of PDFs per message.
+  - pdf.js runs text-only: no fonts loaded, no forms (XFA), warnings silenced, and its output is kept off the terminal.
+  - Review fix: pdf.js works on the main thread and a timeout cannot stop it. A small PDF built to be slow (many pages sharing one compressed stream) froze the terminal and Studio for 30 s and kept using CPU afterwards. Every PDF is now read in its own worker thread with a 256 MB memory cap. The thread is killed at the 30 s limit or on Stop.
+  - Review fix: while Studio reads attached PDFs, other messages get "busy" (409), and Stop ends the read.
+  - The agent's read tool and `@file.pdf` use the 30 s limit; Stop during that read waits for the limit (the read is not given the turn's stop signal yet).
   - Studio sends the PDF as base64; the server checks it starts with `%PDF-` and reads the text before the turn starts, so a bad PDF is a clear 400 and the chips stay for another try.
   - Deviation: a scanned PDF (pictures only) is not OCR'd. Aegis says "no text found" instead. OCR would need a much bigger engine.
   - Word (.docx) is still not read.

@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { looksLikePdf, MAX_PDF_BYTES, MAX_PDF_PAGES, pdfText } from "../src/documents.ts";
 import { readPath } from "../src/tools/read.ts";
-import { makePdf } from "./fixtures/pdf.ts";
+import { makePdf, makeSlowPdf } from "./fixtures/pdf.ts";
 
 describe("PDF text", () => {
   it("gives the text page by page with a header", async () => {
@@ -42,5 +42,20 @@ describe("PDF text", () => {
     expect(slice).toContain("[lines 5-6 of");
     await writeFile(path.join(cwd, "fake.pdf"), "just text");
     await expect(readPath("fake.pdf", cwd)).rejects.toThrow("fake.pdf is not a PDF file");
+  });
+
+  it("a PDF built to be slow is read in its own thread: Aegis stays responsive, and the time limit or Stop ends it", async () => {
+    const slow = makeSlowPdf();
+    let ticks = 0;
+    const clock = setInterval(() => ticks++, 20);
+    const started = Date.now();
+    await expect(pdfText(slow, "slow.pdf", { timeoutMs: 1500 })).rejects.toThrow("slow.pdf took too long to read");
+    clearInterval(clock);
+    expect(Date.now() - started).toBeLessThan(5000);
+    // About 75 ticks in 1.5 s when nothing blocks; a parse on this thread would have starved the clock.
+    expect(ticks).toBeGreaterThan(30);
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 300);
+    await expect(pdfText(slow, "slow.pdf", { signal: stop.signal })).rejects.toThrow("reading slow.pdf was stopped");
   });
 });

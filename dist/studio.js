@@ -66,7 +66,7 @@ export function pastedDocuments(value) {
     });
 }
 /** Each attached file as text: a PDF's text layer is read here (one at a time); one that cannot be read is a 400. */
-export async function attachedTexts(documents) {
+export async function attachedTexts(documents, signal) {
     if (!documents)
         return undefined;
     const out = [];
@@ -76,7 +76,7 @@ export async function attachedTexts(documents) {
             continue;
         }
         try {
-            out.push({ name: document.name, text: await pdfText(document.pdf, document.name) });
+            out.push({ name: document.name, text: await pdfText(document.pdf, document.name, { signal }) });
         }
         catch (error) {
             throw new BadRequest(error instanceof Error ? error.message : String(error));
@@ -158,6 +158,8 @@ export async function startStudio(input) {
     let nextApproval = 1;
     let busy = false;
     let turnAbort;
+    /** Set while attached PDFs are being read, before the turn starts: one at a time, and Stop ends it. */
+    let preparing;
     const send = (event) => {
         const frame = `data: ${JSON.stringify(event)}\n\n`;
         for (const client of clients)
@@ -307,7 +309,7 @@ export async function startStudio(input) {
             if (req.method !== "POST")
                 return json(res, 405, { error: "method not allowed" });
             // Refused before the body is read: a busy server does not take in 28 MB of images only to say no.
-            if (busy && url.pathname !== "/api/approve" && url.pathname !== "/api/stop") {
+            if ((busy || preparing) && url.pathname !== "/api/approve" && url.pathname !== "/api/stop") {
                 return json(res, 409, { error: "a turn is running; wait or stop it" });
             }
             // A prompt may carry pasted images (4 × 5 MB, as base64); everything else stays small.
@@ -322,9 +324,10 @@ export async function startStudio(input) {
             }
             if (url.pathname === "/api/stop") {
                 turnAbort?.abort();
+                preparing?.abort();
                 return json(res, 200, { ok: true });
             }
-            if (busy)
+            if (busy || preparing)
                 return json(res, 409, { error: "a turn is running; wait or stop it" });
             // Commands the page sends as buttons; they run exactly as if typed in the terminal.
             let line = "";
@@ -349,8 +352,19 @@ export async function startStudio(input) {
             }
             if (url.pathname === "/api/prompt" && isTurn) {
                 const images = pastedImages(body.images);
-                const documents = await attachedTexts(pastedDocuments(body.documents));
-                // Reading a PDF takes a moment: another message may have started meanwhile.
+                const pasted = pastedDocuments(body.documents);
+                // Reading PDFs takes a moment: meanwhile other messages get a 409, and Stop ends the read.
+                const reading = new AbortController();
+                preparing = reading;
+                let documents;
+                try {
+                    documents = await attachedTexts(pasted, reading.signal);
+                }
+                finally {
+                    preparing = undefined;
+                }
+                if (reading.signal.aborted)
+                    return json(res, 409, { error: "stopped" });
                 if (busy)
                     return json(res, 409, { error: "a turn is running; wait or stop it" });
                 void run(line, images, documents);
@@ -378,6 +392,7 @@ export async function startStudio(input) {
         state,
         close: () => new Promise((resolve) => {
             turnAbort?.abort();
+            preparing?.abort();
             closeState(state);
             for (const client of clients)
                 client.end();
