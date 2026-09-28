@@ -24,7 +24,7 @@ import { unscoredTurn } from "../router.ts";
 import { sessionDir } from "../session.ts";
 import { realPathOf } from "../rules.ts";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.ts";
-import type { ConfirmFn, GateConfig, JevClient, PermissionMode, Receipt, ToolRecord, TurnEvent } from "../types.ts";
+import type { ConfirmFn, GateConfig, JevClient, ModeSource, Receipt, ToolRecord, TurnEvent } from "../types.ts";
 import type { ImageAttachment } from "../images.ts";
 
 export const CLAUDE_CODE_MODEL = "claude-code";
@@ -121,7 +121,7 @@ type ClaudeTurnInput = {
   /** Plan mode: Claude Code runs with --permission-mode plan, and Aegis refuses every non-read tool. */
   readOnly?: string;
   /** This session's mode (ask, auto, yolo): what "no rule matched" means for Claude Code's tool calls. */
-  mode?: PermissionMode;
+  mode?: ModeSource;
   /** Keep a file before Claude Code changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Extra text for Claude Code's system prompt (your AGENTS.md, memory). */
@@ -242,7 +242,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
       return reply(200, {
         decision: allowed ? "allow" : "deny",
         reason: allowed
-          ? `Aegis: ${run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
+          ? `Aegis: ${run.record.source === "mode" ? `${run.record.mode === "yolo" ? "YOLO" : "auto"} mode` : run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
           : `Aegis denied it: ${run.record.deniedReason ?? "not allowed"}. Do not retry this call.`,
       });
     } catch (error) {

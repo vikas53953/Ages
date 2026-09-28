@@ -209,6 +209,13 @@ export function wantsJev(settings, name, rule) {
     return mode === "every-call" && isMutation(name);
 }
 /** Who set the final action: the rule (unless Jev made it stricter), Jev, or nobody (default ask). */
+/**
+ * Files a mode still asks about when no rule covers them: they are read into every later prompt (AGENTS.md,
+ * HARNESS.md, AGENTS.local.md) or run code without being asked (.envrc, editor tasks, git hooks, CI workflows).
+ */
+export const MODE_ASK = [
+    ...["AGENTS.md", "AGENTS.local.md", "HARNESS.md", ".envrc", ".vscode/*", ".husky/*", ".github/workflows/*"].flatMap((file) => [`write ${file}`, `edit ${file}`]),
+];
 /** Tools the session mode lets run when no rule matched. Ask rules (deletes, memory, .aegis) still ask in any mode. */
 export function modeAllows(mode, name) {
     if (mode === "yolo")
@@ -230,6 +237,7 @@ function decidedBy(ruleAction, jevAction, decision) {
  */
 export async function runGatedTool(input) {
     const target = toolTarget(input.name, input.args);
+    const mode = typeof input.mode === "function" ? input.mode() : input.mode;
     if (input.stop?.reason) {
         const run = denied({ name: input.name, target, reason: input.stop.reason, source: "agreement" });
         run.output = JSON.stringify({ denied: true, reason: input.stop.reason, stopped: true, class: "irreversible" });
@@ -263,6 +271,7 @@ export async function runGatedTool(input) {
         args: input.args,
         cwd: input.cwd,
         readOnly: Boolean(input.readOnly),
+        mode,
         signal: input.abortSignal,
     });
     if (input.abortSignal?.aborted)
@@ -300,10 +309,11 @@ export async function runGatedTool(input) {
     const ruleAction = rule?.action === "allow" ? "auto" : rule?.action === "ask" ? "confirm" : undefined;
     const jevAction = decision ? decideToolAction(decision, input.config) : undefined;
     // With no rule, the session mode may say "run": auto for file changes, yolo for everything.
-    // The floor's ask rules (memory, .aegis, secrets files) are checked again here: a mode never skips them, even
-    // when the settings handed in were built without the floor.
-    const floorAsks = Boolean(!rule && input.mode && input.mode !== "ask" && matchRule({ ...settings, rules: { deny: [], allow: [], ask: FLOOR_ASK } }, input.name, input.args, input.cwd));
-    const modeGrants = !rule && !floorAsks && modeAllows(input.mode, input.name);
+    // A mode never skips the floor's ask rules (memory, .aegis, secrets files; the loaders always add them) nor the
+    // files that steer later turns or run code by themselves (AGENTS.md, .envrc, .vscode, git hooks, CI): with no
+    // rule, those still ask in auto and yolo.
+    const modeAsks = Boolean(!rule && mode && mode !== "ask" && matchRule({ ...settings, rules: { deny: [], allow: [], ask: [...FLOOR_ASK, ...MODE_ASK] } }, input.name, input.args, input.cwd));
+    const modeGrants = !rule && !modeAsks && modeAllows(mode, input.name);
     // Jev counts here only when it really scored: "could not score" asks in ask mode, not in auto or yolo.
     const jevScored = decision && decision.source !== "fail_closed" ? jevAction : undefined;
     // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask.
@@ -336,7 +346,7 @@ export async function runGatedTool(input) {
         approved: false,
         target,
         source: hook && decided !== action ? "hook" : modeGrants && action === "auto" ? "mode" : decidedBy(ruleAction, jevAction, decision),
-        mode: modeGrants && action === "auto" ? input.mode : undefined,
+        mode: modeGrants && action === "auto" ? mode : undefined,
         rule: rule?.rule,
         hook: hook?.hook,
     };

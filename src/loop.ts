@@ -36,7 +36,7 @@ import type {
   GateConfig,
   JevClient,
   JsonObject,
-  PermissionMode,
+  ModeSource,
   Receipt,
   ToolRecord,
   TurnDecision,
@@ -89,7 +89,7 @@ export function createTools(input: {
   /** Plan mode: the reason every non-read tool is refused. */
   readOnly?: string;
   /** This session's mode (ask, auto, yolo): what "no rule matched" means. */
-  mode?: PermissionMode;
+  mode?: ModeSource;
   /** MCP server tools (mcp__server__tool), gated like every other tool. */
   mcpTools?: McpBinding[];
   /** Skills the model may load (names and descriptions are in the system prompt). */
@@ -590,7 +590,7 @@ export async function runLoop(input: {
   checkpoint?: (absolutePath: string) => Promise<void>;
   readOnly?: string;
   /** This session's mode (ask, auto, yolo): what "no rule matched" means. */
-  mode?: PermissionMode;
+  mode?: ModeSource;
   mcpTools?: McpBinding[];
   skills?: SkillEntry[];
   /** Custom agents (yours, and the project's once trusted) the model may hand tasks to. */

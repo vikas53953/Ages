@@ -105,7 +105,8 @@ export function parseLine(line: string): Slash {
     case "mode":
       return { type: "mode", arg: rest[0]?.toLowerCase() };
     case "yolo":
-      return { type: "yolo", arg: rest[0]?.toLowerCase() };
+      // The whole rest of the line: "/yolo yes please …" or a pasted block is not "/yolo yes".
+      return { type: "yolo", arg: rest.join(" ").trim().toLowerCase() || undefined };
     case "rewind":
     case "undo":
       return { type: "rewind", arg: rest[0], what: rest[1]?.toLowerCase() };

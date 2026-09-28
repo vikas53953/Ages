@@ -275,7 +275,7 @@ export async function runPreToolHooks(input) {
     const payload = JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd: input.cwd,
-        permission_mode: input.readOnly ? "plan" : "default",
+        permission_mode: input.readOnly ? "plan" : input.mode === "auto" ? "acceptEdits" : input.mode === "yolo" ? "bypassPermissions" : "default",
         tool_name: claudeToolName(input.name, input.args),
         tool_input: claudeInput(input.args, input.cwd),
         aegis_tool_name: input.name,

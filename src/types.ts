@@ -92,6 +92,8 @@ export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" |
  * In every mode deny rules block and ask rules ask; Jev, when it really scored, can still make a call ask or block.
  */
 export type PermissionMode = "ask" | "auto" | "yolo";
+/** The mode, or how to read it now: a getter makes a switch (yolo off mid-turn) count from the very next call. */
+export type ModeSource = PermissionMode | (() => PermissionMode | undefined);
 
 export type TurnEvent =
   | { type: "accepted" }

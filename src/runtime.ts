@@ -611,7 +611,8 @@ export async function runPrompt(
         abortSignal: opts.abortSignal,
         checkpoint,
         readOnly,
-        mode: state.permissionMode,
+        // Read on each call: /yolo off or shift+tab during a turn counts from the next step.
+        mode: () => state.permissionMode,
         appendSystem:
           [context, memory ? `## Memory\n${MEMORY_NOTE}\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
       })
@@ -641,7 +642,7 @@ export async function runPrompt(
         thinking: thinkingOf(loadedSettings.settings).level,
         checkpoint,
         readOnly,
-        mode: state.permissionMode,
+        mode: () => state.permissionMode,
         mcpTools,
         skills: extensions?.skills,
         agents: extensions?.agents,
@@ -744,6 +745,8 @@ async function handleLineInner(
   }
   if (cmd.type === "new" || cmd.type === "clear") {
     state.planMode = false;
+    // A new conversation starts in ask: a mode is for the conversation you turned it on in.
+    state.permissionMode = "ask";
     for (const plugin of state.plugins) await plugin.onSessionStart?.(state.cwd);
     const session = await createSession(state.cwd);
     state.session = session;
@@ -774,6 +777,7 @@ async function handleLineInner(
     return { output: redactSecrets([...lines, "", "/resume <number> opens one."].join("\n")).text, session: state.session };
   }
   if (cmd.type === "resume") {
+    state.permissionMode = "ask";
     let id = cmd.id;
     // A small number picks from the /sessions list; anything else is an id.
     if (/^\d{1,2}$/.test(id)) {
@@ -913,7 +917,10 @@ async function handleLineInner(
       session: state.session,
     };
   }
-  if (cmd.type === "fork") return forkCommand(state, cmd.arg);
+  if (cmd.type === "fork") {
+    state.permissionMode = "ask";
+    return forkCommand(state, cmd.arg);
+  }
   if (cmd.type === "init") return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
   if (cmd.type === "trust") return { output: trustCommand(state, cmd.action), session: state.session };
   if (cmd.type === "rules") return { output: rulesCommand(state, cmd.arg), session: state.session };

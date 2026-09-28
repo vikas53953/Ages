@@ -202,7 +202,7 @@ export async function runClaudeCodeTurn(input) {
             return reply(200, {
                 decision: allowed ? "allow" : "deny",
                 reason: allowed
-                    ? `Aegis: ${run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
+                    ? `Aegis: ${run.record.source === "mode" ? `${run.record.mode === "yolo" ? "YOLO" : "auto"} mode` : run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
                     : `Aegis denied it: ${run.record.deniedReason ?? "not allowed"}. Do not retry this call.`,
             });
         }

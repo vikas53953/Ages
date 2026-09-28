@@ -102,8 +102,9 @@ export function jevStatus(mockJev, hasKey, healthy) {
     return healthy ? "live" : "down";
 }
 export function footerText(input) {
-    const tag = input.plan ? "PLAN · " : input.mode === "yolo" ? `${paint("err", "YOLO")} · ` : input.mode === "auto" ? "AUTO · " : "";
-    const model = `${tag}${input.modelMode === "auto" ? "auto" : input.model}`;
+    // Mode tags lead the footer (a long path must never push them off), and both show when both are on.
+    const tag = `${input.plan ? "PLAN · " : ""}${input.mode === "yolo" ? `${paint("err", "YOLO")} · ` : input.mode === "auto" ? "AUTO · " : ""}`;
+    const model = input.modelMode === "auto" ? "auto" : input.model;
     const task = `task ${input.task ?? "none"}`;
     const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
     const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
@@ -111,9 +112,9 @@ export function footerText(input) {
         const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));
         const phase = input.phase ?? "working";
         // While busy, what is happening comes first so a narrow terminal never cuts it off.
-        return `${phase}  ${elapsed}s · ${place}${model} · jev ${input.jev}${extra} · ${task}`;
+        return `${tag}${phase}  ${elapsed}s · ${place}${model} · jev ${input.jev}${extra} · ${task}`;
     }
-    return `${place}${model} · jev ${input.jev} · ${input.provider}${extra} · ${task} · idle`;
+    return `${tag}${place}${model} · jev ${input.jev} · ${input.provider}${extra} · ${task} · idle`;
 }
 /** One compact line after each turn, in place of the full handoff card the REPL prints. */
 export function turnStatusLines(receipt) {

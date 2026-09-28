@@ -6,13 +6,13 @@ import { loadConfig } from "../src/config.ts";
 import { modeAllows, runGatedTool } from "../src/gated.ts";
 import { DEFAULT_SETTINGS, type Settings } from "../src/rules.ts";
 import { handleLine, startState } from "../src/runtime.ts";
-import { toolOutcome } from "../src/tui-layout.ts";
+import { footerText, toolOutcome } from "../src/tui-layout.ts";
 import type { JsonObject, PermissionMode, ToolDecision } from "../src/types.ts";
 
 const jevOff = (): Settings => ({ ...structuredClone(DEFAULT_SETTINGS), jev: { mode: "off" } });
 
 /** One call through the lock in a mode: was it asked, did it run, and what does the record say. */
-async function call(name: string, args: JsonObject, mode: PermissionMode | undefined, extra: { settings?: Settings; decision?: ToolDecision } = {}) {
+async function call(name: string, args: JsonObject, mode: PermissionMode | (() => PermissionMode | undefined) | undefined, extra: { settings?: Settings; decision?: ToolDecision } = {}) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-mode-"));
   let asked = false;
   let ran = false;
@@ -105,5 +105,47 @@ describe("approval modes", () => {
     expect(state.permissionMode).toBe("auto");
     // A new session starts in ask.
     expect((await startState(cwd, opts)).permissionMode ?? "ask").toBe("ask");
+  });
+});
+
+describe("approval modes: review fixes", () => {
+  it("files that steer later turns or run code by themselves still ask in auto and yolo", async () => {
+    for (const file of ["AGENTS.md", "AGENTS.local.md", "HARNESS.md", ".envrc", ".vscode/tasks.json", ".husky/pre-commit", ".github/workflows/ci.yml"]) {
+      expect(await call("write", { path: file, contents: "x" }, "yolo"), file).toMatchObject({ asked: true, ran: false });
+      expect(await call("edit", { path: file, old_string: "a", new_string: "b" }, "auto"), file).toMatchObject({ asked: true, ran: false });
+    }
+    expect(await call("write", { path: "src/App.jsx", contents: "x" }, "auto")).toMatchObject({ asked: false, ran: true });
+  });
+
+  it("the mode is read on every call: turning yolo off counts from the next step", async () => {
+    let mode: PermissionMode = "yolo";
+    const live = () => mode;
+    expect(await call("webfetch", { url: "https://example.com" }, live)).toMatchObject({ asked: false, ran: true });
+    mode = "ask";
+    expect(await call("webfetch", { url: "https://example.com" }, live)).toMatchObject({ asked: true, ran: false });
+  });
+
+  it("only an exact /yolo yes turns it on; a new, resumed or forked conversation starts in ask", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-mode-exact-"));
+    const opts = { mockJev: true, yes: false, local: true };
+    const state = await startState(cwd, opts);
+    for (const line of ["/yolo yes please", "/yolo yes\nnow summarise the repo", "/yolo y"]) {
+      expect((await handleLine(line, state, opts)).output).toContain("Type /yolo yes");
+      expect(state.permissionMode ?? "ask").toBe("ask");
+    }
+    await handleLine("/yolo yes", state, opts);
+    expect(state.permissionMode).toBe("yolo");
+    await handleLine("/new", state, opts);
+    expect(state.permissionMode).toBe("ask");
+    await handleLine("/mode auto", state, opts);
+    await handleLine("/fork", state, opts);
+    expect(state.permissionMode).toBe("ask");
+  });
+
+  it("the footer leads with the mode tags, both when plan and yolo are on", () => {
+    const text = footerText({ modelMode: "auto", model: "auto", jev: "off", provider: "local", plan: true, mode: "yolo", cwd: "C:/a/very/long/path/that/goes/on" });
+    const plain = text.replace(/\x1b\[[\d;]*m/g, "");
+    expect(plain.startsWith("PLAN · YOLO · C:/a/very/long")).toBe(true);
+    expect(footerText({ modelMode: "auto", model: "auto", jev: "off", provider: "local", mode: "auto" }).startsWith("AUTO · ")).toBe(true);
   });
 });
