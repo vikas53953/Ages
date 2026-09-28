@@ -6,12 +6,13 @@ import { loadHooks, runPostToolHooks, runPreToolHooks, type HookConfig } from ".
 import { decideToolAction, stricter } from "./policy.ts";
 import { raceAbort, waitForAbort } from "./abort.ts";
 import type { ToolGuard } from "./plugin-api.ts";
-import { isMutation, loadSettingsSafe, matchRule, saveAllowRule, suggestAllowRule, type RuleMatch, type Settings } from "./rules.ts";
+import { FLOOR_ASK, isMutation, loadSettingsSafe, matchRule, saveAllowRule, suggestAllowRule, type RuleMatch, type Settings } from "./rules.ts";
 import type {
   ConfirmFn,
   GateConfig,
   JevClient,
   JsonObject,
+  PermissionMode,
   PolicyAction,
   ToolDecision,
   ToolRecord,
@@ -227,6 +228,13 @@ export function wantsJev(settings: Settings, name: string, rule: RuleMatch | und
 }
 
 /** Who set the final action: the rule (unless Jev made it stricter), Jev, or nobody (default ask). */
+/** Tools the session mode lets run when no rule matched. Ask rules (deletes, memory, .aegis) still ask in any mode. */
+export function modeAllows(mode: PermissionMode | undefined, name: string) {
+  if (mode === "yolo") return true;
+  if (mode === "auto") return name === "write" || name === "edit";
+  return false;
+}
+
 function decidedBy(
   ruleAction: PolicyAction | undefined,
   jevAction: PolicyAction | undefined,
@@ -264,6 +272,8 @@ export async function runGatedTool(input: {
   hooks?: HookConfig;
   /** Folder whose .aegis/settings.json receives "always allow" rules (the project, even when tools run elsewhere). */
   settingsCwd?: string;
+  /** This session's mode: what happens when no rule matched (default ask). */
+  mode?: PermissionMode;
 }): Promise<GatedRun> {
   const target = toolTarget(input.name, input.args);
   if (input.stop?.reason) {
@@ -344,12 +354,25 @@ export async function runGatedTool(input: {
   const ruleAction: PolicyAction | undefined =
     rule?.action === "allow" ? "auto" : rule?.action === "ask" ? "confirm" : undefined;
   const jevAction = decision ? decideToolAction(decision, input.config) : undefined;
-  // A rule decides; Jev may only make it stricter. No rule and no Jev: ask.
+  // With no rule, the session mode may say "run": auto for file changes, yolo for everything.
+  // The floor's ask rules (memory, .aegis, secrets files) are checked again here: a mode never skips them, even
+  // when the settings handed in were built without the floor.
+  const floorAsks = Boolean(
+    !rule && input.mode && input.mode !== "ask" && matchRule({ ...settings, rules: { deny: [], allow: [], ask: FLOOR_ASK } }, input.name, input.args, input.cwd),
+  );
+  const modeGrants = !rule && !floorAsks && modeAllows(input.mode, input.name);
+  // Jev counts here only when it really scored: "could not score" asks in ask mode, not in auto or yolo.
+  const jevScored = decision && decision.source !== "fail_closed" ? jevAction : undefined;
+  // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask.
   const decided: PolicyAction = ruleAction
     ? jevAction
       ? stricter(ruleAction, jevAction)
       : ruleAction
-    : (jevAction ?? "confirm");
+    : modeGrants
+      ? jevScored
+        ? stricter("auto", jevScored)
+        : "auto"
+      : (jevAction ?? "confirm");
   const action: PolicyAction = hook ? stricter(decided, "confirm") : decided;
 
   const why = [
@@ -371,7 +394,8 @@ export async function runGatedTool(input: {
     action,
     approved: false,
     target,
-    source: hook && decided !== action ? "hook" : decidedBy(ruleAction, jevAction, decision),
+    source: hook && decided !== action ? "hook" : modeGrants && action === "auto" ? "mode" : decidedBy(ruleAction, jevAction, decision),
+    mode: modeGrants && action === "auto" ? input.mode : undefined,
     rule: rule?.rule,
     hook: hook?.hook,
   };

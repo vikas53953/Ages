@@ -24,7 +24,7 @@ import { unscoredTurn } from "../router.ts";
 import { sessionDir } from "../session.ts";
 import { realPathOf } from "../rules.ts";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.ts";
-import type { ConfirmFn, GateConfig, JevClient, Receipt, ToolRecord, TurnEvent } from "../types.ts";
+import type { ConfirmFn, GateConfig, JevClient, PermissionMode, Receipt, ToolRecord, TurnEvent } from "../types.ts";
 import type { ImageAttachment } from "../images.ts";
 
 export const CLAUDE_CODE_MODEL = "claude-code";
@@ -120,6 +120,8 @@ type ClaudeTurnInput = {
   abortSignal?: AbortSignal;
   /** Plan mode: Claude Code runs with --permission-mode plan, and Aegis refuses every non-read tool. */
   readOnly?: string;
+  /** This session's mode (ask, auto, yolo): what "no rule matched" means for Claude Code's tool calls. */
+  mode?: PermissionMode;
   /** Keep a file before Claude Code changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Extra text for Claude Code's system prompt (your AGENTS.md, memory). */
@@ -227,6 +229,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
         onEvent: input.onEvent,
         guards,
         readOnly: input.readOnly,
+        mode: input.mode,
         // Claude Code runs the tool itself once Aegis says yes.
         execute: async () => "allowed",
       });

@@ -189,6 +189,7 @@ export async function runClaudeCodeTurn(input) {
                 onEvent: input.onEvent,
                 guards,
                 readOnly: input.readOnly,
+                mode: input.mode,
                 // Claude Code runs the tool itself once Aegis says yes.
                 execute: async () => "allowed",
             });

@@ -2,7 +2,7 @@ import path from "node:path";
 import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, truncateToWidth, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
-import { closeState, currentTodos, extensionHelp, handleLine, modelChoices, startState, welcomeInfo } from "./runtime.js";
+import { closeState, currentTodos, extensionHelp, handleLine, modelChoices, MODE_TEXT, startState, welcomeInfo } from "./runtime.js";
 import { todoLines } from "./todos.js";
 import { loadSettingsSafe, saveThinking, thinkingOf } from "./rules.js";
 import { formatTokenLine } from "./receipt.js";
@@ -184,6 +184,7 @@ export async function createTuiApp(opts, input = {}) {
             tokens: formatTokenLine(state.sessionTokens),
             context: state.contextPercent,
             plan: state.planMode,
+            mode: state.permissionMode,
         }));
     };
     const paintTranscript = () => {
@@ -632,10 +633,28 @@ export async function createTuiApp(opts, input = {}) {
             }
             return { consume: true };
         }
-        // shift+tab turns plan mode on or off (read-only until /plan go).
+        // shift+tab cycles like Claude Code: ask → auto (file changes run) → plan (read-only) → ask.
+        // YOLO is never in the cycle (/yolo yes only); from YOLO, shift+tab goes back to ask.
         if (matchesKey(data, Key.shift("tab")) && !overlay) {
-            state.planMode = !state.planMode;
-            add("system", state.planMode ? "plan mode on: read and search only · /plan go carries it out · shift+tab leaves" : "plan mode off");
+            const mode = state.permissionMode ?? "ask";
+            if (state.planMode) {
+                state.planMode = false;
+                state.permissionMode = "ask";
+                add("system", `plan mode off · mode ask: ${MODE_TEXT.ask}`);
+            }
+            else if (mode === "ask") {
+                state.permissionMode = "auto";
+                add("system", `mode auto: ${MODE_TEXT.auto} · shift+tab for plan mode`);
+            }
+            else if (mode === "auto") {
+                state.permissionMode = "ask";
+                state.planMode = true;
+                add("system", "plan mode on: read and search only · /plan go carries it out · shift+tab leaves");
+            }
+            else {
+                state.permissionMode = "ask";
+                add("system", `yolo off · mode ask: ${MODE_TEXT.ask}`);
+            }
             paintFooter();
             tui.requestRender();
             return { consume: true };

@@ -144,10 +144,13 @@ export function footerText(input: {
   tokens?: string;
   /** Plan mode is on: read-only until you approve. */
   plan?: boolean;
+  /** The session's mode: "AUTO" or a red "YOLO" leads the footer (ask is the quiet default). */
+  mode?: "ask" | "auto" | "yolo";
   /** Conversation size as a % of the auto-compaction limit. */
   context?: number;
 }): string {
-  const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
+  const tag = input.plan ? "PLAN · " : input.mode === "yolo" ? `${paint("err", "YOLO")} · ` : input.mode === "auto" ? "AUTO · " : "";
+  const model = `${tag}${input.modelMode === "auto" ? "auto" : input.model}`;
   const task = `task ${input.task ?? "none"}`;
   const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
   const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
@@ -208,6 +211,9 @@ export function toolOutcome(record: ToolRecord) {
     return `Not allowed: ${reason || "no reason given"}`;
   }
   const parts = [record.summary ?? "Done"];
+  // Ran without a question because of the session mode: said once per line, so it is never silent.
+  if (record.mode === "auto") parts.push("auto mode");
+  else if (record.mode === "yolo") parts.push("YOLO");
   if (record.savedRule) parts.push(`won't ask again (${record.savedRule})`);
   else if (record.saveFailed) parts.push(`rule not saved: ${record.saveFailed}`);
   if (record.via) parts.push(`by agent ${record.via}`);

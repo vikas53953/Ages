@@ -102,7 +102,8 @@ export function jevStatus(mockJev, hasKey, healthy) {
     return healthy ? "live" : "down";
 }
 export function footerText(input) {
-    const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
+    const tag = input.plan ? "PLAN · " : input.mode === "yolo" ? `${paint("err", "YOLO")} · ` : input.mode === "auto" ? "AUTO · " : "";
+    const model = `${tag}${input.modelMode === "auto" ? "auto" : input.model}`;
     const task = `task ${input.task ?? "none"}`;
     const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
     const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
@@ -157,6 +158,11 @@ export function toolOutcome(record) {
         return `Not allowed: ${reason || "no reason given"}`;
     }
     const parts = [record.summary ?? "Done"];
+    // Ran without a question because of the session mode: said once per line, so it is never silent.
+    if (record.mode === "auto")
+        parts.push("auto mode");
+    else if (record.mode === "yolo")
+        parts.push("YOLO");
     if (record.savedRule)
         parts.push(`won't ask again (${record.savedRule})`);
     else if (record.saveFailed)
