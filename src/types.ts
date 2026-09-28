@@ -74,6 +74,8 @@ export type ConfirmOptions = {
   tool?: string;
   target?: string;
   why?: string;
+  /** The question as a card (the terminal draws it like Claude Code); the plain question text is the fallback. */
+  card?: import("./confirm-card.ts").ConfirmCard;
 };
 /** true = yes this once, false = no, "always" = yes and save the offered allow rule. */
 export type ConfirmAnswer = boolean | "always";
@@ -91,6 +93,8 @@ export type TurnEvent =
   | { type: "route"; model: string; reason: string }
   | { type: "waiting_model" }
   | { type: "tool_start"; name: string; target?: string }
+  /** A tool call the model is still writing (e.g. a big file): what has arrived so far. Display only. */
+  | { type: "tool_input"; id: string; name: string; path?: string; chars: number; lines: number; tail: string[] }
   | { type: "awaiting_approval"; name: string; target?: string }
   | { type: "tool"; record: ToolRecord }
   | { type: "text_delta"; text: string }
@@ -122,6 +126,12 @@ export type ToolRecord = {
   redacted?: number;
   /** Set when you chose "always" but the rule could not be saved (the call still ran once). */
   saveFailed?: string;
+  /** What happened, in plain words, for the transcript: "Created · 381 lines", "12 files". */
+  summary?: string;
+  /** A write that made a new file (not one that replaced a file). */
+  created?: boolean;
+  /** A few lines to show under the summary (the start of a new file), secrets cut. */
+  preview?: string[];
 };
 
 export type Receipt = {

@@ -34,7 +34,7 @@ import { docxText, looksLikePdf, MAX_DOCX_BYTES, MAX_PDF_BYTES, pdfText } from "
 
 export type StudioEvent =
   | { kind: "event"; event: TurnEvent }
-  | { kind: "approval"; id: number; question: string; options?: ConfirmOptions }
+  | { kind: "approval"; id: number; question: string; options?: Omit<ConfirmOptions, "card"> }
   | { kind: "approval_done"; id: number; answer: ConfirmAnswer }
   | { kind: "started"; text: string }
   | {
@@ -210,9 +210,11 @@ export async function startStudio(input: {
         send({ kind: "approval_done", id, answer });
         resolve(answer);
       };
-      pending.set(id, { resolve: finish, question, options });
+      // The page draws its own card from the question and these facts; the terminal's card (the whole file) stays here.
+      const { card: _card, ...shown } = options ?? {};
+      pending.set(id, { resolve: finish, question, options: shown });
       turnAbort?.signal.addEventListener("abort", () => finish(false), { once: true });
-      send({ kind: "approval", id, question, options });
+      send({ kind: "approval", id, question, options: shown });
     });
 
   const run = async (text: string, images?: ImageAttachment[], documents?: Array<{ name: string; text: string }>): Promise<HandleResult | undefined> => {
@@ -225,7 +227,8 @@ export async function startStudio(input: {
         state,
         { ...input.opts, abortSignal: turnAbort.signal, images, documents },
         confirm,
-        (event) => send({ kind: "event", event }),
+        // tool_input (a call still being written) is shown live in the terminal only, for now.
+        (event) => (event.type === "tool_input" ? undefined : send({ kind: "event", event })),
       );
       const receipt = result.receipt;
       send({

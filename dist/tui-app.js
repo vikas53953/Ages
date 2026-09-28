@@ -1,3 +1,4 @@
+import path from "node:path";
 import { CombinedAutocompleteProvider, Editor, getKeybindings, isViewportTUI, Key, Markdown, matchesKey, ProcessTerminal, ScrollView, truncateToWidth, Text, TuiAltScreen, VStack, } from "@earendil-works/pi-tui";
 import { HELP, slashCommandsFromHelp } from "./commands.js";
 import { serializeConfirm } from "./confirm-queue.js";
@@ -12,7 +13,7 @@ import { redactLogin } from "./login.js";
 import { loadMessages, messageText } from "./session.js";
 import { ConfirmBox } from "./tui-confirm.js";
 import { MemoryTerminal } from "./tui-memory.js";
-import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, turnStatusLines, } from "./tui-layout.js";
+import { footerText, renderSystemMessage, renderThinking, renderToolLine, renderUserMessage, sanitizeText, formatDuration, oneLine, toolOutcome, toolTitle, turnEndLines, } from "./tui-layout.js";
 import { loadBell, shouldRing } from "./bell.js";
 import { cachedGitBranch } from "./git-head.js";
 const dim = (text) => paint("dim", text);
@@ -133,11 +134,16 @@ export async function createTuiApp(opts, input = {}) {
     let busy = false;
     let alive = true;
     let phase = "idle";
+    /** You answered No: stop the turn when the lock reports that call, then wait for what to do instead. */
+    let stopAfterNo = false;
+    /** A detail after the time on the working line: how much of a file has been written so far. */
+    let phaseNote = "";
     let turnStarted = 0;
     let elapsedTimer;
     let streamAt;
     let turnAbort = new AbortController();
     let overlay;
+    let confirmBox;
     const pendingConfirms = [];
     let closed = () => { };
     const finished = new Promise((resolve) => {
@@ -150,7 +156,8 @@ export async function createTuiApp(opts, input = {}) {
         if (busy) {
             const seconds = Math.max(0, Math.floor((Date.now() - turnStarted) / 1000));
             const frame = SPINNER[spin++ % SPINNER.length];
-            status.setText(`${paint("accent", frame ?? "")} ${phase}… ${paint("dim", `${seconds}s · esc to stop`)}`);
+            // The phase can hold a path the model wrote: drawn as clean text.
+            status.setText(`${paint("accent", frame ?? "")} ${oneLine(phase)}… ${paint("dim", `${seconds}s${phaseNote ? ` · ${phaseNote}` : ""} · esc to stop`)}`);
         }
         else if (exitArmedAt && Date.now() - exitArmedAt < 1500) {
             status.setText(paint("dim", "Press ctrl+c again to exit"));
@@ -168,7 +175,7 @@ export async function createTuiApp(opts, input = {}) {
             jev: state.jevHealth,
             provider: state.provider,
             busy,
-            phase: busy ? phase : undefined,
+            phase: busy ? oneLine(phase) : undefined,
             elapsedMs: busy && turnStarted ? Date.now() - turnStarted : 0,
             task: state.taskPermission,
             cwd: shortPath(cwd, Math.max(12, Math.floor(terminal.columns / 4))),
@@ -192,7 +199,10 @@ export async function createTuiApp(opts, input = {}) {
                 lines.push(...shown);
             }
             else if (item.role === "tool")
-                lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail }, width));
+                lines.push(...renderToolLine({ text: item.text, status: item.status ?? "pending", detail: item.detail, body: item.body }, width));
+            // The end of a turn is built here (not sanitized): its file paths are clickable links.
+            else if (item.role === "end")
+                lines.push(...item.text.split("\n"));
             else if (item.role === "assistant")
                 lines.push(...new Markdown(item.text, 2, 0, markdownTheme()).render(width));
             else
@@ -230,6 +240,13 @@ export async function createTuiApp(opts, input = {}) {
             terminal.write("\x07");
     };
     const confirm = serializeConfirm((question, options) => new Promise((resolve) => {
+        // A question from a turn that was already stopped (a parallel call, queued behind the one you said No to)
+        // is answered No at once: it must not wait on screen, or hold up the next turn.
+        const turn = turnAbort;
+        if (turn.signal.aborted) {
+            resolve(false);
+            return;
+        }
         lastConfirm = question;
         overlay?.hide();
         let settled = false;
@@ -240,6 +257,7 @@ export async function createTuiApp(opts, input = {}) {
             const at = pendingConfirms.indexOf(finish);
             if (at >= 0)
                 pendingConfirms.splice(at, 1);
+            confirmBox = undefined;
             overlay?.hide();
             overlay = undefined;
             editor.disableSubmit = false;
@@ -250,11 +268,21 @@ export async function createTuiApp(opts, input = {}) {
         pendingConfirms.push(finish);
         ring("ask");
         editor.disableSubmit = true;
-        overlay = tui.showOverlay(new ConfirmBox(question, finish, terminal.rows, options?.always), {
+        // Your "No" (not a Stop or an exit, which also answer No): the turn stops once the lock has recorded it,
+        // so you can say what to do instead, as in Claude Code.
+        const answered = (ok) => {
+            // Only for the turn that asked (a late answer to an old question must not stop a new turn).
+            if (ok === false && busy && turn === turnAbort && !turn.signal.aborted)
+                stopAfterNo = true;
+            finish(ok);
+        };
+        // Full width: the card is a box of its own, and nothing from the chat behind it shows at its edges.
+        confirmBox = new ConfirmBox(question, answered, () => terminal.rows, options?.always, options?.card);
+        overlay = tui.showOverlay(confirmBox, {
             anchor: "bottom-center",
-            width: "96%",
+            width: "100%",
             maxHeight: "80%",
-            margin: 1,
+            margin: options?.card ? 0 : 1,
         });
         tui.requestRender();
     }));
@@ -310,6 +338,8 @@ export async function createTuiApp(opts, input = {}) {
         tui.requestRender();
     };
     const applyEvent = (event) => {
+        if (event.type !== "tool_input")
+            phaseNote = "";
         if (event.type === "todos") {
             showTodos(event.todos);
             return;
@@ -336,6 +366,26 @@ export async function createTuiApp(opts, input = {}) {
             phase = "waiting for model";
             return;
         }
+        if (event.type === "tool_input") {
+            // The model is still writing this call (Pi shows it live): the file grows on screen instead of minutes of nothing.
+            const key = `draft\u0000${event.id}`;
+            let item = log.find((row) => row.role === "tool" && row.key === key);
+            if (!item) {
+                endThinking();
+                streamAt = undefined;
+                item = { role: "tool", name: event.name, text: toolTitle(event.name), status: "drafting", key };
+                log.push(item);
+            }
+            if (event.path)
+                item.text = toolTitle(event.name, event.path);
+            const size = event.chars >= 1024 ? `${(event.chars / 1024).toFixed(1)} KB` : `${event.chars} chars`;
+            item.detail = event.lines ? `writing… ${event.lines} line${event.lines === 1 ? "" : "s"} · ${size} so far` : `writing… ${size} so far`;
+            item.body = event.tail;
+            phase = `Writing ${event.path ? path.basename(event.path) : event.name}`;
+            phaseNote = size;
+            paintTranscript();
+            return;
+        }
         if (event.type === "tool_start") {
             const verb = event.name === "read"
                 ? "reading"
@@ -349,12 +399,15 @@ export async function createTuiApp(opts, input = {}) {
             phase = event.target ? `${verb} ${event.target}` : verb;
             endThinking();
             streamAt = undefined; // text after a tool starts a new answer block
-            log.push({
-                role: "tool",
-                text: `${event.name}${event.target ? ` ${event.target}` : ""}`,
-                status: "pending",
-                key: `${event.name}\u0000${event.target ?? ""}`,
-            });
+            const key = `${event.name}\u0000${event.target ?? ""}`;
+            // The call that was being written live becomes this line, in the same place: the draft for this path first.
+            const text = toolTitle(event.name, event.target);
+            const drafts = log.filter((row) => row.role === "tool" && row.status === "drafting" && row.name === event.name);
+            const draft = drafts.find((row) => row.text === text) ?? drafts[0];
+            if (draft)
+                Object.assign(draft, { text, status: "pending", key, detail: undefined, body: undefined });
+            else
+                log.push({ role: "tool", name: event.name, text, status: "pending", key });
             paintTranscript();
             return;
         }
@@ -363,23 +416,33 @@ export async function createTuiApp(opts, input = {}) {
             return;
         }
         if (event.type === "tool") {
+            // The answer is in: the model works on (the status must not stay on "waiting for your y/N").
+            phase = "waiting for model";
             const record = event.record;
             const key = `${record.name}\u0000${record.target ?? ""}`;
             const item = [...log].reverse().find((row) => row.role === "tool" && row.status === "pending" && row.key === key);
-            const decidedBy = `${record.via ? `agent ${record.via} · ` : ""}${record.rule ? `rule ${record.rule}` : record.source === "default" ? "you" : `${record.source ?? "jev"}`}`;
-            const detail = record.approved
-                ? record.savedRule
-                    ? `you: always allow · saved rule ${record.savedRule}`
-                    : record.saveFailed
-                        ? `you said yes · rule not saved (${record.saveFailed})`
-                        : `${record.action === "confirm" ? "you said yes" : "auto"} · ${decidedBy}`
-                : `denied · ${record.deniedReason ?? "no reason"}`;
+            if (stopAfterNo && !record.approved) {
+                stopAfterNo = false;
+                turnAbort.abort();
+                // Any other question of this turn (a parallel call) is answered No and closed.
+                denyWaiters();
+                // Like esc: messages typed meanwhile go back into the editor, to send (or change) after you say what to do.
+                if (queued.length) {
+                    const draft = editor.getText().trim();
+                    editor.setText([...queued.splice(0), draft].filter(Boolean).join("\n"));
+                    showQueue();
+                }
+                add("system", "Stopped because you said no. Tell Aegis what to do instead.");
+            }
+            const detail = toolOutcome(record);
+            const body = record.approved ? record.preview : undefined;
             if (item) {
                 item.status = record.approved ? "ran" : "denied";
                 item.detail = detail;
+                item.body = body;
             }
             else {
-                log.push({ role: "tool", text: `${record.name}${record.target ? ` ${record.target}` : ""}`, status: record.approved ? "ran" : "denied", detail });
+                log.push({ role: "tool", name: record.name, text: toolTitle(record.name, record.target), status: record.approved ? "ran" : "denied", detail, body });
             }
             if (!record.approved && record.source === "agreement")
                 phase = "blocked";
@@ -455,6 +518,7 @@ export async function createTuiApp(opts, input = {}) {
         editor.addToHistory(redactLogin(text));
         add("user", redactLogin(text));
         turnAbort = new AbortController();
+        stopAfterNo = false;
         phase = "evaluating";
         streamAt = undefined;
         streamedThisTurn = false;
@@ -466,6 +530,10 @@ export async function createTuiApp(opts, input = {}) {
                 tui.requestRender();
             });
             endThinking();
+            // A call the model started writing but never sent (stopped, or a broken call) leaves no line behind.
+            for (let at = log.length - 1; at >= 0; at--)
+                if (log[at].status === "drafting")
+                    log.splice(at, 1);
             await applyChat(result);
             if (text.startsWith("/")) {
                 refreshThinking();
@@ -482,7 +550,8 @@ export async function createTuiApp(opts, input = {}) {
                 // Streamed text is already on screen, block by block around the tool lines.
                 if (!streamedThisTurn)
                     add("assistant", (result.receipt.answer ?? "").trim() || result.receipt.text);
-                add("system", turnStatusLines(result.receipt).join("\n"));
+                log.push({ role: "end", text: turnEndLines(result.receipt, cwd).join("\n") });
+                paintTranscript();
             }
             else if (result.output)
                 add("system", result.output);
@@ -493,11 +562,16 @@ export async function createTuiApp(opts, input = {}) {
             }
         }
         catch (error) {
-            add("system", turnAbort.signal.aborted
-                ? "cancelled"
-                : error instanceof Error
-                    ? error.message
-                    : String(error));
+            for (let at = log.length - 1; at >= 0; at--)
+                if (log[at].status === "drafting")
+                    log.splice(at, 1);
+            if (turnAbort.signal.aborted) {
+                // The same ending as a finished turn, so a stop reads as a stop, not an error.
+                log.push({ role: "end", text: `  ${paint("err", "✗")} Stopped after ${formatDuration(Date.now() - (turnStarted || Date.now()))}` });
+                paintTranscript();
+            }
+            else
+                add("system", error instanceof Error ? error.message : String(error));
         }
         finally {
             // Read before setBusy clears it: a long turn rings when it ends (you may be in another window).
@@ -506,6 +580,7 @@ export async function createTuiApp(opts, input = {}) {
                 ring("done", Date.now() - turnStarted);
             if (alive)
                 setBusy(false);
+            stopAfterNo = false;
             // The next queued message, if any (after this turn fully settled).
             const next = alive && !turnAbort.signal.aborted ? queued.shift() : undefined;
             showQueue();
@@ -618,6 +693,9 @@ export async function createTuiApp(opts, input = {}) {
         lines: () => tui.render(terminal.columns).map((line) => sanitizeText(line)),
         messages: () => log.map((item) => item.text),
         confirmText: () => lastConfirm,
+        transcriptText: () => sanitizeText(transcript.render(Math.max(20, terminal.columns)).join("\n")),
+        statusText: () => sanitizeText(status.render(Math.max(20, terminal.columns)).join("\n")),
+        confirmBoxText: () => sanitizeText(confirmBox?.render(terminal.columns).join("\n") ?? ""),
         finished,
     };
 }

@@ -7,7 +7,7 @@ import { MemoryTerminal } from "../src/tui-memory.ts";
 import { handleLine, jevHealthFromReceipt, startState, type HandleResult } from "../src/runtime.ts";
 import type { Receipt } from "../src/types.ts";
 import { createSession, appendMessage } from "../src/session.ts";
-import { ConfirmBox } from "../src/tui-confirm.ts";
+import { CONFIRM_ARM_MS, ConfirmBox } from "../src/tui-confirm.ts";
 
 async function waitFor(app: TuiApp, needle: string, ms = 4000) {
   const started = Date.now();
@@ -135,9 +135,13 @@ describe("TUI app", () => {
     app.feed("g");
     app.feed("o");
     app.feed("\r");
+    // Keys in the question's first 400 ms are ignored (typed for the chat, not for it).
+    const armed = () => new Promise((resolve) => setTimeout(resolve, CONFIRM_ARM_MS + 50));
     await waitFor(app, "secret-body");
+    await armed();
     app.feed("\r");
     await waitFor(app, "other.txt");
+    await armed();
     app.feed("y");
     const text = await waitFor(app, "done:false,true");
     expect(text).toContain("done:false,true");
@@ -251,7 +255,7 @@ describe("TUI app", () => {
 describe("ConfirmBox", () => {
   it("ignores pasted blobs and treats Enter as No", () => {
     const seen: Array<boolean | "always"> = [];
-    const box = new ConfirmBox("Aegis: write\n  path: x", (ok) => seen.push(ok));
+    const box = new ConfirmBox("Aegis: write\n  path: x", (ok) => seen.push(ok), 24, undefined, undefined, 0);
     box.handleInput("\x1b[200~y\ny\x1b[201~");
     expect(seen).toEqual([]);
     box.handleInput("\r");
@@ -260,7 +264,7 @@ describe("ConfirmBox", () => {
 
   it("keeps a long payload inspectable by scrolling", () => {
     const payload = `HEAD${"m".repeat(400)}TAIL`;
-    const box = new ConfirmBox(`Aegis: write\n  contents: ${payload}`, () => undefined, 12);
+    const box = new ConfirmBox(`Aegis: write\n  contents: ${payload}`, () => undefined, 12, undefined, undefined, 0);
     const first = box.render(28).join("\n");
     expect(first).toContain("HEAD");
     expect(first).not.toContain("TAIL");

@@ -1,5 +1,6 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { confirmCard } from "./confirm-card.js";
 import { redactSecrets } from "./redact.js";
 import { loadHooks, runPostToolHooks, runPreToolHooks } from "./hooks.js";
 import { decideToolAction, stricter } from "./policy.js";
@@ -58,6 +59,21 @@ function existingText(cwd, file) {
     }
     catch {
         return undefined;
+    }
+}
+/**
+ * Whether something is already at the path a write targets. Separate from existingText, which also gives nothing
+ * for a file too big or unreadable to preview: such a write is an overwrite, never "a new file".
+ */
+function pathExists(cwd, file) {
+    if (typeof file !== "string" || !file)
+        return false;
+    try {
+        lstatSync(path.resolve(cwd, file));
+        return true;
+    }
+    catch {
+        return false;
     }
 }
 /** One change of a multi-edit in the question: long ones are cut, and say so. */
@@ -119,7 +135,7 @@ export function formatConfirm(name, args, decision, why, existing) {
 function unscoredClass(name) {
     return isMutation(name) ? "irreversible" : "read_only";
 }
-function cancelled(decision, name) {
+function cancelled(decision, name, target) {
     const toolClass = decision?.class ?? unscoredClass(name);
     const record = {
         name,
@@ -130,6 +146,8 @@ function cancelled(decision, name) {
         approved: false,
         deniedReason: "cancelled",
         source: decision?.source ?? "default",
+        // So the terminal can mark this call's own line "Stopped" (two calls asked at once).
+        target,
     };
     return {
         output: JSON.stringify({
@@ -210,7 +228,7 @@ export async function runGatedTool(input) {
         return run;
     }
     if (input.abortSignal?.aborted) {
-        return cancelled(undefined, input.name);
+        return cancelled(undefined, input.name, target);
     }
     if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
         return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
@@ -240,7 +258,7 @@ export async function runGatedTool(input) {
         signal: input.abortSignal,
     });
     if (input.abortSignal?.aborted)
-        return cancelled(undefined, input.name);
+        return cancelled(undefined, input.name, target);
     if (hook?.action === "deny") {
         const run = denied({ name: input.name, target, reason: `hook: ${hook.reason}`, source: "hook" });
         run.record.hook = hook.hook;
@@ -267,7 +285,7 @@ export async function runGatedTool(input) {
         }, input.abortSignal)
             .then((scored) => ({ kind: "decision", decision: scored })), input.abortSignal, () => ({ kind: "abort" }));
         if (evaluation.kind === "abort" || input.abortSignal?.aborted) {
-            return cancelled(undefined, input.name);
+            return cancelled(undefined, input.name, target);
         }
         decision = evaluation.decision;
     }
@@ -311,14 +329,16 @@ export async function runGatedTool(input) {
         const always = loaded.error || !sameRoot || hook ? undefined : suggestAllowRule(input.name, input.args, rule, input.cwd);
         const existing = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
         const prompt = formatConfirm(input.name, input.args, decision, why, existing);
+        const exists = input.name === "write" && pathExists(input.cwd, input.args.path);
+        const card = confirmCard({ name: input.name, args: input.args, existing, exists, decision, rule, hook, settingsError: loaded.error });
         const raced = await Promise.race([
             input
-                .confirm(prompt, { always, tool: input.name, target, why })
+                .confirm(prompt, { always, tool: input.name, target, why, card })
                 .then((ok) => ({ kind: "answer", ok })),
             waitForAbort(input.abortSignal).then(() => ({ kind: "abort" })),
         ]);
         if (raced.kind === "abort" || input.abortSignal?.aborted) {
-            return cancelled(decision, input.name);
+            return cancelled(decision, input.name, target);
         }
         if (raced.ok === "always" && always) {
             // Save it so the lock learns: next time this call is allowed by your rule, without asking.
@@ -348,15 +368,60 @@ export async function runGatedTool(input) {
         }
     }
     if (input.abortSignal?.aborted) {
-        return cancelled(decision, input.name);
+        return cancelled(decision, input.name, target);
     }
     record.approved = true;
+    // Read before the write replaces it: "Created" and "Replaced 12 → 40 lines" need the old file.
+    const before = input.name === "write" ? existingText(input.cwd, input.args.path) : undefined;
+    const existed = input.name === "write" && pathExists(input.cwd, input.args.path);
     let output = await input.execute();
+    Object.assign(record, describeResult(input.name, input.args, output, before, input.cwd, existed));
     // Your PostToolUse hooks (a linter, a secret scanner) see the result; what they report goes back with it.
     const notes = await runPostToolHooks({ config: hookConfig, name: input.name, args: input.args, output, cwd: input.cwd, signal: input.abortSignal });
     if (notes.length)
         output = `${output}\n${notes.join("\n")}`;
     return { output: redacted(output, record), record, decision };
+}
+const countLines = (text) => (text ? text.replace(/\n$/, "").split("\n").length : 0);
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+/** What a tool did, in plain words, for the transcript line under it (like Claude Code's "Wrote 381 lines"). */
+export function describeResult(name, args, output, before, cwd, 
+/** Something was at the path before (even when too big or unreadable to read into `before`). */
+existed = before !== undefined) {
+    if (name === "write") {
+        const contents = String(args.contents ?? "");
+        const lines = countLines(contents);
+        const preview = contents.split("\n").slice(0, 3).map((line) => redactSecrets(line).text);
+        if (!existed)
+            return { summary: `Created · ${plural(lines, "line")}`, created: true, preview };
+        if (before === undefined)
+            return { summary: `Replaced · now ${plural(lines, "line")}`, preview };
+        return { summary: `Replaced · ${countLines(before)} → ${plural(lines, "line")}`, preview };
+    }
+    if (name === "edit") {
+        const changes = args.edits !== undefined ? (editList(args.edits)?.length ?? 1) : 1;
+        return { summary: `Edited · ${plural(changes, "change")}` };
+    }
+    if (name === "read") {
+        let folder = false;
+        try {
+            folder = statSync(path.resolve(cwd, String(args.path ?? "."))).isDirectory();
+        }
+        catch {
+            // gone or unreadable: say lines
+        }
+        const count = countLines(output);
+        return { summary: folder ? plural(count, "item") : `Read · ${plural(count, "line")}` };
+    }
+    if (name === "grep")
+        return { summary: /^no match/i.test(output.trim()) ? "No matches" : plural(countLines(output), "line") + " found" };
+    if (name === "glob")
+        return { summary: /^no (match|file)/i.test(output.trim()) ? "No files" : plural(countLines(output), "file") };
+    if (name === "shell")
+        return { summary: `Ran · ${plural(countLines(output), "line")} of output` };
+    if (name === "webfetch")
+        return { summary: `Fetched · ${Math.max(1, Math.round(output.length / 1024))} KB` };
+    return {};
 }
 /** Tool output on its way to the model: secret-looking values are cut and the record says how many. */
 function redacted(output, record) {

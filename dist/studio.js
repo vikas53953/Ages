@@ -189,16 +189,20 @@ export async function startStudio(input) {
             send({ kind: "approval_done", id, answer });
             resolve(answer);
         };
-        pending.set(id, { resolve: finish, question, options });
+        // The page draws its own card from the question and these facts; the terminal's card (the whole file) stays here.
+        const { card: _card, ...shown } = options ?? {};
+        pending.set(id, { resolve: finish, question, options: shown });
         turnAbort?.signal.addEventListener("abort", () => finish(false), { once: true });
-        send({ kind: "approval", id, question, options });
+        send({ kind: "approval", id, question, options: shown });
     });
     const run = async (text, images, documents) => {
         busy = true;
         turnAbort = new AbortController();
         send({ kind: "started", text });
         try {
-            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images, documents }, confirm, (event) => send({ kind: "event", event }));
+            const result = await handleLine(text, state, { ...input.opts, abortSignal: turnAbort.signal, images, documents }, confirm, 
+            // tool_input (a call still being written) is shown live in the terminal only, for now.
+            (event) => (event.type === "tool_input" ? undefined : send({ kind: "event", event })));
             const receipt = result.receipt;
             send({
                 kind: "done",

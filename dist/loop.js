@@ -16,7 +16,8 @@ import { writePath } from "./tools/write.js";
 import { editPath, multiEditPath } from "./tools/edit.js";
 import { searchInWorker } from "./tools/search.js";
 import { REDACTED_MARK, redactSecrets } from "./redact.js";
-import { runShell } from "./tools/shell.js";
+import { runShell, shellAllowed } from "./tools/shell.js";
+import { readDraft } from "./tool-draft.js";
 import { formatSearch, searchWeb, websearchKey } from "./websearch.js";
 import { addMemory } from "./memory.js";
 import { imageNote, isImagePath, loadImage, MAX_IMAGES_PER_TURN, modelSeesImages } from "./images.js";
@@ -158,7 +159,7 @@ export function createTools(input) {
             }),
         }),
         read: tool({
-            description: "Read a file or list a directory. Path is relative to the working folder. A .pdf gives its text, page by page; a .docx gives its body text and tables.",
+            description: "Read a file or list a folder (path \".\" lists the working folder). Path is relative to the working folder. A .pdf gives its text, page by page; a .docx gives its body text and tables.",
             inputSchema: z.object({
                 path: z.string().describe("Relative path. Use . for the working folder."),
                 offset: z.number().int().optional().describe("First line to read (1-based), for big files."),
@@ -285,10 +286,12 @@ export function createTools(input) {
             }),
         }),
     };
+    // Shell off (the default): the model is not offered it, so it never asks a question a yes cannot answer.
+    const offered = shellAllowed() ? all : Object.fromEntries(Object.entries(all).filter(([name]) => name !== "shell"));
     if (!input.onlyTools)
-        return all;
+        return offered;
     const only = new Set(input.onlyTools);
-    return Object.fromEntries(Object.entries(all).filter(([name]) => only.has(name)));
+    return Object.fromEntries(Object.entries(offered).filter(([name]) => only.has(name)));
 }
 const localOpts = { toolCallId: "local", messages: [], context: {} };
 const EXPLORE_MAX_STEPS = 20;
@@ -327,6 +330,8 @@ export const localGenerate = async ({ tools, messages }) => {
         steps: 1,
     };
 };
+/** How often a tool call being written is shown again. */
+const DRAFT_EVERY_MS = 150;
 export const defaultGenerate = (input) => generateWith(languageModel(input.model))(input);
 /** Stream one turn from a given model object. Tests pass the AI SDK mock model here. */
 export function generateWith(model) {
@@ -342,9 +347,37 @@ export function generateWith(model) {
             ...(thinking ? { reasoning: thinking.reasoning, providerOptions: thinking.providerOptions } : {}),
         });
         let text = "";
+        // Tool calls being written, by id: the screen shows them growing (a big file can take minutes).
+        const drafts = new Map();
+        const showDraft = (id, draft) => {
+            draft.shownAt = Date.now();
+            const { path, lines, tail } = readDraft(draft.name, draft.raw);
+            input.onEvent?.({ type: "tool_input", id, name: draft.name, path, chars: draft.raw.length, lines, tail });
+        };
         // The full stream carries reasoning next to the answer text; textStream alone would drop it.
         for await (const part of result.fullStream) {
-            if (part.type === "text-delta" && part.text) {
+            if (part.type === "tool-input-start") {
+                const draft = { name: part.toolName, raw: "", shownAt: 0 };
+                drafts.set(part.id, draft);
+                showDraft(part.id, draft);
+            }
+            else if (part.type === "tool-input-delta") {
+                const draft = drafts.get(part.id);
+                if (!draft)
+                    continue;
+                draft.raw += part.delta;
+                // A few updates a second is enough to look live; one per piece would repaint thousands of times.
+                if (Date.now() - draft.shownAt >= DRAFT_EVERY_MS)
+                    showDraft(part.id, draft);
+            }
+            else if (part.type === "tool-input-end") {
+                // The last pieces since the previous update: a call that never runs still shows how far it got.
+                const draft = drafts.get(part.id);
+                if (draft)
+                    showDraft(part.id, draft);
+                drafts.delete(part.id);
+            }
+            else if (part.type === "text-delta" && part.text) {
                 text += part.text;
                 input.onEvent?.({ type: "text_delta", text: part.text });
             }
