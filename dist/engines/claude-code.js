@@ -189,6 +189,7 @@ export async function runClaudeCodeTurn(input) {
                 onEvent: input.onEvent,
                 guards,
                 readOnly: input.readOnly,
+                mode: input.mode,
                 // Claude Code runs the tool itself once Aegis says yes.
                 execute: async () => "allowed",
             });
@@ -201,7 +202,7 @@ export async function runClaudeCodeTurn(input) {
             return reply(200, {
                 decision: allowed ? "allow" : "deny",
                 reason: allowed
-                    ? `Aegis: ${run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
+                    ? `Aegis: ${run.record.source === "mode" ? `${run.record.mode === "yolo" ? "YOLO" : "auto"} mode` : run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
                     : `Aegis denied it: ${run.record.deniedReason ?? "not allowed"}. Do not retry this call.`,
             });
         }
@@ -244,7 +245,8 @@ export async function runClaudeCodeTurn(input) {
     const forkMark = path.join(sessionDir(input.cwd, input.sessionId), "claude-fork");
     if (resume && existsSync(forkMark))
         args.push("--fork-session");
-    if (input.readOnly)
+    // Claude Code's own plan mode is set at the start; the lock still reads plan mode on every call.
+    if (typeof input.readOnly === "function" ? input.readOnly() : input.readOnly)
         args.push("--permission-mode", "plan");
     if (input.appendSystem) {
         await writeFile(appendFile, input.appendSystem);

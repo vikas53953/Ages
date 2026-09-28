@@ -65,6 +65,11 @@ export function parseLine(line) {
             return { type: "mcp", action: rest[0]?.toLowerCase(), name: rest[1] };
         case "plan":
             return { type: "plan", arg: rest.join(" ").trim() || undefined };
+        case "mode":
+            return { type: "mode", arg: rest[0]?.toLowerCase() };
+        case "yolo":
+            // The whole rest of the line: "/yolo yes please …" or a pasted block is not "/yolo yes".
+            return { type: "yolo", arg: rest.join(" ").trim().toLowerCase() || undefined };
         case "rewind":
         case "undo":
             return { type: "rewind", arg: rest[0], what: rest[1]?.toLowerCase() };
@@ -129,6 +134,8 @@ export const HELP = [
     "  /doctor            is this PC ready? checks Node, sign-ins, engine, rules, shell, MCP, terminal",
     "  /mcp               MCP servers and their tools; /mcp trust <name> allows a project's server; /mcp restart",
     "  /plan              plan mode: read-only until you approve; /plan go carries it out, /plan off leaves",
+    "  /mode              ask (default) or auto (file changes in the folder run without asking); shift+tab cycles ask, auto, plan",
+    "  /yolo              everything runs without asking, except deny and ask rules; /yolo yes turns it on, /yolo off (this session only)",
     "  /diff              what the agent changed in this session (each file against how it was before); /diff stat · /diff <file>",
     "  /rewind            list restore points; /rewind 1 puts files and chat back to before that turn (add files or chat for just one)",
     "  /logout <name>     remove a saved key",

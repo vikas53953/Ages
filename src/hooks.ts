@@ -261,6 +261,8 @@ export async function runPreToolHooks(input: {
   args: Record<string, unknown>;
   cwd: string;
   readOnly?: boolean;
+  /** Aegis's mode, told to your hooks in Claude Code's words, so a hook can be stricter in auto or yolo. */
+  mode?: "ask" | "auto" | "yolo";
   signal?: AbortSignal;
 }): Promise<HookVerdict> {
   if (input.config.error) return { action: "ask", reason: `your hooks are not valid (${input.config.error}), so Aegis asks`, hook: "settings" };
@@ -270,7 +272,7 @@ export async function runPreToolHooks(input: {
   const payload = JSON.stringify({
     hook_event_name: "PreToolUse",
     cwd: input.cwd,
-    permission_mode: input.readOnly ? "plan" : "default",
+    permission_mode: input.readOnly ? "plan" : input.mode === "auto" ? "acceptEdits" : input.mode === "yolo" ? "bypassPermissions" : "default",
     tool_name: claudeToolName(input.name, input.args),
     tool_input: claudeInput(input.args, input.cwd),
     aegis_tool_name: input.name,

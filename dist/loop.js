@@ -65,6 +65,7 @@ export function createTools(input) {
             settings: input.settings,
             settingsError: input.settingsError,
             readOnly: input.readOnly,
+            mode: input.mode,
             guards: input.guards,
             settingsCwd: input.settingsCwd,
         }).then((result) => {
@@ -564,6 +565,7 @@ export async function runLoop(input) {
                 settingsError: loadedSettings.error,
                 checkpoint: input.checkpoint,
                 readOnly: input.readOnly,
+                mode: input.mode,
                 skills: input.skills,
                 onlyTools: agent.tools,
                 onTool: (record) => {
@@ -613,6 +615,7 @@ export async function runLoop(input) {
         settingsError: loadedSettings.error,
         checkpoint: input.checkpoint,
         readOnly: input.readOnly,
+        mode: input.mode,
         mcpTools: input.mcpTools,
         skills: input.skills,
         explore,

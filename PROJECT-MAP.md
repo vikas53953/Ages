@@ -15,6 +15,7 @@ Rules decide first. Plugins add the rest. The model writes.
 | `src/tool-draft.ts` | Reads a tool call the model is still writing (half-finished JSON): the path, line count and last lines, for the live view |
 | `src/confirm-card.ts` | Turns a tool call into the question card: "Create Page.jsx?", the facts (new file · 381 lines), the file or diff, and why Aegis asks, in plain words |
 | `src/tui-model-picker.ts` | `/model` picker overlay (type to filter, exact id ranked first) |
+| `src/gated.ts` → `modeAllows` | The approval modes: ask, auto (file changes), yolo (everything) decide what happens when no rule matched; deny and ask rules win in every mode |
 | `src/tui-confirm.ts`, `src/confirm-queue.ts` | The question box (Claude Code style: 1 Yes / 2 always / 3 No, highlight starts on No); one question at a time |
 | `src/thinking.ts` | Thinking level (off/low/medium/high) and reasoning display (fold/show/hide) → provider options |
 | `src/theme.ts` | Terminal colour themes (aegis, light, contrast), saved in `~/.aegis/settings.json` |

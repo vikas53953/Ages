@@ -36,6 +36,8 @@ import type {
   GateConfig,
   JevClient,
   JsonObject,
+  ModeSource,
+  ReadOnlySource,
   Receipt,
   ToolRecord,
   TurnDecision,
@@ -86,7 +88,9 @@ export function createTools(input: {
   /** Keep a file as it is before an approved write or edit changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Plan mode: the reason every non-read tool is refused. */
-  readOnly?: string;
+  readOnly?: ReadOnlySource;
+  /** This session's mode (ask, auto, yolo): what "no rule matched" means. */
+  mode?: ModeSource;
   /** MCP server tools (mcp__server__tool), gated like every other tool. */
   mcpTools?: McpBinding[];
   /** Skills the model may load (names and descriptions are in the system prompt). */
@@ -140,6 +144,7 @@ export function createTools(input: {
       settings: input.settings,
       settingsError: input.settingsError,
       readOnly: input.readOnly,
+      mode: input.mode,
       guards: input.guards,
       settingsCwd: input.settingsCwd,
     }).then((result) => {
@@ -584,7 +589,9 @@ export async function runLoop(input: {
   /** How hard the model should think this turn. */
   thinking?: ThinkingLevel;
   checkpoint?: (absolutePath: string) => Promise<void>;
-  readOnly?: string;
+  readOnly?: ReadOnlySource;
+  /** This session's mode (ask, auto, yolo): what "no rule matched" means. */
+  mode?: ModeSource;
   mcpTools?: McpBinding[];
   skills?: SkillEntry[];
   /** Custom agents (yours, and the project's once trusted) the model may hand tasks to. */
@@ -714,6 +721,7 @@ export async function runLoop(input: {
             settingsError: loadedSettings.error,
             checkpoint: input.checkpoint,
             readOnly: input.readOnly,
+            mode: input.mode,
             skills: input.skills,
             onlyTools: agent.tools,
             onTool: (record) => {
@@ -763,6 +771,7 @@ export async function runLoop(input: {
     settingsError: loadedSettings.error,
     checkpoint: input.checkpoint,
     readOnly: input.readOnly,
+    mode: input.mode,
     mcpTools: input.mcpTools,
     skills: input.skills,
     explore,

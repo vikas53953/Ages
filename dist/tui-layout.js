@@ -102,7 +102,9 @@ export function jevStatus(mockJev, hasKey, healthy) {
     return healthy ? "live" : "down";
 }
 export function footerText(input) {
-    const model = `${input.plan ? "PLAN · " : ""}${input.modelMode === "auto" ? "auto" : input.model}`;
+    // Mode tags lead the footer (a long path must never push them off), and both show when both are on.
+    const tag = `${input.plan ? "PLAN · " : ""}${input.mode === "yolo" ? `${paint("err", "YOLO")} · ` : input.mode === "auto" ? "AUTO · " : ""}`;
+    const model = input.modelMode === "auto" ? "auto" : input.model;
     const task = `task ${input.task ?? "none"}`;
     const place = input.cwd ? `${input.cwd}${input.branch ? ` (${input.branch})` : ""} · ` : "";
     const extra = `${input.think ? ` · think ${input.think}` : ""}${input.tokens ? ` · ${input.tokens}` : ""}${input.context !== undefined ? ` · ctx ${input.context}%` : ""}`;
@@ -110,9 +112,9 @@ export function footerText(input) {
         const elapsed = Math.max(0, Math.floor((input.elapsedMs ?? 0) / 1000));
         const phase = input.phase ?? "working";
         // While busy, what is happening comes first so a narrow terminal never cuts it off.
-        return `${phase}  ${elapsed}s · ${place}${model} · jev ${input.jev}${extra} · ${task}`;
+        return `${tag}${phase}  ${elapsed}s · ${place}${model} · jev ${input.jev}${extra} · ${task}`;
     }
-    return `${place}${model} · jev ${input.jev} · ${input.provider}${extra} · ${task} · idle`;
+    return `${tag}${place}${model} · jev ${input.jev} · ${input.provider}${extra} · ${task} · idle`;
 }
 /** One compact line after each turn, in place of the full handoff card the REPL prints. */
 export function turnStatusLines(receipt) {
@@ -157,6 +159,11 @@ export function toolOutcome(record) {
         return `Not allowed: ${reason || "no reason given"}`;
     }
     const parts = [record.summary ?? "Done"];
+    // Ran without a question because of the session mode: said once per line, so it is never silent.
+    if (record.mode === "auto")
+        parts.push("auto mode");
+    else if (record.mode === "yolo")
+        parts.push("YOLO");
     if (record.savedRule)
         parts.push(`won't ask again (${record.savedRule})`);
     else if (record.saveFailed)

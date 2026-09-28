@@ -67,14 +67,16 @@ describe("TUI: typing while a turn runs", () => {
     expect(handled).toEqual(["first", "second", "first"]);
   }, 20_000);
 
-  it("shift+tab turns plan mode on and off", async () => {
+  it("shift+tab cycles ask → auto → plan → ask, like Claude Code", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-tui-plan-"));
     const app = await createTuiApp({ mockJev: true, yes: false, local: true }, { cwd, terminal: new MemoryTerminal() });
     apps.push(app);
     app.feed("\x1b[Z"); // shift+tab
+    await until(() => app.lines().join("\n").includes("AUTO ·"));
+    app.feed("\x1b[Z");
     await until(() => app.lines().join("\n").includes("PLAN ·"));
     app.feed("\x1b[Z");
-    await until(() => !app.lines().join("\n").includes("PLAN ·"));
+    await until(() => !app.lines().join("\n").includes("PLAN ·") && !app.lines().join("\n").includes("AUTO ·"));
   });
 });
 

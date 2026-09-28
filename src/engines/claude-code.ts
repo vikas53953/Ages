@@ -24,7 +24,7 @@ import { unscoredTurn } from "../router.ts";
 import { sessionDir } from "../session.ts";
 import { realPathOf } from "../rules.ts";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.ts";
-import type { ConfirmFn, GateConfig, JevClient, Receipt, ToolRecord, TurnEvent } from "../types.ts";
+import type { ConfirmFn, GateConfig, JevClient, ModeSource, ReadOnlySource, Receipt, ToolRecord, TurnEvent } from "../types.ts";
 import type { ImageAttachment } from "../images.ts";
 
 export const CLAUDE_CODE_MODEL = "claude-code";
@@ -119,7 +119,9 @@ type ClaudeTurnInput = {
   onEvent?: (event: TurnEvent) => void;
   abortSignal?: AbortSignal;
   /** Plan mode: Claude Code runs with --permission-mode plan, and Aegis refuses every non-read tool. */
-  readOnly?: string;
+  readOnly?: ReadOnlySource;
+  /** This session's mode (ask, auto, yolo): what "no rule matched" means for Claude Code's tool calls. */
+  mode?: ModeSource;
   /** Keep a file before Claude Code changes it (/rewind). */
   checkpoint?: (absolutePath: string) => Promise<void>;
   /** Extra text for Claude Code's system prompt (your AGENTS.md, memory). */
@@ -227,6 +229,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
         onEvent: input.onEvent,
         guards,
         readOnly: input.readOnly,
+        mode: input.mode,
         // Claude Code runs the tool itself once Aegis says yes.
         execute: async () => "allowed",
       });
@@ -239,7 +242,7 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
       return reply(200, {
         decision: allowed ? "allow" : "deny",
         reason: allowed
-          ? `Aegis: ${run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
+          ? `Aegis: ${run.record.source === "mode" ? `${run.record.mode === "yolo" ? "YOLO" : "auto"} mode` : run.record.action === "auto" && run.record.rule ? `rule "${run.record.rule}"` : "you allowed it"}`
           : `Aegis denied it: ${run.record.deniedReason ?? "not allowed"}. Do not retry this call.`,
       });
     } catch (error) {
@@ -287,7 +290,8 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   // Aegis sessions never write into one Claude conversation.
   const forkMark = path.join(sessionDir(input.cwd, input.sessionId), "claude-fork");
   if (resume && existsSync(forkMark)) args.push("--fork-session");
-  if (input.readOnly) args.push("--permission-mode", "plan");
+  // Claude Code's own plan mode is set at the start; the lock still reads plan mode on every call.
+  if (typeof input.readOnly === "function" ? input.readOnly() : input.readOnly) args.push("--permission-mode", "plan");
   if (input.appendSystem) {
     await writeFile(appendFile, input.appendSystem);
     args.push("--append-system-prompt-file", appendFile);

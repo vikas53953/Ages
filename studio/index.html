@@ -54,6 +54,12 @@
           </div>
         </div>
         <div class="menu-row">
+          <span>Approvals<small>Ask · Auto: file changes run · YOLO: all runs</small></span>
+          <div class="seg" id="modeSeg" role="group" aria-label="Approvals">
+            <button type="button" data-value="ask">Ask</button><button type="button" data-value="auto">Auto</button><button type="button" data-value="yolo">YOLO</button>
+          </div>
+        </div>
+        <div class="menu-row">
           <span>Plan mode<small>Read-only until you approve the plan</small></span>
           <button type="button" class="switch" id="planSwitch" role="switch" aria-checked="false" aria-label="Plan mode"><span></span></button>
         </div>
@@ -63,6 +69,7 @@
           <button class="plus" type="button" id="plusBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="plusMenu" title="Add files and options">+</button>
           <button class="chip" type="button" id="modelChip" aria-haspopup="listbox">Model <b id="modelName">auto</b> ▾</button>
           <span class="badge" id="planBadge" hidden title="Plan mode: read-only until you approve the plan">Plan</span>
+          <span class="badge" id="modeBadge" hidden></span>
           <span class="badge soft" id="thinkBadge" hidden></span>
         </div>
         <button class="send" id="send" type="submit" aria-label="Send">Send ↵</button>

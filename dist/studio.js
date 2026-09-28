@@ -238,6 +238,7 @@ export async function startStudio(input) {
             thinking: thinkingOf(settings),
             tokens: state.sessionTokens,
             plan: Boolean(state.planMode),
+            mode: state.permissionMode ?? "ask",
             todos: await currentTodos(state),
             plugins: state.plugins.map((plugin) => plugin.name),
             context: state.contextPercent ?? 0,

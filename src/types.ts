@@ -85,7 +85,17 @@ export type JevHealth = "mock" | "live" | "down" | "blocked" | "off";
 export type TaskPermission = "untracked" | "proposed" | "confirmed" | "invalid";
 export type TurnOutcome = "completed" | "blocked" | "incomplete" | "cancelled";
 /** rule = decided by .aegis/settings.json; default = no rule and no Jev, so you were asked. */
-export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "hook" | "default";
+export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" | "hook" | "default" | "mode";
+/**
+ * What "no rule matched" means this session (Shift+Tab, /mode, /yolo). ask: you are asked (the default).
+ * auto: file writes and edits in the folder run without asking. yolo: everything runs without asking.
+ * In every mode deny rules block and ask rules ask; Jev, when it really scored, can still make a call ask or block.
+ */
+export type PermissionMode = "ask" | "auto" | "yolo";
+/** The mode, or how to read it now: a getter makes a switch (yolo off mid-turn) count from the very next call. */
+export type ModeSource = PermissionMode | (() => PermissionMode | undefined);
+/** Why the turn may only read, or how to read it now: turning plan mode on mid-turn counts from the next call. */
+export type ReadOnlySource = string | (() => string | undefined);
 
 export type TurnEvent =
   | { type: "accepted" }
@@ -132,6 +142,8 @@ export type ToolRecord = {
   created?: boolean;
   /** A few lines to show under the summary (the start of a new file), secrets cut. */
   preview?: string[];
+  /** The session mode that let this call run without asking (source "mode"). */
+  mode?: PermissionMode;
 };
 
 export type Receipt = {

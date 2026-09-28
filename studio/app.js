@@ -181,7 +181,9 @@
         ? `you: always allow · saved "${record.savedRule}"`
         : record.saveFailed
           ? `you allowed · rule not saved (${record.saveFailed})`
-          : `${record.action === "confirm" ? "you allowed" : "auto"} · ${record.rule ? `rule "${record.rule}"` : record.source === "default" ? "no rule" : record.source}`
+          : record.source === "mode"
+            ? `ran without asking · ${record.mode === "yolo" ? "YOLO mode" : "auto mode"}`
+            : `${record.action === "confirm" ? "you allowed" : "auto"} · ${record.rule ? `rule "${record.rule}"` : record.source === "default" ? "no rule" : record.source}`
       : `denied · ${record.deniedReason || ""}`;
     match.row.classList.add(status);
     match.row.querySelector(".why").textContent = `· ${why}`;
@@ -417,6 +419,7 @@
 
     $("topMeta").textContent = `${s.plan ? "PLAN MODE · " : ""}${s.model === "auto" ? s.welcome.model : s.model} · ${s.welcome.provider} · runs on this PC`;
     state.plan = Boolean(s.plan);
+    state.mode = s.mode || "ask";
     renderTodos(s.todos);
     renderMenuState();
     const total = s.tokens.input + s.tokens.output;
@@ -496,6 +499,12 @@
     $("planSwitch").setAttribute("aria-checked", String(Boolean(state.plan)));
     // Only what differs from the defaults shows next to the model, so the bar stays quiet.
     $("planBadge").hidden = !state.plan;
+    for (const button of $("modeSeg").querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.value === state.mode));
+    const mode = $("modeBadge");
+    mode.hidden = state.mode === "ask";
+    mode.textContent = state.mode === "yolo" ? "YOLO" : "Auto";
+    mode.classList.toggle("danger", state.mode === "yolo");
+    mode.title = state.mode === "yolo" ? "YOLO: everything runs without asking, except your deny and ask rules" : "Auto: file changes in this folder run without asking";
     const think = $("thinkBadge");
     think.hidden = state.thinking.level === "low";
     think.textContent = `Thinking ${state.thinking.level}`;
@@ -523,6 +532,20 @@
     if (!value || value === state.thinking.level) return;
     await api("/api/think", { value }).catch(showError);
     await refresh();
+  });
+  // Approvals: ask (default), auto (file changes run), YOLO (everything runs; asked once here, like /yolo yes).
+  $("modeSeg").addEventListener("click", (e) => {
+    const value = e.target.closest("button")?.dataset.value;
+    if (!value || value === state.mode || state.busy) return;
+    openMenu(false);
+    if (value === "yolo") {
+      const sure = window.confirm(
+        "YOLO: the agent runs everything without asking you, for this session.\n\nStill on: your deny rules block, your ask rules ask (deletes, memory, .aegis), shell stays off unless AEGIS_ALLOW_SHELL=1, secrets are hidden.\n\nTurn YOLO on?",
+      );
+      if (sure) submit("/yolo yes");
+      return;
+    }
+    submit(`/mode ${value}`);
   });
   // Plan mode: on = read-only planning; turning it off while a plan is open asks whether to carry it out.
   $("planSwitch").addEventListener("click", () => {

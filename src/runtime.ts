@@ -47,7 +47,7 @@ import {
   capToolResults,
   type SessionMeta,
 } from "./session.ts";
-import type { ConfirmFn, JevHealth, Receipt, TaskPermission } from "./types.ts";
+import type { ConfirmFn, JevHealth, PermissionMode, ReadOnlySource, Receipt, TaskPermission } from "./types.ts";
 import { describeRules, loadSettingsSafe, removeYourRule, saveYourRule, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath, type ProjectTrust } from "./rules.ts";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.ts";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.ts";
@@ -97,6 +97,8 @@ export type AppState = {
   sessionTokens: { input: number; output: number };
   /** Plan mode: the agent may only read and search until you approve its plan (/plan go). */
   planMode?: boolean;
+  /** What "no rule matched" means this session: ask (default), auto (file changes run), yolo. Never saved. */
+  permissionMode?: PermissionMode;
   /** MCP servers, started on the first turn (or /mcp) and stopped with closeState. */
   mcp?: McpState;
   mcpStarting?: Promise<McpState>;
@@ -586,8 +588,9 @@ export async function runPrompt(
     }
     outerEvent?.(event);
   };
-  const readOnly =
-    turnOptions.readOnly ?? (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined);
+  // Read on each call: plan mode turned on mid-turn (shift+tab) stops changes from the next step.
+  const readOnly: ReadOnlySource =
+    turnOptions.readOnly ?? (() => (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined));
   const planPrompt = state.planMode ? PLAN_PROMPT : "";
   // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
   const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));
@@ -609,6 +612,8 @@ export async function runPrompt(
         abortSignal: opts.abortSignal,
         checkpoint,
         readOnly,
+        // Read on each call: /yolo off or shift+tab during a turn counts from the next step.
+        mode: () => state.permissionMode,
         appendSystem:
           [context, memory ? `## Memory\n${MEMORY_NOTE}\n${memory}` : "", ...extraPrompts, planPrompt].filter(Boolean).join("\n\n") || undefined,
       })
@@ -638,6 +643,7 @@ export async function runPrompt(
         thinking: thinkingOf(loadedSettings.settings).level,
         checkpoint,
         readOnly,
+        mode: () => state.permissionMode,
         mcpTools,
         skills: extensions?.skills,
         agents: extensions?.agents,
@@ -660,6 +666,24 @@ export async function runPrompt(
     session,
     receipt,
   };
+}
+
+/** What each mode means, in plain words (shown when you switch). */
+export const MODE_TEXT: Record<PermissionMode, string> = {
+  ask: "Aegis asks before anything your rules do not allow.",
+  auto: "file changes inside this folder run without asking; commands, web, agents and memory still ask. Your deny and ask rules still apply.",
+  yolo: "everything runs without asking, except what your deny rules block and your ask rules (deletes, memory, .aegis) ask. Shell stays off unless AEGIS_ALLOW_SHELL=1. Secrets are still hidden.",
+};
+
+export const YOLO_WARNING = [
+  "YOLO: the agent runs everything without asking you, for this session.",
+  "Still on: deny rules block, ask rules ask (deletes, memory, .aegis), shell stays off unless AEGIS_ALLOW_SHELL=1, secrets are hidden, files stay inside this folder.",
+  "Type /yolo yes to turn it on.",
+].join("\n");
+
+function modeLine(mode: PermissionMode | undefined) {
+  const current = mode ?? "ask";
+  return `${current} (${MODE_TEXT[current]})`;
 }
 
 export async function handleLine(
@@ -722,6 +746,8 @@ async function handleLineInner(
   }
   if (cmd.type === "new" || cmd.type === "clear") {
     state.planMode = false;
+    // A new conversation starts in ask: a mode is for the conversation you turned it on in.
+    state.permissionMode = "ask";
     for (const plugin of state.plugins) await plugin.onSessionStart?.(state.cwd);
     const session = await createSession(state.cwd);
     state.session = session;
@@ -752,6 +778,7 @@ async function handleLineInner(
     return { output: redactSecrets([...lines, "", "/resume <number> opens one."].join("\n")).text, session: state.session };
   }
   if (cmd.type === "resume") {
+    state.permissionMode = "ask";
     let id = cmd.id;
     // A small number picks from the /sessions list; anything else is an id.
     if (/^\d{1,2}$/.test(id)) {
@@ -891,13 +918,39 @@ async function handleLineInner(
       session: state.session,
     };
   }
-  if (cmd.type === "fork") return forkCommand(state, cmd.arg);
+  if (cmd.type === "fork") {
+    state.permissionMode = "ask";
+    return forkCommand(state, cmd.arg);
+  }
   if (cmd.type === "init") return runPrompt(INIT_PROMPT, state, opts, confirm, onEvent);
   if (cmd.type === "trust") return { output: trustCommand(state, cmd.action), session: state.session };
   if (cmd.type === "rules") return { output: rulesCommand(state, cmd.arg), session: state.session };
   if (cmd.type === "diff") return { output: await diffCommand(state, cmd.arg), session: state.session };
   if (cmd.type === "bell") return { output: bellCommand(cmd.arg), session: state.session };
   if (cmd.type === "doctor") return { output: formatDoctor(await runDoctor(state.cwd)), session: state.session };
+  if (cmd.type === "mode") {
+    if (!cmd.arg) return { output: `mode  ${modeLine(state.permissionMode)}\n/mode ask · /mode auto · /yolo`, session: state.session };
+    if (cmd.arg === "ask" || cmd.arg === "default") {
+      state.permissionMode = "ask";
+      return { output: `mode ask: ${MODE_TEXT.ask}`, session: state.session };
+    }
+    if (cmd.arg === "auto") {
+      state.permissionMode = "auto";
+      return { output: `mode auto: ${MODE_TEXT.auto}`, session: state.session };
+    }
+    if (cmd.arg === "yolo") return { output: YOLO_WARNING, session: state.session };
+    return { output: "mode is ask or auto (/yolo for yolo)", session: state.session };
+  }
+  if (cmd.type === "yolo") {
+    if (cmd.arg === "off") {
+      state.permissionMode = "ask";
+      return { output: `yolo off. mode ask: ${MODE_TEXT.ask}`, session: state.session };
+    }
+    // Never by accident: the word "yes" has to be typed with it.
+    if (cmd.arg !== "yes") return { output: YOLO_WARNING, session: state.session };
+    state.permissionMode = "yolo";
+    return { output: `YOLO on for this session: ${MODE_TEXT.yolo} /yolo off ends it.`, session: state.session };
+  }
   if (cmd.type === "plan") {
     const arg = (cmd.arg ?? "").toLowerCase();
     if (arg === "off") {
@@ -989,6 +1042,7 @@ async function handleLineInner(
         `session   ${state.session.id}`,
         `provider  ${providerLabel(state.provider)}`,
         `plan      ${state.planMode ? "on (read-only until /plan go)" : "off"}`,
+        `mode      ${modeLine(state.permissionMode)}`,
         `model     ${state.modelMode === "auto" ? "auto" : state.model}`,
         `jev       ${state.jevHealth}  (mode ${loadSettingsSafe(state.cwd).settings.jev.mode})`,
         `task      ${state.taskPermission}`,
