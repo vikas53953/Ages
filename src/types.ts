@@ -94,6 +94,8 @@ export type ToolSource = "jev" | "mock" | "fail_closed" | "agreement" | "rule" |
 export type PermissionMode = "ask" | "auto" | "yolo";
 /** The mode, or how to read it now: a getter makes a switch (yolo off mid-turn) count from the very next call. */
 export type ModeSource = PermissionMode | (() => PermissionMode | undefined);
+/** Why the turn may only read, or how to read it now: turning plan mode on mid-turn counts from the next call. */
+export type ReadOnlySource = string | (() => string | undefined);
 
 export type TurnEvent =
   | { type: "accepted" }

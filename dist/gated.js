@@ -238,6 +238,7 @@ function decidedBy(ruleAction, jevAction, decision) {
 export async function runGatedTool(input) {
     const target = toolTarget(input.name, input.args);
     const mode = typeof input.mode === "function" ? input.mode() : input.mode;
+    const readOnly = typeof input.readOnly === "function" ? input.readOnly() : input.readOnly;
     if (input.stop?.reason) {
         const run = denied({ name: input.name, target, reason: input.stop.reason, source: "agreement" });
         run.output = JSON.stringify({ denied: true, reason: input.stop.reason, stopped: true, class: "irreversible" });
@@ -246,8 +247,8 @@ export async function runGatedTool(input) {
     if (input.abortSignal?.aborted) {
         return cancelled(undefined, input.name, target);
     }
-    if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
-        return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
+    if (readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
+        return denied({ name: input.name, target, reason: readOnly, source: "agreement" });
     }
     for (const guard of input.guards ?? []) {
         const block = await guard({ name: input.name, args: input.args, cwd: input.cwd });
@@ -270,7 +271,7 @@ export async function runGatedTool(input) {
         name: input.name,
         args: input.args,
         cwd: input.cwd,
-        readOnly: Boolean(input.readOnly),
+        readOnly: Boolean(readOnly),
         mode,
         signal: input.abortSignal,
     });
@@ -316,16 +317,21 @@ export async function runGatedTool(input) {
     const modeGrants = !rule && !modeAsks && modeAllows(mode, input.name);
     // Jev counts here only when it really scored: "could not score" asks in ask mode, not in auto or yolo.
     const jevScored = decision && decision.source !== "fail_closed" ? jevAction : undefined;
-    // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask.
+    // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask. A file a mode must still ask
+    // about is a question: Jev can make it stricter, never let it through.
     const decided = ruleAction
         ? jevAction
             ? stricter(ruleAction, jevAction)
             : ruleAction
-        : modeGrants
-            ? jevScored
-                ? stricter("auto", jevScored)
-                : "auto"
-            : (jevAction ?? "confirm");
+        : modeAsks
+            ? jevAction
+                ? stricter("confirm", jevAction)
+                : "confirm"
+            : modeGrants
+                ? jevScored
+                    ? stricter("auto", jevScored)
+                    : "auto"
+                : (jevAction ?? "confirm");
     const action = hook ? stricter(decided, "confirm") : decided;
     const why = [
         rule ? `rule "${rule.rule}" → ${rule.action}` : "no rule matched",

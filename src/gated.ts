@@ -14,6 +14,7 @@ import type {
   JsonObject,
   ModeSource,
   PermissionMode,
+  ReadOnlySource,
   PolicyAction,
   ToolDecision,
   ToolRecord,
@@ -274,7 +275,7 @@ export async function runGatedTool(input: {
   /** Why `settings` fell back to defaults (unreadable file), if it did. */
   settingsError?: string;
   /** Plan mode: only read and grep run; anything else is refused with this reason before any rule. */
-  readOnly?: string;
+  readOnly?: ReadOnlySource;
   /** Plugin checks that run before the rules (delivery agreement). */
   guards?: ToolGuard[];
   /** Your PreToolUse hooks (default: read from ~/.aegis/settings.json). They can only deny or ask. */
@@ -286,6 +287,7 @@ export async function runGatedTool(input: {
 }): Promise<GatedRun> {
   const target = toolTarget(input.name, input.args);
   const mode = typeof input.mode === "function" ? input.mode() : input.mode;
+  const readOnly = typeof input.readOnly === "function" ? input.readOnly() : input.readOnly;
   if (input.stop?.reason) {
     const run = denied({ name: input.name, target, reason: input.stop.reason, source: "agreement" });
     run.output = JSON.stringify({ denied: true, reason: input.stop.reason, stopped: true, class: "irreversible" });
@@ -294,8 +296,8 @@ export async function runGatedTool(input: {
   if (input.abortSignal?.aborted) {
     return cancelled(undefined, input.name, target);
   }
-  if (input.readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
-    return denied({ name: input.name, target, reason: input.readOnly, source: "agreement" });
+  if (readOnly && !READ_ONLY_TOOLS.has(input.name) && !INTERNAL_TOOLS.has(input.name)) {
+    return denied({ name: input.name, target, reason: readOnly, source: "agreement" });
   }
   for (const guard of input.guards ?? []) {
     const block = await guard({ name: input.name, args: input.args, cwd: input.cwd });
@@ -318,7 +320,7 @@ export async function runGatedTool(input: {
     name: input.name,
     args: input.args,
     cwd: input.cwd,
-    readOnly: Boolean(input.readOnly),
+    readOnly: Boolean(readOnly),
     mode,
     signal: input.abortSignal,
   });
@@ -375,11 +377,16 @@ export async function runGatedTool(input: {
   const modeGrants = !rule && !modeAsks && modeAllows(mode, input.name);
   // Jev counts here only when it really scored: "could not score" asks in ask mode, not in auto or yolo.
   const jevScored = decision && decision.source !== "fail_closed" ? jevAction : undefined;
-  // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask.
+  // A rule decides; Jev may only make it stricter. No rule: the mode, or Jev, or ask. A file a mode must still ask
+  // about is a question: Jev can make it stricter, never let it through.
   const decided: PolicyAction = ruleAction
     ? jevAction
       ? stricter(ruleAction, jevAction)
       : ruleAction
+    : modeAsks
+      ? jevAction
+        ? stricter("confirm", jevAction)
+        : "confirm"
     : modeGrants
       ? jevScored
         ? stricter("auto", jevScored)

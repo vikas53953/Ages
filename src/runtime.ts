@@ -47,7 +47,7 @@ import {
   capToolResults,
   type SessionMeta,
 } from "./session.ts";
-import type { ConfirmFn, JevHealth, PermissionMode, Receipt, TaskPermission } from "./types.ts";
+import type { ConfirmFn, JevHealth, PermissionMode, ReadOnlySource, Receipt, TaskPermission } from "./types.ts";
 import { describeRules, loadSettingsSafe, removeYourRule, saveYourRule, saveThinking, setProjectTrust, settingsPath, thinkingOf, yourSettingsPath, type ProjectTrust } from "./rules.ts";
 import { parseThinkingDisplay, parseThinkingLevel } from "./thinking.ts";
 import { THEME_NAMES, parseTheme, saveUserTheme, themeName } from "./theme.ts";
@@ -588,8 +588,9 @@ export async function runPrompt(
     }
     outerEvent?.(event);
   };
-  const readOnly =
-    turnOptions.readOnly ?? (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined);
+  // Read on each call: plan mode turned on mid-turn (shift+tab) stops changes from the next step.
+  const readOnly: ReadOnlySource =
+    turnOptions.readOnly ?? (() => (state.planMode ? "plan mode is read-only: write the plan; changes start after /plan go" : undefined));
   const planPrompt = state.planMode ? PLAN_PROMPT : "";
   // Claude Code runs its own MCP servers; Aegis's go to Aegis's own loop.
   const mcpTools = claudeEngine || !mcpServers(state.cwd).length ? [] : mcpBindings(await ensureMcp(state));

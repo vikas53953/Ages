@@ -24,7 +24,7 @@ import { unscoredTurn } from "../router.ts";
 import { sessionDir } from "../session.ts";
 import { realPathOf } from "../rules.ts";
 import { findOnPath, NO_CWD_SEARCH_ENV } from "../which.ts";
-import type { ConfirmFn, GateConfig, JevClient, ModeSource, Receipt, ToolRecord, TurnEvent } from "../types.ts";
+import type { ConfirmFn, GateConfig, JevClient, ModeSource, ReadOnlySource, Receipt, ToolRecord, TurnEvent } from "../types.ts";
 import type { ImageAttachment } from "../images.ts";
 
 export const CLAUDE_CODE_MODEL = "claude-code";
@@ -119,7 +119,7 @@ type ClaudeTurnInput = {
   onEvent?: (event: TurnEvent) => void;
   abortSignal?: AbortSignal;
   /** Plan mode: Claude Code runs with --permission-mode plan, and Aegis refuses every non-read tool. */
-  readOnly?: string;
+  readOnly?: ReadOnlySource;
   /** This session's mode (ask, auto, yolo): what "no rule matched" means for Claude Code's tool calls. */
   mode?: ModeSource;
   /** Keep a file before Claude Code changes it (/rewind). */
@@ -290,7 +290,8 @@ export async function runClaudeCodeTurn(input: ClaudeTurnInput): Promise<Receipt
   // Aegis sessions never write into one Claude conversation.
   const forkMark = path.join(sessionDir(input.cwd, input.sessionId), "claude-fork");
   if (resume && existsSync(forkMark)) args.push("--fork-session");
-  if (input.readOnly) args.push("--permission-mode", "plan");
+  // Claude Code's own plan mode is set at the start; the lock still reads plan mode on every call.
+  if (typeof input.readOnly === "function" ? input.readOnly() : input.readOnly) args.push("--permission-mode", "plan");
   if (input.appendSystem) {
     await writeFile(appendFile, input.appendSystem);
     args.push("--append-system-prompt-file", appendFile);

@@ -245,7 +245,8 @@ export async function runClaudeCodeTurn(input) {
     const forkMark = path.join(sessionDir(input.cwd, input.sessionId), "claude-fork");
     if (resume && existsSync(forkMark))
         args.push("--fork-session");
-    if (input.readOnly)
+    // Claude Code's own plan mode is set at the start; the lock still reads plan mode on every call.
+    if (typeof input.readOnly === "function" ? input.readOnly() : input.readOnly)
         args.push("--permission-mode", "plan");
     if (input.appendSystem) {
         await writeFile(appendFile, input.appendSystem);

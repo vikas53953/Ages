@@ -117,6 +117,45 @@ describe("approval modes: review fixes", () => {
     expect(await call("write", { path: "src/App.jsx", contents: "x" }, "auto")).toMatchObject({ asked: false, ran: true });
   });
 
+  it("Codex review: Jev saying 'fine' cannot let a protected file through in auto or yolo", async () => {
+    const everyCall = { ...structuredClone(DEFAULT_SETTINGS), jev: { mode: "every-call" as const } };
+    const safe: ToolDecision = { class: "reversible", dataLoss: 0, confidence: 1, source: "jev" } as ToolDecision;
+    // The same score lets an ordinary file run, so it really is an "auto" score.
+    expect(await call("write", { path: "notes.txt", contents: "x" }, "yolo", { settings: everyCall, decision: safe })).toMatchObject({ asked: false, ran: true });
+    for (const file of ["AGENTS.md", ".github/workflows/ci.yml"]) {
+      expect(await call("write", { path: file, contents: "x" }, "yolo", { settings: everyCall, decision: safe }), file).toMatchObject({ asked: true, ran: false });
+    }
+  });
+
+  it("Codex review: plan mode turned on mid-turn stops changes from the next step", async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "aegis-plan-live-"));
+    let plan = false;
+    const readOnly = () => (plan ? "plan mode is read-only" : undefined);
+    const once = async () => {
+      let ran = false;
+      const run = await runGatedTool({
+        name: "write",
+        args: { path: "a.txt", contents: "x" },
+        cwd,
+        mode: "yolo",
+        readOnly,
+        config: loadConfig(),
+        settings: jevOff(),
+        confirm: async () => false,
+        execute: async () => {
+          ran = true;
+          return "done";
+        },
+      });
+      return { ran, record: run.record };
+    };
+    expect((await once()).ran).toBe(true);
+    plan = true;
+    const blocked = await once();
+    expect(blocked.ran).toBe(false);
+    expect(blocked.record.deniedReason).toBe("plan mode is read-only");
+  });
+
   it("the mode is read on every call: turning yolo off counts from the next step", async () => {
     let mode: PermissionMode = "yolo";
     const live = () => mode;
